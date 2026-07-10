@@ -1,0 +1,84 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  scrape_timeout:      10s
+  external_labels:
+    monitor: 'secureguard'
+    environment: 'cyberlab'
+
+# ── Alerting (future) ─────────────────────────────────────────
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# ── Rule files (future) ───────────────────────────────────────
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+# ── Scrape configs ────────────────────────────────────────────
+scrape_configs:
+
+  # ── Prometheus self-monitoring ──────────────────────────────
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    relabel_configs:
+      - target_label: service
+        replacement: prometheus
+
+  # ── SecureGuard Orchestrator (FastAPI) ──────────────────────
+  - job_name: 'secureguard-orchestrator'
+    static_configs:
+      - targets: ['sg-orchestrator:8000']
+    metrics_path: /metrics
+    relabel_configs:
+      - target_label: service
+        replacement: orchestrator
+
+  # ── Falco exporter (runtime security alerts) ────────────────
+  - job_name: 'falco-exporter'
+    static_configs:
+      - targets: ['sg-falco-exporter:9376']
+    metrics_path: /metrics
+    relabel_configs:
+      - target_label: service
+        replacement: falco
+
+  # ── Jenkins (built-in Prometheus metrics endpoint) ──────────
+  - job_name: 'jenkins'
+    static_configs:
+      - targets: ['sg-jenkins:8080']
+    metrics_path: /prometheus
+    relabel_configs:
+      - target_label: service
+        replacement: jenkins
+
+  # ── PostgreSQL exporter ─────────────────────────────────────
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['sg-postgres-exporter:9187']
+    metrics_path: /metrics
+    relabel_configs:
+      - target_label: service
+        replacement: postgres
+
+  # ── Redis exporter ──────────────────────────────────────────
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['sg-redis-exporter:9121']
+    metrics_path: /metrics
+    relabel_configs:
+      - target_label: service
+        replacement: redis
+
+  # ── Wazuh API metrics (via custom endpoint) ─────────────────
+
+  # ── cAdvisor (Docker container metrics) ─────────────────────
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['sg-cadvisor:8080']
+    metrics_path: /metrics
+    relabel_configs:
+      - target_label: service
+        replacement: cadvisor

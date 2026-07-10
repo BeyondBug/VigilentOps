@@ -1,0 +1,282 @@
+// SecureGuard — Security Pipeline v5
+// KEY FIX: Jenkins workspace lives in a named Docker volume.
+// Child containers must use the HOST path of that volume:
+// /var/lib/docker/volumes/secureguard_jenkins_data/_data/workspace/...
+// JENKINS_HOME_HOST env var maps /var/jenkins_home → actual host volume path
+
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 45, unit: 'MINUTES')
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        disableConcurrentBuilds()
+    }
+
+    triggers {
+        GenericTrigger(
+            genericVariables: [
+                [key: 'REPO_URL',   value: '$.repository.clone_url'],
+                [key: 'BRANCH_REF', value: '$.ref'],
+                [key: 'COMMIT_SHA', value: '$.after'],
+                [key: 'PUSHER',     value: '$.pusher.login'],
+                [key: 'REPO_NAME',  value: '$.repository.name'],
+            ],
+            token:           'secureguard-webhook-token',
+            causeString:     'Triggered by $PUSHER pushing to $BRANCH_REF',
+            printContributedVariables: true,
+            printPostContent: true,
+            silentResponse:  false,
+            regexpFilterText:       '$BRANCH_REF',
+            regexpFilterExpression: 'refs/heads/(main|develop|master)'
+        )
+    }
+
+    environment {
+        TARGET_REPO   = "${(env.REPO_URL ?: 'http://gitea:3000/BeyondBug/ShadowPatch.git').replace('localhost:3000', 'gitea:3000')}"
+        TARGET_BRANCH = "${env.BRANCH_REF ? env.BRANCH_REF.replace('refs/heads/', '') : 'main'}"
+        COMMIT_SHA    = "${env.COMMIT_SHA ?: 'HEAD'}"
+        REPO_FULLNAME = "${env.REPO_NAME ?: 'ShadowPatch'}"
+
+        // Jenkins container path (what Jenkins itself sees)
+        REPORTS_DIR   = "${WORKSPACE}/reports"
+        SOURCE_DIR    = "${WORKSPACE}/target"
+
+        // HOST path (what Docker child containers must use for -v mounts)
+        // Jenkins /var/jenkins_home → host /var/lib/docker/volumes/secureguard_jenkins_data/_data
+        JENKINS_HOME_HOST = "/var/lib/docker/volumes/secureguard_jenkins_data/_data"
+
+        GITEA_TOKEN   = credentials('gitea-cred')
+        ORCHESTRATOR  = "http://sg-orchestrator:8000"
+    }
+
+    stages {
+
+        stage('Prepare') {
+            steps {
+                script {
+                    echo "SecureGuard Scan #${BUILD_NUMBER} | ${REPO_FULLNAME} | ${COMMIT_SHA.take(8)}"
+                    sh "mkdir -p ${REPORTS_DIR}"
+
+                    // Compute HOST paths for Docker child containers
+                    // WORKSPACE = /var/jenkins_home/workspace/secureguard-shadowpatch
+                    // HOST_WS   = /var/lib/docker/volumes/.../workspace/secureguard-shadowpatch
+                    def wsRelative = WORKSPACE.replace('/var/jenkins_home/', '')
+                    env.HOST_SOURCE  = "${JENKINS_HOME_HOST}/${wsRelative}/target"
+                    env.HOST_REPORTS = "${JENKINS_HOME_HOST}/${wsRelative}/reports"
+
+                    echo "Container SOURCE : ${SOURCE_DIR}"
+                    echo "Host SOURCE      : ${env.HOST_SOURCE}"
+                    echo "Container REPORTS: ${REPORTS_DIR}"
+                    echo "Host REPORTS     : ${env.HOST_REPORTS}"
+
+                    def body = groovy.json.JsonOutput.toJson([
+                        repo_url: TARGET_REPO, commit_sha: COMMIT_SHA,
+                        branch: TARGET_BRANCH, repo_name: REPO_FULLNAME,
+                    ])
+                    def resp = sh(script: """curl -sf -X POST ${ORCHESTRATOR}/api/scans \
+                        -H 'Content-Type: application/json' -d '${body}' || echo '{"id":0}'""",
+                        returnStdout: true).trim()
+                    try { env.SCAN_RUN_ID = readJSON(text: resp).id.toString() }
+                    catch (e) { env.SCAN_RUN_ID = "0" }
+                    echo "Scan run ID: ${env.SCAN_RUN_ID}"
+                }
+
+                dir('target') {
+                    git(url: "${TARGET_REPO}", branch: "${TARGET_BRANCH}",
+                        credentialsId: 'gitea-cred')
+                }
+
+                script {
+                    env.HAS_PYTHON = sh(script: "find ${SOURCE_DIR} -name '*.py' | head -1",
+                                        returnStdout: true).trim() ? "true" : "false"
+                    env.HAS_REQS   = sh(script: "find ${SOURCE_DIR} -name 'requirements*.txt' | head -1",
+                                        returnStdout: true).trim() ? "true" : "false"
+                    echo "Python:${env.HAS_PYTHON} | Requirements:${env.HAS_REQS}"
+
+                    // Verify host path is accessible by Docker
+                    def hostCheck = sh(script: "docker run --rm -v ${env.HOST_SOURCE}:/check alpine ls /check | wc -l",
+                                       returnStdout: true).trim()
+                    echo "Files visible to Docker via host path: ${hostCheck}"
+                }
+            }
+        }
+
+        stage('Security Scan') {
+            parallel {
+
+                stage('Semgrep SAST') {
+                    steps {
+                        sh """
+                            echo "Running Semgrep via HOST path: ${env.HOST_SOURCE}"
+
+                            LOCAL=""
+                            [ -d "${SOURCE_DIR}/scanners/semgrep-rules" ] && LOCAL="--config=/src/scanners/semgrep-rules"
+
+                            docker run --rm \
+                              --network secureguard_sg-net \
+                              -v ${env.HOST_SOURCE}:/src \
+                              -v ${env.HOST_REPORTS}:/reports \
+                              returntocorp/semgrep:latest semgrep \
+                                \$LOCAL \
+                                --config=auto \
+                                --sarif \
+                                --output=/reports/semgrep.sarif \
+                                --timeout=120 --max-memory=1024 --jobs=2 \
+                                --no-git-ignore --skip-unknown-extensions \
+                                /src 2>&1 | tail -10 || true
+
+                            ls -lh ${REPORTS_DIR}/semgrep.sarif 2>/dev/null \
+                              && echo "Semgrep OK — \$(wc -c < ${REPORTS_DIR}/semgrep.sarif) bytes" \
+                              || echo "WARNING: semgrep no output"
+                        """
+                    }
+                }
+
+                stage('Bandit Python') {
+                    when { expression { return env.HAS_PYTHON == "true" } }
+                    steps {
+                        sh """
+                            echo "Running Bandit via HOST path: ${env.HOST_SOURCE}"
+
+                            docker run --rm \
+                              -v ${env.HOST_SOURCE}:/src \
+                              -v ${env.HOST_REPORTS}:/reports \
+                              python:3.12-slim bash -c "
+                                pip install bandit -q --no-warn-script-location 2>/dev/null
+                                bandit -r /src -f json -o /reports/bandit.json --exit-zero 2>&1 | tail -5
+                                ls -lh /reports/bandit.json && echo 'Bandit wrote file' || echo 'Bandit no output'
+                              " || true
+
+                            ls -lh ${REPORTS_DIR}/bandit.json 2>/dev/null \
+                              && echo "Bandit OK — \$(wc -c < ${REPORTS_DIR}/bandit.json) bytes" \
+                              || echo "WARNING: bandit no output"
+                        """
+                    }
+                }
+
+                stage('Gitleaks Secrets') {
+                    steps {
+                        sh """
+                            echo "Running Gitleaks via HOST path: ${env.HOST_SOURCE}"
+
+                            docker run --rm \
+                              -v ${env.HOST_SOURCE}:/src \
+                              -v ${env.HOST_REPORTS}:/reports \
+                              zricethezav/gitleaks:v8.18.2 detect \
+                                --source=/src \
+                                --report-format=sarif \
+                                --report-path=/reports/gitleaks.sarif \
+                                --no-git --exit-code=0 2>&1 || true
+
+                            ls -lh ${REPORTS_DIR}/gitleaks.sarif 2>/dev/null \
+                              && echo "Gitleaks OK — \$(wc -c < ${REPORTS_DIR}/gitleaks.sarif) bytes" \
+                              || echo "WARNING: gitleaks no output"
+                        """
+                    }
+                }
+
+                stage('Trivy SCA') {
+                    steps {
+                        sh """
+                            echo "Running Trivy via HOST path: ${env.HOST_SOURCE}"
+
+                            docker run --rm \
+                              -v ${env.HOST_SOURCE}:/src \
+                              -v ${env.HOST_REPORTS}:/reports \
+                              -v trivy-cache:/root/.cache/trivy \
+                              aquasec/trivy:latest fs \
+                                --format sarif \
+                                --output /reports/trivy-deps.sarif \
+                                --exit-code 0 \
+                                --scanners vuln,secret \
+                                --skip-version-check \
+                                /src 2>&1 | tail -8 || true
+
+                            ls -lh ${REPORTS_DIR}/trivy-deps.sarif 2>/dev/null \
+                              && echo "Trivy OK — \$(wc -c < ${REPORTS_DIR}/trivy-deps.sarif) bytes" \
+                              || echo "WARNING: trivy no output"
+                        """
+                    }
+                }
+
+            }
+        }
+
+        stage('Upload Reports') {
+            steps {
+                echo "=== Reports ==="
+                sh "ls -lh ${REPORTS_DIR}/ || echo 'empty'"
+                sh """
+                    UPLOADED=0
+                    for f in ${REPORTS_DIR}/semgrep.sarif \
+                              ${REPORTS_DIR}/gitleaks.sarif \
+                              ${REPORTS_DIR}/trivy-deps.sarif \
+                              ${REPORTS_DIR}/bandit.json; do
+                        [ -f "\$f" ] || continue
+                        TOOL=\$(basename \$f | sed 's/\\.sarif//;s/\\.json//')
+                        SIZE=\$(wc -c < "\$f")
+                        echo "  Uploading \$TOOL (\$SIZE bytes)..."
+                        CODE=\$(curl -s -o /dev/null -w "%{http_code}" \
+                          -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/reports/\$TOOL \
+                          -H 'Content-Type: application/json' \
+                          --data-binary @\$f)
+                        echo "  -> HTTP \$CODE"
+                        UPLOADED=\$((UPLOADED+1))
+                    done
+                    echo "Uploaded: \$UPLOADED files"
+                """
+            }
+        }
+
+        stage('CVE Enrichment') {
+            steps {
+                sh """
+                    curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/enrich \
+                      -H 'Content-Type: application/json' -d '{}' \
+                      -o /tmp/enrich_resp.json || true
+                    cat /tmp/enrich_resp.json 2>/dev/null || echo "no response"
+                """
+            }
+        }
+
+        stage('AI Auto-Remediation') {
+            steps {
+                sh """
+                    curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/fix \
+                      -H 'Content-Type: application/json' \
+                      -d '{"repo_url":"${TARGET_REPO}","commit_sha":"${COMMIT_SHA}"}' \
+                      -o /tmp/fix_resp.json || true
+                    cat /tmp/fix_resp.json 2>/dev/null || echo "no response"
+                """
+            }
+        }
+
+        stage('Notify') {
+            steps {
+                sh """
+                    curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/notify \
+                      -H 'Content-Type: application/json' \
+                      -d '{"build_url":"${env.BUILD_URL}"}' || true
+                    echo "Done — Scan #${env.SCAN_RUN_ID}"
+                """
+            }
+        }
+
+    }
+
+    post {
+        always {
+            sh "ls -lh ${REPORTS_DIR}/ 2>/dev/null || true"
+            sh "docker rmi sg-target-scan:${BUILD_NUMBER} 2>/dev/null || true"
+            cleanWs()
+        }
+        success {
+            sh "curl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'Content-Type: application/json' -d '{\"status\":\"complete\"}' || true"
+        }
+        failure {
+            sh "curl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'Content-Type: application/json' -d '{\"status\":\"failed\"}' || true"
+        }
+    }
+}

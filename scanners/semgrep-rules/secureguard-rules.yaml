@@ -1,0 +1,222 @@
+# SecureGuard — Custom Semgrep rules
+# Covers: Python, JavaScript, TypeScript, Java, C/C++
+
+rules:
+
+  # ── Python ─────────────────────────────────────────────────
+
+  - id: python-hardcoded-secret
+    patterns:
+      - pattern: $KEY = "..."
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: '(?i)(password|secret|api_key|token|passwd|pwd)'
+    message: "Hardcoded secret in variable $KEY"
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-798"
+      category: security
+
+  - id: python-sql-injection
+    patterns:
+      - pattern: |
+          $CUR.execute("..." % $VAR)
+      - pattern: |
+          $CUR.execute("..." + $VAR)
+    message: "Possible SQL injection via string formatting"
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-89"
+      category: security
+
+  - id: python-command-injection
+    patterns:
+      - pattern: os.system($CMD)
+      - pattern: subprocess.call($CMD, shell=True)
+      - pattern: subprocess.run($CMD, shell=True)
+    message: "Potential command injection with user-controlled input"
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-78"
+      category: security
+
+  - id: python-insecure-deserialization
+    pattern: pickle.loads($DATA)
+    message: "Insecure deserialization using pickle.loads"
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-502"
+      category: security
+
+  - id: python-weak-crypto
+    patterns:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+    message: "Weak cryptographic hash function — use SHA-256 or stronger"
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-327"
+      category: security
+
+  # ── JavaScript / TypeScript ──────────────────────────────────
+
+  - id: js-hardcoded-secret
+    patterns:
+      - pattern: const $KEY = "..."
+      - pattern: let $KEY = "..."
+      - pattern: var $KEY = "..."
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: '(?i)(password|secret|api_key|token|apikey)'
+    message: "Hardcoded secret in JS/TS variable $KEY"
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-798"
+      category: security
+
+  - id: js-eval-injection
+    patterns:
+      - pattern: eval($INPUT)
+      - pattern: new Function($INPUT)
+    message: "Code injection via eval() or new Function()"
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-95"
+      category: security
+
+  - id: js-xss-innerhtml
+    pattern: $EL.innerHTML = $DATA
+    message: "Potential XSS via innerHTML assignment"
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-79"
+      category: security
+
+  - id: js-prototype-pollution
+    patterns:
+      - pattern: Object.assign($TARGET, $SOURCE)
+      - pattern: $OBJ[__proto__] = $VAL
+    message: "Potential prototype pollution"
+    languages: [javascript, typescript]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-1321"
+      category: security
+
+  - id: js-nosql-injection
+    patterns:
+      - pattern: |
+          $DB.find({$KEY: $REQ.body.$VAL})
+      - pattern: |
+          $DB.findOne({$KEY: $REQ.params.$VAL})
+    message: "Potential NoSQL injection from request parameters"
+    languages: [javascript, typescript]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-943"
+      category: security
+
+  # ── Java ─────────────────────────────────────────────────────
+
+  - id: java-sql-injection
+    patterns:
+      - pattern: |
+          $STMT.executeQuery("..." + $VAR)
+      - pattern: |
+          $STMT.execute("..." + $VAR)
+    message: "SQL injection via string concatenation — use PreparedStatement"
+    languages: [java]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-89"
+      category: security
+
+  - id: java-hardcoded-password
+    patterns:
+      - pattern: |
+          String $VAR = "...";
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: '(?i)(password|passwd|secret|apikey|api_key)'
+    message: "Hardcoded password/secret in Java string"
+    languages: [java]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-798"
+      category: security
+
+  - id: java-xxe
+    pattern: |
+      DocumentBuilderFactory $F = DocumentBuilderFactory.newInstance();
+    message: "Potential XXE — disable external entities on DocumentBuilderFactory"
+    languages: [java]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-611"
+      category: security
+
+  - id: java-insecure-random
+    pattern: new Random()
+    message: "Use SecureRandom instead of Random for security-sensitive operations"
+    languages: [java]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-330"
+      category: security
+
+  # ── C / C++ ──────────────────────────────────────────────────
+
+  - id: c-gets-unsafe
+    pattern: gets($BUF)
+    message: "gets() is unsafe — use fgets() instead"
+    languages: [c, cpp]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-120"
+      category: security
+
+  - id: c-strcpy-unsafe
+    pattern: strcpy($DST, $SRC)
+    message: "strcpy() is unsafe — use strncpy() or strlcpy()"
+    languages: [c, cpp]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-120"
+      category: security
+
+  - id: c-sprintf-unsafe
+    pattern: sprintf($BUF, $FMT, ...)
+    message: "sprintf() is unsafe — use snprintf() with size limit"
+    languages: [c, cpp]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-120"
+      category: security
+
+  - id: c-format-string
+    patterns:
+      - pattern: printf($VAR)
+      - pattern: fprintf($FD, $VAR)
+    message: "Potential format string vulnerability"
+    languages: [c, cpp]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-134"
+      category: security
+
+  - id: c-integer-overflow
+    pattern: malloc($A * $B)
+    message: "Potential integer overflow in malloc size calculation"
+    languages: [c, cpp]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-190"
+      category: security

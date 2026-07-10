@@ -1,0 +1,119 @@
+# SecureGuard custom Falco rules
+# Valid Falco priorities: EMERGENCY, ALERT, CRITICAL, ERROR, WARNING, NOTICE, INFO, DEBUG
+
+- macro: secureguard_containers
+  condition: >
+    container.name in (sg-orchestrator, sg-celery, sg-gitea,
+                       sg-jenkins, sg-dashboard, sg-cve-intel)
+
+- macro: shell_spawned
+  condition: proc.name in (bash, sh, zsh, dash, ash, ksh)
+
+- rule: Shell spawned in SecureGuard app container
+  desc: A shell was spawned inside a running app container — possible RCE
+  condition: >
+    spawned_process
+    and secureguard_containers
+    and shell_spawned
+    and not proc.pname in (jenkins, python3, uvicorn, celery)
+  output: >
+    Shell spawned in SecureGuard container
+    (container=%container.name user=%user.name shell=%proc.name
+     parent=%proc.pname cmdline=%proc.cmdline)
+  priority: CRITICAL
+  tags: [container, shell, rce, secureguard]
+
+- rule: Unexpected outbound connection from SecureGuard container
+  desc: App container made an outbound connection to an unexpected host
+  condition: >
+    outbound
+    and secureguard_containers
+    and not fd.sip in (127.0.0.1, ::1)
+    and not fd.sport in (5432, 6379, 3000, 8080, 8000)
+  output: >
+    Unexpected outbound from SecureGuard container
+    (container=%container.name dest=%fd.rip:%fd.rport
+     proto=%fd.l4proto proc=%proc.name)
+  priority: WARNING
+  tags: [network, container, secureguard]
+
+- rule: Sensitive file read in container
+  desc: A process inside a container read a sensitive file
+  condition: >
+    open_read
+    and container
+    and secureguard_containers
+    and (
+      fd.name startswith /etc/shadow or
+      fd.name startswith /proc/sched_debug or
+      fd.name = /etc/kubernetes/admin.conf
+    )
+  output: >
+    Sensitive file read in container
+    (container=%container.name file=%fd.name proc=%proc.name
+     user=%user.name)
+  priority: WARNING
+  tags: [filesystem, sensitive, container, secureguard]
+
+- rule: Privilege escalation attempt in container
+  desc: A process tried to become root inside a container
+  condition: >
+    spawned_process
+    and container
+    and proc.name in (sudo, su, newgrp)
+    and not proc.pname in (sh, bash)
+  output: >
+    Privilege escalation attempt
+    (container=%container.name proc=%proc.name
+     user=%user.name parent=%proc.pname cmdline=%proc.cmdline)
+  priority: CRITICAL
+  tags: [privilege_escalation, container, secureguard]
+
+- rule: Possible credential written to disk
+  desc: A file matching a secret pattern was written
+  condition: >
+    open_write
+    and container
+    and secureguard_containers
+    and (
+      fd.name endswith .key or
+      fd.name endswith .pem or
+      fd.name endswith _rsa or
+      fd.name contains password or
+      fd.name contains secret or
+      fd.name contains credentials
+    )
+    and not fd.name contains /tmp/
+  output: >
+    Possible credential file written
+    (container=%container.name file=%fd.name proc=%proc.name
+     user=%user.name)
+  priority: ERROR
+  tags: [credentials, filesystem, secureguard]
+
+- rule: Write to /proc from container
+  desc: A process inside a container tried to write to /proc — escape attempt
+  condition: >
+    open_write
+    and container
+    and fd.name startswith /proc
+    and not proc.name in (falco)
+  output: >
+    Write to /proc inside container — possible escape
+    (container=%container.name proc=%proc.name user=%user.name
+     file=%fd.name)
+  priority: CRITICAL
+  tags: [escape, container, secureguard]
+
+- rule: Crypto miner process detected
+  desc: A known crypto miner process was spawned
+  condition: >
+    spawned_process
+    and proc.name in (xmrig, minerd, cpuminer, ethminer,
+                      claymore, nheqminer, ccminer)
+  output: >
+    Crypto miner detected
+    (proc=%proc.name container=%container.name
+     cmdline=%proc.cmdline user=%user.name)
+  priority: CRITICAL
+  tags: [crypto, malware, secureguard]

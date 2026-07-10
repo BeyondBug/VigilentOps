@@ -1,0 +1,352 @@
+version: "3.9"
+
+networks:
+  sg-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1
+
+volumes:
+  postgres_data:
+  redis_data:
+  gitea_data:
+  jenkins_data:
+  grafana_data:
+  falco-socket:
+  wazuh_data:
+  wazuh_logs:
+
+services:
+
+  # ── Gitea (self-hosted Git) ──────────────────────────────
+  gitea:
+    image: gitea/gitea:latest
+    container_name: sg-gitea
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__database__DB_TYPE=postgres
+      - GITEA__database__HOST=postgres:5432
+      - GITEA__database__NAME=secureguard
+      - GITEA__database__USER=${POSTGRES_USER}
+      - GITEA__database__PASSWD=${POSTGRES_PASSWORD}
+      - GITEA__webhook__ALLOWED_HOST_LIST=172.18.0.100
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    volumes:
+      - gitea_data:/data
+    depends_on:
+      - postgres
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+  gitea-runner:
+    image: gitea/act_runner:latest
+    container_name: gitea-runner
+    environment:
+      - GITEA_INSTANCE_URL=http://gitea:3000
+      - GITEA_RUNNER_REGISTRATION_TOKEN=oCnvDve4jZCBFHiZyEUhPuL1bhSul9OlKUJccBm
+      - GITEA_RUNNER_NAME=local-runner
+      - GITEA_RUNNER_LABELS=ubuntu-latest:docker
+    volumes:
+      - ./runner_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - sg-net
+    restart: unless-stopped
+    depends_on:
+      - gitea
+
+  # ── PostgreSQL ───────────────────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: sg-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./shared/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+  # ── Redis (job queue) ────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: sg-redis
+    volumes:
+      - redis_data:/data
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+  # ── FastAPI orchestrator ─────────────────────────────────
+  orchestrator:
+    build: ./ai-engine
+    container_name: sg-orchestrator
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+      - gitea
+    volumes:
+      - ./ai-engine:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - sg-net
+    restart: unless-stopped
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+
+  # ── Celery worker ────────────────────────────────────────
+  celery-worker:
+    build: ./ai-engine
+    container_name: sg-celery
+    env_file: .env
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./ai-engine:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - sg-net
+    restart: unless-stopped
+    command: celery -A tasks worker --loglevel=info --concurrency=4
+
+  # ── CVE Intel poller ─────────────────────────────────────
+  cve-intel:
+    build: ./cve-intel
+    container_name: sg-cve-intel
+    env_file: .env
+    ports:
+      - "8001:8001"
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./cve-intel:/app
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+  # ── Jenkins ──────────────────────────────────────────────
+  jenkins:
+    build:
+      context: ./jenkins
+      dockerfile: Dockerfile
+    container_name: sg-jenkins
+    user: root
+    ports:
+      - "8081:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./jenkins/casc:/var/jenkins_home/casc_configs
+      - ./jenkins/pipelines:/var/jenkins_home/pipelines
+    environment:
+      - CASC_JENKINS_CONFIG=/var/jenkins_home/casc_configs
+    networks:
+      sg-net:
+        ipv4_address: 172.18.0.100
+    restart: unless-stopped
+
+  # ── React dashboard ──────────────────────────────────────
+  dashboard:
+    build: ./dashboard
+    container_name: sg-dashboard
+    ports:
+      - "3001:3000"
+    env_file: .env
+    depends_on:
+      - orchestrator
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+  # ── Prometheus ───────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sg-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+  # ── Grafana ──────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sg-grafana
+    ports:
+      - "3002:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=VR@b3y0nd
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+  # ── Falco (kernel syscall + container runtime monitoring) ──
+  falco:
+    image: falcosecurity/falco:0.39.2
+    container_name: sg-falco
+    privileged: true
+    security_opt:
+      - apparmor:unconfined
+      - seccomp:unconfined
+    pid: host
+    environment:
+      - FALCO_GRPC_ENABLED=true
+      - FALCO_GRPC_BIND_ADDRESS=unix:///var/run/falco/falco.sock
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock
+      - /proc:/host/proc:ro
+      - /sys/kernel/btf/vmlinux:/sys/kernel/btf/vmlinux:ro
+      - /sys/kernel/debug:/sys/kernel/debug:ro
+      - ./monitoring/falco/falco.yaml:/etc/falco/falco.yaml:ro
+      - ./monitoring/falco/rules:/etc/falco/rules.d:ro
+      - falco-socket:/var/run/falco
+    networks:
+      - sg-net
+    restart: "no"
+
+  # ── PostgreSQL exporter ──────────────────────────────────
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: sg-postgres-exporter
+    environment:
+      - DATA_SOURCE_NAME=postgresql://sgadmin:sgpassword123@sg-postgres:5432/secureguard?sslmode=disable
+    ports:
+      - "9187:9187"
+    depends_on:
+      - postgres
+    networks:
+      - sg-net
+    restart: "no"
+
+  # ── Redis exporter ───────────────────────────────────────
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: sg-redis-exporter
+    environment:
+      - REDIS_ADDR=redis://sg-redis:6379
+    ports:
+      - "9121:9121"
+    depends_on:
+      - redis
+    networks:
+      - sg-net
+    restart: "no"
+
+  # ── cAdvisor (Docker container metrics) ──────────────────
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: sg-cadvisor
+    privileged: true
+    command:
+      - "--docker_only=true"
+      - "--store_container_labels=true"
+      - "--housekeeping_interval=10s"
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /cgroup:/cgroup:ro
+    ports:
+      - "8082:8080"
+    networks:
+      - sg-net
+    restart: "no"
+
+  # ── Falco → Prometheus exporter ──────────────────────────
+  falco-exporter:
+    image: falcosecurity/falco-exporter:latest
+    container_name: sg-falco-exporter
+    ports:
+      - "9376:9376"
+    volumes:
+      - falco-socket:/var/run/falco:ro
+    depends_on:
+      - falco
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+  # ── Wazuh HIDS manager ───────────────────────────────────
+  wazuh:
+    image: wazuh/wazuh-manager:4.7.3
+    container_name: sg-wazuh
+    ports:
+      - "1514:1514/udp"
+      - "1515:1515"
+      - "55000:55000"
+    environment:
+      - WAZUH_MANAGER_IP=0.0.0.0
+    volumes:
+      - wazuh_data:/var/ossec/data
+      - ./monitoring/wazuh/ossec.conf:/var/ossec/etc/ossec.conf:ro
+      - ./monitoring/wazuh/shared:/var/ossec/etc/shared:rw
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+# ── Loki (log aggregation) ───────────────────────────────────
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: sg-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+  # ── Promtail (reads Wazuh alerts and ships to Loki) ──────────
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: sg-promtail
+    volumes:
+      - ./monitoring/promtail/promtail.yml:/etc/promtail/config.yml
+      - wazuh_data:/var/ossec/data:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+      - wazuh
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+  wazuh-proxy:
+    build: ./wazuh-proxy
+    container_name: sg-wazuh-proxy
+    environment:
+      - WAZUH_URL=https://sg-wazuh:55000
+      - WAZUH_USER=wazuh
+      - WAZUH_PASS=wazuh
+    ports:
+      - "8002:8002"
+    depends_on:
+      - wazuh
+    networks:
+      - sg-net
+    restart: unless-stopped

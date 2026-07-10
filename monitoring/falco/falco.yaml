@@ -1,0 +1,35 @@
+engine:
+  kind: nodriver
+
+rules_file:
+  - /etc/falco/falco_rules.yaml
+  - /etc/falco/falco_rules.local.yaml
+  - /etc/falco/rules.d
+
+json_output: true
+json_include_output_property: true
+
+log_stderr: true
+log_syslog: false
+log_level: info
+
+outputs:
+  rate: 1
+  max_burst: 1000
+
+syslog_output:
+  enabled: false
+
+file_output:
+  enabled: false
+
+stdout_output:
+  enabled: true
+
+grpc:
+  enabled: true
+  bind_address: "unix:///var/run/falco/falco.sock"
+  threadiness: 8
+
+grpc_output:
+  enabled: true

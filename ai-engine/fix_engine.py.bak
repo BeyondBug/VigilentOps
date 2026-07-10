@@ -1,0 +1,683 @@
+"""
+SecureGuard AI Fix Engine v2
+─────────────────────────────
+Key fixes over v1:
+1. Single branch + single PR per scan run (not one per finding)
+2. Reads actual source code from cloned repo when snippet is missing
+3. Better NVIDIA NIM prompt — forces pure code output, no comments
+4. Handles requirements.txt SCA fixes (version bumps)
+5. Handles SAST fixes (code changes)
+6. After merge, bumps version so next scan sees new content
+"""
+
+import os
+import re
+import json
+import tempfile
+import shutil
+import subprocess
+import logging
+from pathlib import Path
+from typing import Optional
+
+import httpx
+import psycopg2
+import psycopg2.extras
+
+log = logging.getLogger("ai-fix")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+# ── Config ────────────────────────────────────────────────────
+NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
+NVIDIA_MODEL   = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-70b-instruct")
+GITEA_URL      = os.getenv("GITEA_URL",   "http://gitea:3000")
+GITEA_TOKEN    = os.getenv("GITEA_TOKEN", "")
+
+DB_PARAMS = {
+    "host":     "postgres",
+    "dbname":   os.getenv("POSTGRES_DB",      "secureguard"),
+    "user":     os.getenv("POSTGRES_USER",     "sgadmin"),
+    "password": os.getenv("POSTGRES_PASSWORD", "sgpassword123"),
+}
+
+MIN_CONFIDENCE = 0.60
+CONTEXT_LINES  = 10  # lines of context around vulnerable line
+
+
+# ── DB helpers ────────────────────────────────────────────────
+
+def get_db():
+    return psycopg2.connect(**DB_PARAMS)
+
+
+def get_fixable_findings(scan_run_id: int) -> list[dict]:
+    """Return HIGH/CRITICAL open findings for this scan."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT f.id, f.scan_run_id, f.scanner, f.rule_id, f.cve_id,
+                       f.cwe_id, f.severity, f.cvss_score, f.title,
+                       f.description, f.file_path, f.line_start, f.line_end,
+                       f.vulnerable_code, f.fix_status,
+                       sr.repo_url, sr.repo_name, sr.commit_sha, sr.branch
+                FROM findings f
+                JOIN scan_runs sr ON sr.id = f.scan_run_id
+                WHERE f.scan_run_id = %s
+                  AND f.severity IN ('CRITICAL','HIGH')
+                  AND f.fix_status = 'open'
+                ORDER BY f.file_path, f.line_start
+            """, (scan_run_id,))
+            return [dict(r) for r in cur.fetchall()]
+
+
+def mark_findings_pr_opened(finding_ids: list[int], pr_url: str,
+                              confidence: float, scan_run_id: int):
+    """Mark all findings in this scan as fixed with the single PR URL."""
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE findings SET
+                    fix_status    = 'pr_opened',
+                    pr_url        = %s,
+                    pr_confidence = %s
+                WHERE id = ANY(%s)
+            """, (pr_url, confidence, finding_ids))
+            cur.execute("""
+                UPDATE scan_runs SET status = 'ai_fixed'
+                WHERE id = %s
+            """, (scan_run_id,))
+        conn.commit()
+
+
+def mark_finding_unfixable(finding_id: int, reason: str):
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE findings SET fix_status = 'ai_skipped',
+                    ai_fix_code = %s WHERE id = %s
+            """, (reason[:500], finding_id))
+        conn.commit()
+
+
+# ── Code extraction ───────────────────────────────────────────
+
+def read_code_from_file(repo_path: str, file_path: str,
+                         line_start: int, line_end: int) -> str:
+    """Read actual source code from the cloned repo."""
+    abs_path = Path(repo_path) / file_path.lstrip("/")
+    if not abs_path.exists():
+        # Try without leading path components
+        fname = Path(file_path).name
+        matches = list(Path(repo_path).rglob(fname))
+        if matches:
+            abs_path = matches[0]
+        else:
+            return ""
+
+    try:
+        lines = abs_path.read_text(errors="ignore").splitlines()
+        total = len(lines)
+
+        if line_start and line_end:
+            # Add context around the vulnerable lines
+            start = max(0, line_start - CONTEXT_LINES - 1)
+            end   = min(total, (line_end or line_start) + CONTEXT_LINES)
+            return "\n".join(lines[start:end])
+        else:
+            # Return whole file if small, first 100 lines otherwise
+            return "\n".join(lines[:100])
+    except Exception as e:
+        log.warning(f"Could not read {abs_path}: {e}")
+        return ""
+
+
+def read_full_file(repo_path: str, file_path: str) -> str:
+    """Read the complete file content."""
+    abs_path = Path(repo_path) / file_path.lstrip("/")
+    if not abs_path.exists():
+        fname = Path(file_path).name
+        matches = list(Path(repo_path).rglob(fname))
+        if matches:
+            abs_path = matches[0]
+        else:
+            return ""
+    try:
+        return abs_path.read_text(errors="ignore")
+    except Exception:
+        return ""
+
+
+# ── NVIDIA NIM ────────────────────────────────────────────────
+
+def call_nim_for_sca(pkg_name: str, current_version: str,
+                      cve_id: str, description: str) -> dict:
+    """
+    For SCA findings (requirements.txt) — ask NIM for the safe version.
+    Returns {"safe_version": str, "confidence": float}
+    """
+    if not NVIDIA_API_KEY:
+        return {"safe_version": "", "confidence": 0.0}
+
+    prompt = f"""You are a Python security expert. A package has a known CVE.
+
+Package: {pkg_name}
+Current version: {current_version}
+CVE: {cve_id}
+Issue: {description[:200]}
+
+What is the MINIMUM safe version that fixes this CVE?
+Respond with ONLY this JSON (no markdown, no explanation):
+{{"safe_version": "X.Y.Z", "confidence": 0.9}}"""
+
+    try:
+        r = httpx.post(
+            NVIDIA_API_URL,
+            headers={"Authorization": f"Bearer {NVIDIA_API_KEY}",
+                     "Content-Type": "application/json"},
+            json={
+                "model": NVIDIA_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 100,
+                "temperature": 0.1,
+            },
+            timeout=30,
+        )
+        r.raise_for_status()
+        text = r.json()["choices"][0]["message"]["content"].strip()
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text).strip()
+        result = json.loads(text)
+        return result
+    except Exception as e:
+        log.error(f"NIM SCA call error: {e}")
+        return {"safe_version": "", "confidence": 0.0}
+
+
+def call_nim_for_sast(code_context: str, finding: dict) -> dict:
+    """
+    For SAST findings — ask NIM to fix the actual code.
+    Returns {"fixed_code": str, "explanation": str, "confidence": float}
+    """
+    if not NVIDIA_API_KEY:
+        return {"fixed_code": "", "explanation": "no key", "confidence": 0.0}
+
+    cve_ref  = finding.get("cve_id") or finding.get("rule_id") or "unknown"
+    cwe_ref  = finding.get("cwe_id") or "unknown"
+    title    = finding.get("title", "")
+    desc     = finding.get("description", "")[:300]
+    filepath = finding.get("file_path", "")
+    line_s   = finding.get("line_start") or 0
+    line_e   = finding.get("line_end") or 0
+
+    # Very strict prompt — NIM tends to add comments, we forbid that
+    system = (
+        "You are a code security tool. Output ONLY raw Python code. "
+        "No comments. No explanations. No markdown. No docstrings added. "
+        "Just the fixed code block that replaces the vulnerable section."
+    )
+
+    user = f"""SECURITY FIX REQUIRED.
+
+File: {filepath}
+Lines: {line_s}-{line_e}
+Vulnerability: {title}
+Rule: {cve_ref} / {cwe_ref}
+Detail: {desc}
+
+CURRENT CODE (lines {line_s}-{line_e} with context):
+```python
+{code_context}
+```
+
+OUTPUT: Return ONLY a JSON object. No other text.
+{{
+  "fixed_code": "<only the fixed replacement for lines {line_s}-{line_e}, pure code no comments>",
+  "explanation": "<one sentence what changed>",
+  "confidence": <0.0-1.0>
+}}"""
+
+    try:
+        r = httpx.post(
+            NVIDIA_API_URL,
+            headers={"Authorization": f"Bearer {NVIDIA_API_KEY}",
+                     "Content-Type": "application/json"},
+            json={
+                "model": NVIDIA_MODEL,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user",   "content": user},
+                ],
+                "max_tokens": 512,
+                "temperature": 0.05,
+            },
+            timeout=45,
+        )
+        r.raise_for_status()
+        text = r.json()["choices"][0]["message"]["content"].strip()
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text).strip()
+
+        result = json.loads(text)
+        fixed  = result.get("fixed_code", "")
+
+        # Reject if model returned mostly comments
+        code_lines    = [l for l in fixed.splitlines() if l.strip() and not l.strip().startswith("#")]
+        comment_lines = [l for l in fixed.splitlines() if l.strip().startswith("#")]
+        if comment_lines and len(comment_lines) >= len(code_lines):
+            log.warning("NIM returned mostly comments — rejecting fix")
+            return {"fixed_code": "", "explanation": "model returned comments", "confidence": 0.0}
+
+        return result
+    except Exception as e:
+        log.error(f"NIM SAST call error: {e}")
+        return {"fixed_code": "", "explanation": str(e), "confidence": 0.0}
+
+
+# ── SCA fix: requirements.txt ─────────────────────────────────
+
+def fix_requirements_file(repo_path: str, sca_findings: list[dict]) -> dict[str, list]:
+    """
+    Fix all SCA findings in requirements.txt files.
+    Returns {file_path: [list of (old_line, new_line) changes]}
+    """
+    # Group by file
+    by_file: dict[str, list] = {}
+    for f in sca_findings:
+        fp = f.get("file_path", "")
+        if fp not in by_file:
+            by_file[fp] = []
+        by_file[fp].append(f)
+
+    changes: dict[str, list] = {}
+
+    for file_path, findings in by_file.items():
+        abs_path = Path(repo_path) / file_path.lstrip("/")
+        if not abs_path.exists():
+            continue
+
+        content  = abs_path.read_text()
+        lines    = content.splitlines()
+        modified = list(lines)
+        file_changes = []
+
+        # De-duplicate by package name
+        seen_pkgs = set()
+        for finding in findings:
+            title = finding.get("title", "")
+            desc  = finding.get("description", "")
+            cve   = finding.get("cve_id", "unknown")
+            line_n = (finding.get("line_start") or 1) - 1
+
+            if 0 <= line_n < len(lines):
+                old_line = lines[line_n].strip()
+            else:
+                # Search for the package
+                old_line = ""
+                for i, l in enumerate(lines):
+                    if l.strip() and not l.startswith("#"):
+                        old_line = l.strip()
+                        line_n   = i
+                        break
+
+            if not old_line:
+                continue
+
+            # Extract package name from line like "Flask==0.12.2" or "flask>=0.12"
+            pkg_match = re.match(r"^([A-Za-z0-9_\-\.]+)", old_line)
+            if not pkg_match:
+                continue
+            pkg_name = pkg_match.group(1).lower()
+
+            if pkg_name in seen_pkgs:
+                continue
+            seen_pkgs.add(pkg_name)
+
+            # Extract current version
+            ver_match = re.search(r"[=<>!]+\s*([0-9][^\s,;]+)", old_line)
+            current_ver = ver_match.group(1) if ver_match else "unknown"
+
+            log.info(f"  SCA: asking NIM for safe version of {pkg_name}=={current_ver} ({cve})")
+            nim_result = call_nim_for_sca(pkg_name, current_ver, cve, desc)
+            safe_ver   = nim_result.get("safe_version", "")
+            confidence = nim_result.get("confidence", 0.0)
+
+            if safe_ver and confidence >= MIN_CONFIDENCE:
+                # Replace version in the line
+                new_line = re.sub(r"([=<>!]+\s*)[0-9][^\s,;#]*", f"=={safe_ver}", old_line, count=1)
+                if new_line != old_line:
+                    modified[line_n] = new_line
+                    file_changes.append((old_line, new_line, cve, finding["id"]))
+                    log.info(f"  SCA fix: {old_line} → {new_line}")
+            else:
+                log.info(f"  SCA: NIM couldn't find safe version for {pkg_name} (confidence={confidence:.0%})")
+
+        if file_changes:
+            abs_path.write_text("\n".join(modified) + "\n")
+            changes[file_path] = file_changes
+
+    return changes
+
+
+# ── SAST fix: Python/JS/etc source files ─────────────────────
+
+def fix_sast_findings(repo_path: str, sast_findings: list[dict]) -> list[dict]:
+    """
+    Fix SAST findings by reading actual code and calling NIM.
+    Returns list of successfully fixed findings with their changes.
+    """
+    fixed = []
+
+    # Group by file to read each file once
+    by_file: dict[str, list] = {}
+    for f in sast_findings:
+        fp = f.get("file_path", "")
+        if fp:
+            by_file.setdefault(fp, []).append(f)
+
+    for file_path, findings in by_file.items():
+        abs_path = Path(repo_path) / file_path.lstrip("/")
+        if not abs_path.exists():
+            continue
+
+        file_content = abs_path.read_text(errors="ignore")
+        file_lines   = file_content.splitlines()
+
+        for finding in findings:
+            line_s = finding.get("line_start") or 1
+            line_e = finding.get("line_end") or line_s
+
+            # Get code context
+            code_ctx = read_code_from_file(repo_path, file_path, line_s, line_e)
+            if not code_ctx:
+                continue
+
+            log.info(f"  SAST: calling NIM for {finding.get('rule_id','?')} in {file_path}:{line_s}")
+            result = call_nim_for_sast(code_ctx, finding)
+            fixed_code = result.get("fixed_code", "").strip()
+            confidence = result.get("confidence", 0.0)
+
+            if not fixed_code or confidence < MIN_CONFIDENCE:
+                log.info(f"  SAST: low confidence {confidence:.0%} — skipping")
+                continue
+
+            # Extract just the vulnerable lines to replace
+            start_idx = max(0, line_s - 1)
+            end_idx   = min(len(file_lines), line_e)
+            vuln_block = "\n".join(file_lines[start_idx:end_idx])
+
+            if vuln_block and vuln_block in file_content:
+                new_content = file_content.replace(vuln_block, fixed_code, 1)
+                abs_path.write_text(new_content)
+                file_content = new_content  # update for subsequent findings in same file
+                file_lines   = new_content.splitlines()
+                fixed.append({
+                    "finding":     finding,
+                    "fixed_code":  fixed_code,
+                    "confidence":  confidence,
+                    "explanation": result.get("explanation", ""),
+                })
+                log.info(f"  SAST fix applied: {file_path}:{line_s}")
+            else:
+                log.warning(f"  SAST: could not locate vulnerable block in {file_path}")
+
+    return fixed
+
+
+# ── Git operations ────────────────────────────────────────────
+
+def clone_repo(repo_url: str, branch: str = "main") -> Optional[str]:
+    repo_url = repo_url.replace("localhost:3000", "gitea:3000")
+    tmpdir   = tempfile.mkdtemp(prefix="sg_fix_")
+    try:
+        authed = repo_url.replace("http://", f"http://secureguard:{GITEA_TOKEN}@")
+        subprocess.run(
+            ["git", "clone", "--depth=20", "-b", branch, authed, tmpdir],
+            check=True, capture_output=True, timeout=60
+        )
+        subprocess.run(["git", "config", "user.email", "secureguard@cyberlab.local"],
+                       cwd=tmpdir, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "SecureGuard Bot"],
+                       cwd=tmpdir, capture_output=True)
+        log.info(f"Cloned {repo_url} branch={branch} → {tmpdir}")
+        return tmpdir
+    except subprocess.CalledProcessError as e:
+        err = e.stderr.decode()[:200] if e.stderr else str(e)
+        log.error(f"Clone failed: {err}")
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        return None
+
+
+def commit_and_push(tmpdir: str, repo_url: str,
+                     branch_name: str, scan_run_id: int,
+                     changes_summary: str) -> bool:
+    """Stage all changes, commit, push single branch."""
+    try:
+        # Stage everything
+        subprocess.run(["git", "add", "-A"], cwd=tmpdir, check=True, capture_output=True)
+
+        # Check if there's anything to commit
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=tmpdir, capture_output=True, text=True
+        )
+        if not status.stdout.strip():
+            log.info("No changes to commit")
+            return False
+
+        commit_msg = (
+            f"fix(security): SecureGuard AI auto-remediation — scan #{scan_run_id}\n\n"
+            f"{changes_summary}\n\n"
+            f"Generated by SecureGuard AI Engine"
+        )
+        subprocess.run(
+            ["git", "commit", "-m", commit_msg],
+            cwd=tmpdir, check=True, capture_output=True
+        )
+
+        authed = (repo_url
+                  .replace("localhost:3000", "gitea:3000")
+                  .replace("http://", f"http://secureguard:{GITEA_TOKEN}@"))
+        subprocess.run(
+            ["git", "push", authed, f"HEAD:{branch_name}"],
+            cwd=tmpdir, check=True, capture_output=True, timeout=30
+        )
+        log.info(f"Pushed branch {branch_name}")
+        return True
+
+    except subprocess.CalledProcessError as e:
+        err = e.stderr.decode()[:300] if e.stderr else str(e)
+        log.error(f"Git push failed: {err}")
+        return False
+
+
+def open_single_pr(repo_url: str, branch_name: str, scan_run_id: int,
+                    sca_changes: dict, sast_fixed: list,
+                    avg_confidence: float) -> Optional[str]:
+    """Open ONE pull request for ALL fixes in this scan run."""
+    parts     = repo_url.rstrip("/").rstrip(".git").split("/")
+    owner     = parts[-2] if len(parts) >= 2 else "BeyondBug"
+    repo_name = parts[-1] if parts else "ShadowPatch"
+
+    # Build PR body
+    sca_rows  = ""
+    for fp, changes in sca_changes.items():
+        for old, new, cve, _ in changes:
+            sca_rows += f"| `{fp}` | `{old}` | `{new}` | `{cve}` |\n"
+
+    sast_rows = ""
+    for item in sast_fixed:
+        f = item["finding"]
+        sast_rows += (f"| `{f.get('file_path','')}:{f.get('line_start','')}` "
+                      f"| `{f.get('rule_id','')}` "
+                      f"| {item.get('explanation','')[:60]} "
+                      f"| {item.get('confidence',0):.0%} |\n")
+
+    total_fixes = len([c for cs in sca_changes.values() for c in cs]) + len(sast_fixed)
+
+    body = f"""##  SecureGuard AI Auto-Remediation — Scan #{scan_run_id}
+
+**{total_fixes} vulnerabilities fixed** | Average confidence: {avg_confidence:.0%}
+
+---
+
+###  SCA Fixes (Dependency Version Updates)
+| File | Before | After | CVE |
+|---|---|---|---|
+{sca_rows or "| — | No SCA fixes | — | — |\n"}
+
+###  SAST Fixes (Source Code Changes)
+| Location | Rule | Change | Confidence |
+|---|---|---|---|
+{sast_rows or "| — | No SAST fixes | — | — |\n"}
+
+---
+
+###  Review checklist
+- [ ] Dependency version bumps are compatible with your code
+- [ ] SAST code changes preserve intended behaviour
+- [ ] Run test suite before merging
+- [ ] No unintended side effects
+
+> ⚠️ AI-generated fixes require human review before merging.
+> _Generated by SecureGuard AI Engine · Model: {NVIDIA_MODEL}_"""
+
+    title = f"[SecureGuard] Scan #{scan_run_id} — {total_fixes} security fixes ({avg_confidence:.0%} confidence)"
+
+    try:
+        r = httpx.post(
+            f"{GITEA_URL}/api/v1/repos/{owner}/{repo_name}/pulls",
+            headers={"Authorization": f"token {GITEA_TOKEN}",
+                     "Content-Type": "application/json"},
+            json={"title": title, "body": body,
+                  "head": branch_name, "base": "main"},
+            timeout=15,
+        )
+        if r.status_code in (200, 201):
+            pr_url = r.json().get("html_url", "")
+            log.info(f"PR opened: {pr_url}")
+            return pr_url
+        log.error(f"PR failed {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        log.error(f"PR error: {e}")
+    return None
+
+
+# ── Main ──────────────────────────────────────────────────────
+
+def run_ai_fix_engine(scan_run_id: int, repo_url: str,
+                       commit_sha: str) -> dict:
+    log.info(f"AI Fix Engine v2 starting — scan_run={scan_run_id}")
+
+    if not NVIDIA_API_KEY:
+        return {"status": "skipped", "reason": "NVIDIA_API_KEY not set"}
+
+    findings = get_fixable_findings(scan_run_id)
+    log.info(f"Found {len(findings)} HIGH/CRITICAL findings")
+    if not findings:
+        return {"status": "complete", "fixes_attempted": 0, "prs_opened": 0}
+
+    # Separate SCA vs SAST
+    sca_findings  = [f for f in findings if f.get("scanner", "").startswith("trivy")
+                     and "requirements" in (f.get("file_path") or "")]
+    sast_findings = [f for f in findings if f.get("scanner") in ("bandit", "semgrep")
+                     and f.get("file_path")]
+
+    # De-duplicate SCA by CVE+file
+    seen = set()
+    unique_sca = []
+    for f in sca_findings:
+        key = (f.get("cve_id", ""), f.get("file_path", ""))
+        if key not in seen:
+            seen.add(key)
+            unique_sca.append(f)
+
+    log.info(f"SCA: {len(unique_sca)} unique | SAST: {len(sast_findings)}")
+
+    if not unique_sca and not sast_findings:
+        return {"status": "complete", "fixes_attempted": 0, "prs_opened": 0}
+
+    # Clone repo ONCE
+    branch_ref = findings[0].get("branch", "main")
+    tmpdir = clone_repo(repo_url, branch_ref)
+    if not tmpdir:
+        return {"status": "error", "reason": "Clone failed"}
+
+    # Single branch name for entire scan run
+    branch_name = f"secureguard/scan-{scan_run_id}-fixes"
+
+    # Create the fix branch
+    try:
+        subprocess.run(
+            ["git", "checkout", "-b", branch_name],
+            cwd=tmpdir, check=True, capture_output=True
+        )
+    except subprocess.CalledProcessError:
+        # Branch may already exist
+        subprocess.run(
+            ["git", "checkout", branch_name],
+            cwd=tmpdir, capture_output=True
+        )
+
+    sca_changes  = {}
+    sast_fixed   = []
+    all_fixed_ids = []
+
+    try:
+        # ── Apply SCA fixes ──
+        if unique_sca:
+            log.info("Applying SCA fixes...")
+            sca_changes = fix_requirements_file(tmpdir, unique_sca)
+            for fp, changes in sca_changes.items():
+                for old, new, cve, fid in changes:
+                    all_fixed_ids.append(fid)
+
+        # ── Apply SAST fixes ──
+        if sast_findings:
+            log.info("Applying SAST fixes...")
+            sast_fixed = fix_sast_findings(tmpdir, sast_findings)
+            for item in sast_fixed:
+                all_fixed_ids.append(item["finding"]["id"])
+
+        if not all_fixed_ids:
+            log.info("No fixes could be applied")
+            return {"status": "complete", "fixes_attempted": len(findings), "prs_opened": 0}
+
+        # Build commit summary
+        lines = []
+        for fp, changes in sca_changes.items():
+            for old, new, cve, _ in changes:
+                lines.append(f"- SCA: {fp}: {old} → {new} ({cve})")
+        for item in sast_fixed:
+            f = item["finding"]
+            lines.append(f"- SAST: {f.get('file_path')}:{f.get('line_start')} [{f.get('rule_id')}]")
+        summary = "\n".join(lines[:20])
+
+        # Commit and push single branch
+        pushed = commit_and_push(tmpdir, repo_url, branch_name, scan_run_id, summary)
+        if not pushed:
+            return {"status": "error", "reason": "Nothing committed or push failed"}
+
+        # Calculate average confidence
+        confidences = [item["confidence"] for item in sast_fixed]
+        sca_count   = sum(len(v) for v in sca_changes.values())
+        if sca_count:
+            confidences.extend([0.85] * sca_count)
+        avg_conf = sum(confidences) / len(confidences) if confidences else 0.85
+
+        # Open ONE PR
+        pr_url = open_single_pr(repo_url, branch_name, scan_run_id,
+                                  sca_changes, sast_fixed, avg_conf)
+        if pr_url:
+            mark_findings_pr_opened(all_fixed_ids, pr_url, avg_conf, scan_run_id)
+            log.info(f"✓ Single PR opened with {len(all_fixed_ids)} fixes: {pr_url}")
+            return {
+                "status":          "complete",
+                "fixes_attempted": len(findings),
+                "prs_opened":      1,
+                "pr_url":          pr_url,
+                "fixed_count":     len(all_fixed_ids),
+            }
+        else:
+            return {"status": "error", "reason": "PR creation failed"}
+
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
