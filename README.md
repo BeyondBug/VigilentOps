@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <div align="center">
 <img src="docs/imgs/logo.png" width="200">
 
@@ -146,3 +147,10 @@ Please ensure to abide by our [Code of Conduct][code-of-conduct] during all inte
 [oss]: https://www.aquasec.com/products/open-source-projects/
 [discussions]: https://github.com/aquasecurity/trivy/discussions
 # pipeline fix Saturday 13 June 2026 11:15:50 AM IST
+=======
+# VigilentOps
+# Hello mr jash-watch
+
+
+# Hello guys 😇
+>>>>>>> c50a371974349fcffc6c1fbdc588f8bb821e1464
