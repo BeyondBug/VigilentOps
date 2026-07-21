@@ -1,156 +1,195 @@
-<<<<<<< HEAD
-<div align="center">
-<img src="docs/imgs/logo.png" width="200">
+# VigilentOps 
 
-[![GitHub Release][release-img]][release]
-[![Test][test-img]][test]
-[![Go Report Card][go-report-img]][go-report]
-[![License: Apache-2.0][license-img]][license]
-[![GitHub Downloads][github-downloads-img]][release]
-![Docker Pulls][docker-pulls]
+> **Automated Vulnerability Management and DevSecOps Platform**
 
-[📖 Documentation][docs]
-</div>
+VigilentOps  is a fully self-hosted and automated vulnerability management platform. It continuously scans source code for security issues, correlates findings with real-world CVE intelligence, applies AI-powered automated remediation, and provides comprehensive monitoring and observability. Human interaction is streamlined exclusively to reviewing and approving the AI-generated pull requests.
 
-Trivy ([pronunciation][pronunciation]) is a comprehensive and versatile security scanner.
-Trivy has *scanners* that look for security issues, and *targets* where it can find those issues.
 
-Targets (what Trivy can scan):
 
-- Container Image
-- Filesystem
-- Git Repository (remote)
-- Virtual Machine Image
-- Kubernetes
+##  Project Overview
 
-Scanners (what Trivy can find there):
+The platform automates the entire security lifecycle for software products in a secure, self-hosted environment:
 
-- OS packages and software dependencies in use (SBOM)
-- Known vulnerabilities (CVEs)
-- IaC issues and misconfigurations
-- Sensitive information and secrets
-- Software licenses
+1. **Trigger:** A developer pushes code to a self-hosted Gitea instance, which triggers a Jenkins pipeline via webhooks.
+2. **Scanning:** Jenkins executes Software Composition Analysis (SCA), Static Application Security Testing (SAST), and Dynamic Application Security Testing (DAST) tools (such as Semgrep, Bandit, Trivy, and Gitleaks) on the cloned repository.
+3. **CVE Correlation:** Security findings are automatically matched against a live CVE intelligence feed.
+4. **AI Remediation:** High and critical vulnerabilities are sent to an AI engine (utilizing models like NVIDIA NIM) to generate code fixes based on official patches and best practices.
+5. **Pull Requests:** The AI engine automatically opens Pull Requests in the developer's Gitea repository complete with code fixes, CVE details, and remediation notes for developer review and merging.
+6. **Observability:** Prometheus scrapes real-time metrics; Grafana visualizes security dashboards. Additional runtime monitoring is provided by Falco, Wazuh (HIDS), Loki/Promtail (logs), and cAdvisor.
 
-Trivy supports most popular programming languages, operating systems, and platforms. For a complete list, see the [Scanning Coverage] page.
+### Key Benefits
+* **Fully Self-Hosted:** Maintain complete control over your code, security data, and infrastructure.
+* **Automated Detection + AI Fixing:** Reduces mean-time-to-remediation (MTTR) by automatically generating code patches for critical issues.
+* **End-to-End Visibility:** Comprehensive monitoring of code posture, container security, and runtime threats.
+* **Seamless CI/CD Integration:** Native integration with Gitea webhooks and Jenkins pipelines.
 
-To learn more, go to the [Trivy homepage][homepage] for feature highlights, or to the [Documentation site][docs] for detailed information.
+### Tech Stack & Languages
+* **Languages:** Python (~56%), JavaScript (~22%), Go Template, Shell, Groovy, Dockerfile, HTML.
+* **Infrastructure:** Docker Compose, custom bridge network (`sg-net`).
+* **Database & Queue:** PostgreSQL (with automated schema initialization), Redis (Celery background tasks).
+* **Security Scanners:** Semgrep, Bandit, Trivy, Gitleaks, Falco, Wazuh.
 
-## Quick Start
 
-### Get Trivy
 
-Trivy is available in most common distribution channels. The full list of installation options is available in the [Installation] page. Here are a few popular examples:
-
-- `brew install trivy`
-- `docker run aquasec/trivy`
-- Download binary from <https://github.com/aquasecurity/trivy/releases/latest/>
-- See [Installation] for more
-
-Trivy is integrated with many popular platforms and applications. The complete list of integrations is available in the [Ecosystem] page. Here are a few popular examples:
-
-- [GitHub Actions](https://github.com/aquasecurity/trivy-action)
-- [Kubernetes operator](https://github.com/aquasecurity/trivy-operator)
-- [VS Code plugin](https://github.com/aquasecurity/trivy-vscode-extension)
-- See [Ecosystem] for more
-
-### Canary builds
-There are canary builds ([Docker Hub](https://hub.docker.com/r/aquasec/trivy/tags?page=1&name=canary), [GitHub](https://github.com/aquasecurity/trivy/pkgs/container/trivy/75776514?tag=canary), [ECR](https://gallery.ecr.aws/aquasecurity/trivy#canary) images and [binaries](https://github.com/aquasecurity/trivy/actions/workflows/canary.yaml)) generated with every push to the main branch.
-
-Please be aware: canary builds might have critical bugs, so they are not recommended for use in production.
-
-### General usage
-
-```bash
-trivy <target> [--scanners <scanner1,scanner2>] <subject>
+## Component Data Flow
+```mermaid
+flowchart LR
+    A[Gitea Push/Webhook] --> B[Jenkins Pipeline]
+    B --> C["Security Scanners<br/>(Semgrep/Bandit/Trivy/etc.)"]
+    C --> D["Report Files<br/>(SARIF/JSON)"]
+    D --> E[FastAPI Orchestrator]
+    
+    E --> F["DB: scan_runs + findings"]
+    E <--> G[Redis / Celery]
+    E --> H[CVE-Intel Poller]
+    H --> I[DB: cve_feed]
+    
+    E --> J[AI Engine]
+    J --> K[Code Fix Generation]
+    K --> L[Gitea PR Creation]
+    
+    E & B & J --> M[Prometheus]
+    M --> N[Grafana]
+    O["Falco + Wazuh"] --> P[Loki Logs]
+    P --> N
+    Q[React Dashboard] <--> E
 ```
 
-Examples:
+## End-to-End Workflow
 
-```bash
-trivy image python:3.4-alpine
+```mermaid
+sequenceDiagram
+    participant Dev as Developer
+    participant Gitea as Gitea
+    participant Jenkins as Jenkins Pipeline
+    participant API as FastAPI Orchestrator
+    participant DB as PostgreSQL
+    participant CVE as CVE-Intel Service
+    participant AI as AI Fix Engine (Celery)
+    participant PR as Gitea PR
+    participant Mon as Monitoring Stack
+
+    Dev->>Gitea: git push (new commit)
+    Gitea->>Jenkins: Webhook / Pipeline Trigger
+    Jenkins->>Jenkins: Clone Repo + Run Scanners
+    Jenkins->>API: POST /api/scans (register scan)
+    API->>DB: Create scan_run record
+    Jenkins->>API: POST /api/scans/{id}/reports/{tool} (SARIF/JSON)
+    API->>DB: Parse + Store Findings
+    API->>CVE: Enrich findings with CVE data
+    CVE->>DB: Update cve_feed & match findings
+    API->>AI: Trigger /fix for HIGH/CRITICAL issues
+    AI->>AI: Analyze vulnerability + generate patch
+    AI->>Gitea: Create Pull Request with fixes
+    AI->>DB: Update findings (ai_fix_code, pr_url)
+    Gitea->>Dev: PR Notification for Review
+    Dev->>PR: Review & Merge (if valid)
+    API & Jenkins & AI ->>Mon: Export metrics & logs
+    Mon->>Grafana: Real-time Dashboards
 ```
 
-<details>
-<summary>Result</summary>
 
-https://user-images.githubusercontent.com/1161307/171013513-95f18734-233d-45d3-aaf5-d6aec687db0e.mov
+##  Architecture & Components
 
-</details>
+The system is orchestrated using Docker Compose. All services operate within a dedicated custom bridge network (`sg-net`).
 
-```bash
-trivy fs --scanners vuln,secret,misconfig myproject/
-```
+### Core Services
 
-<details>
-<summary>Result</summary>
-
-https://user-images.githubusercontent.com/1161307/171013917-b1f37810-f434-465c-b01a-22de036bd9b3.mov
-
-</details>
-
-```bash
-trivy k8s --report summary cluster
-```
-
-<details>
-<summary>Result</summary>
-
-![k8s summary](docs/imgs/trivy-k8s.png)
-
-</details>
-
-## FAQ
-
-### How to pronounce the name "Trivy"?
-
-`tri` is pronounced like **tri**gger, `vy` is pronounced like en**vy**.
-
-## Want more? Check out Aqua
-
-If you liked Trivy, you will love Aqua which builds on top of Trivy to provide even more enhanced capabilities for a complete security management offering.  
-You can find a high level comparison table specific to Trivy users [here](https://trivy.dev/docs/latest/commercial/compare/).
-In addition check out the <https://aquasec.com> website for more information about our products and services.
-If you'd like to contact Aqua or request a demo, please use this form: <https://www.aquasec.com/demo>
-
-## Community
-
-Trivy is an [Aqua Security][aquasec] open source project.  
-Learn about our open source work and portfolio [here][oss].  
-Contact us about any matter by opening a GitHub Discussion [here][discussions]
-
-Please ensure to abide by our [Code of Conduct][code-of-conduct] during all interactions.
-
-[test]: https://github.com/aquasecurity/trivy/actions/workflows/test.yaml
-[test-img]: https://github.com/aquasecurity/trivy/actions/workflows/test.yaml/badge.svg
-[go-report]: https://goreportcard.com/report/github.com/aquasecurity/trivy
-[go-report-img]: https://goreportcard.com/badge/github.com/aquasecurity/trivy
-[release]: https://github.com/aquasecurity/trivy/releases
-[release-img]: https://img.shields.io/github/release/aquasecurity/trivy.svg?logo=github
-[github-downloads-img]: https://img.shields.io/github/downloads/aquasecurity/trivy/total?logo=github
-[docker-pulls]: https://img.shields.io/docker/pulls/aquasec/trivy?logo=docker&label=docker%20pulls%20%2F%20trivy
-[license]: https://github.com/aquasecurity/trivy/blob/main/LICENSE
-[license-img]: https://img.shields.io/badge/License-Apache%202.0-blue.svg
-[homepage]: https://trivy.dev
-[docs]: https://trivy.dev/docs/latest/
-[pronunciation]: #how-to-pronounce-the-name-trivy
-[code-of-conduct]: https://github.com/aquasecurity/community/blob/main/CODE_OF_CONDUCT.md
-
-[Installation]:https://trivy.dev/docs/latest/getting-started/installation/
-[Ecosystem]: https://trivy.dev/docs/latest/ecosystem/
-[Scanning Coverage]: https://trivy.dev/docs/latest/coverage/
-
-[alpine]: https://ariadne.space/2021/06/08/the-vulnerability-remediation-lifecycle-of-alpine-containers/
-[rego]: https://www.openpolicyagent.org/docs/latest/#rego
-[sigstore]: https://www.sigstore.dev/
-
-[aquasec]: https://aquasec.com
-[oss]: https://www.aquasec.com/products/open-source-projects/
-[discussions]: https://github.com/aquasecurity/trivy/discussions
-# pipeline fix Saturday 13 June 2026 11:15:50 AM IST
-=======
-# VigilentOps
-# Hello mr jash-watch
+| Service | Description | Key Ports | Tech / Notes |
+| :--- | :--- | :--- | :--- |
+| **Gitea** | Self-hosted Git repository & webhooks | `3000` (Web), `2222` (SSH) | Postgres-backed |
+| **Gitea Runner** | Executes Gitea CI/CD actions and jobs | — | Docker socket mounted |
+| **Jenkins** | Orchestrates scanning pipelines | `8081` (Web), `50000` (Agents) | Custom Dockerfile, Configuration-as-Code (CASC) |
+| **PostgreSQL** | Central database for scans, findings, and CVEs | — | Automated init scripts for schema (`init.sql`) |
+| **Redis** | Job queue for asynchronous tasks | — | Powers Celery workers |
+| **Orchestrator** | Main API for webhooks, scan registration, & reports | `8000` | Python / FastAPI, Prometheus metrics exporter |
+| **Celery Worker** | Background AI fix task runner | — | Processes automated remediation tasks |
+| **CVE-Intel Poller**| Fetches and stores latest CVE data | `8001` | Periodic updates to CVE database |
+| **Dashboard** | Modern React frontend for visibility | `3001` | Connects directly to Orchestrator API |
+| **Prometheus & Grafana**| Metrics collection and visualization dashboards | `9090` / `3002` | Pre-provisioned configuration files |
+| **Falco + Exporter** | Runtime threat detection and monitoring | — | Kernel & container-level monitoring |
+| **Wazuh** | Host Intrusion Detection System (HIDS) | Various | Configured with secure proxy |
+| **Loki + Promtail** | Centralized log aggregation | `3100` | Aggregates system and Wazuh security alerts |
 
 
-# Hello guys 😇
->>>>>>> c50a371974349fcffc6c1fbdc588f8bb821e1464
+
+##  Database Schema (`init.sql`)
+
+* `scan_runs`: Tracks pipeline executions (repository, commit hash, status, severity counts).
+* `findings`: Detailed vulnerability records (SARIF/Bandit parsed, linked to specific scan runs).
+* `cve_feed`: Cached CVE intelligence data (NVD details, severity ratings, KEV flags).
+* `alerts`: Notification tracking and alerting history.
+* *Optimized Indexes:* Built-in indexes ensure rapid query performance for recent scans and severity lookups.
+
+
+##  Key Modules & Workflows
+
+### 1. Scanning & Pipelines (`jenkins/`, `scanners/`)
+* Jenkins pipelines (`jenkins/pipelines/`) clone target repositories and execute security tools:
+  * **Semgrep** (utilizing custom rules located in `scanners/semgrep-rules`).
+  * **Bandit** (Python SAST analysis).
+  * **Trivy** & **Gitleaks** (Container, dependency, and secret scanning).
+* Reports (in SARIF/JSON formats) are uploaded to the Orchestrator API endpoint (`/api/scans/{id}/reports/{tool}`).
+* The engine parses findings, applies severity mappings, and extracts relevant code snippets.
+
+### 2. AI Engine (`ai-engine/`)
+* **Core Files:** `main.py` (FastAPI), `fix_engine.py`, `ai_fix.py`, `nvd_client.py`, `tasks.py` (Celery), `db.py`.
+* **Workflow:**
+  1. Enriches findings with live CVE data via `/api/scans/{id}/enrich`.
+  2. Triggers automated fixes via `/api/scans/{id}/fix` (filters for high/critical issues).
+  3. AI model generates secure code patches.
+  4. Automatically opens a Gitea Pull Request containing details, CVE references, and remediation notes.
+* **Powered by:** NVIDIA NIM or compatible LLM endpoints for deep code comprehension and patching.
+
+### 3. CVE Intelligence (`cve-intel/`)
+* Poller service periodically fetches the latest vulnerability disclosures (NVD, etc.) and populates the `cve_feed` table.
+* Ensures accurate severity matching and up-to-date remediation guidance.
+
+### 4. Dashboard (`dashboard/`)
+* React application (`src/`, `public/`).
+* Provides a centralized UI for viewing scan history, active security findings, performance metrics, and embedded Grafana panels.
+
+### 5. Monitoring & Observability (`monitoring/`)
+* Prometheus configurations and auto-provisioned Grafana dashboards.
+* Falco security rules, Wazuh configurations, and cAdvisor container resource telemetry.
+
+
+
+##  Setup & Installation
+
+### Option A: Recommended Installation on Kali Linux (`setup-kali.sh`)
+1. Clone the repository and navigate to the project root.
+2. Execute the setup script to install Docker, Python tools (Semgrep, Bandit), Trivy, Gitleaks, and pull required container images:
+   ```bash
+   bash setup-kali.sh
+   ```
+3. Configure your environment variables in the `.env` file (PostgreSQL credentials, webhook secrets, AI/CVE API keys).
+4. Launch the platform using Docker Compose:
+   ```bash
+   docker compose up -d
+   ```
+
+### Option B: Manual Installation
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-org/vigilentops.git
+   cd vigilentops
+   ```
+2. Copy and configure your `.env` file with proper database credentials and API keys.
+3. Initialize the database schema using `init.sql`.
+4. Spin up the containers:
+   ```bash
+   docker compose up -d
+   ```
+5. Configure Gitea webhooks to point to your Orchestrator API endpoint for real-time CI triggers.
+
+
+
+##  Usage & Integration
+
+* **Developers:** Simply push code changes to your Gitea repository. This triggers automated security scans and potential AI-powered fix Pull Requests.
+* **Security Engineers:** Review automated PRs, investigate deep vulnerability insights, and monitor system health via Grafana dashboards.
+* **API Consumers:** Access interactive API documentation at `/docs` (provided by FastAPI) for custom tooling integrations.
+* **Webhooks:** Gitea webhooks ensure real-time event-driven triggers to the Orchestrator service.
+
+
