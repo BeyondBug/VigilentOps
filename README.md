@@ -5,6 +5,9 @@
 VigilentOps  is a fully self-hosted and automated vulnerability management platform. It continuously scans source code for security issues, correlates findings with real-world CVE intelligence, applies AI-powered automated remediation, and provides comprehensive monitoring and observability. Human interaction is streamlined exclusively to reviewing and approving the AI-generated pull requests.
 
 
+## Currently Working On 
+<img width="2720" height="3280" alt="secureguard_expanded_pipeline" src="https://github.com/user-attachments/assets/1f63da9a-d89b-4c2b-90b0-88385554458b" />
+
 
 ##  Project Overview
 
