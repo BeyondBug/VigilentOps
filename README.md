@@ -6,8 +6,124 @@ VigilentOps  is a fully self-hosted and automated vulnerability management platf
 
 
 ## Currently Working On 
-<img width="2720" height="3280" alt="secureguard_expanded_pipeline" src="https://github.com/user-attachments/assets/1f63da9a-d89b-4c2b-90b0-88385554458b" />
+```mermaid
+flowchart TD
+    %% -------------------------------------------------------------
+    %% TRIGGERS LAYER
+    %% -------------------------------------------------------------
+    subgraph Triggers ["Triggers"]
+        direction LR
+        t1[Git push]
+        t2[Jenkins build]
+        t3[Cron nightly]
+        t4[Manual API]
+    end
 
+    %% -------------------------------------------------------------
+    %% ORCHESTRATION LAYER
+    %% -------------------------------------------------------------
+    jp[Jenkins pipeline<br/>Orchestrates all scans]
+
+    t1 & t2 & t3 & t4 --> jp
+
+    %% -------------------------------------------------------------
+    %% SCANNER GRID LAYER (Subgraphs used to force columns)
+    %% -------------------------------------------------------------
+    subgraph ScannerGrid ["Scanner grid — runs in parallel"]
+        direction TB
+        
+        subgraph Col1 [" "]
+            direction TB
+            s1["Semgrep<br/>SAST — code patterns<br/>existing ✓"]
+            s2["SonarQube<br/>Code quality + SAST<br/>NEW"]
+            s3["Nuclei<br/>Vuln scanner<br/>NEW"]
+            s1 --> s2 --> s3
+        end
+
+        subgraph Col2 [" "]
+            direction TB
+            b1["Bandit<br/>SAST — Python sec<br/>existing ✓"]
+            b2["OWASP ZAP<br/>DAST — web app<br/>NEW"]
+            b3["Dep-Check<br/>OWASP SCA<br/>NEW"]
+            b1 --> b2 --> b3
+        end
+
+        subgraph Col3 [" "]
+            direction TB
+            tr1["Trivy<br/>Container vulns<br/>existing ✓"]
+            tr2["Grype<br/>FS + image vulns<br/>NEW"]
+            tr3["Dockle<br/>Image lint<br/>NEW"]
+            tr1 --> tr2 --> tr3
+        end
+
+        subgraph Col4 [" "]
+            direction TB
+            g1["Gitleaks<br/>Secret detection<br/>existing ✓"]
+            g2["Checkov<br/>IaC — Docker/K8s<br/>NEW"]
+            g3["Snyk<br/>Dep + container<br/>NEW"]
+            g1 --> g2 --> g3
+        end
+    end
+
+    jp --> ScannerGrid
+
+    %% -------------------------------------------------------------
+    %% AGGREGATION & Remediations
+    %% -------------------------------------------------------------
+    sgo[SecureGuard orchestrator<br/>Aggregates + deduplicates findings]
+
+    s3 & b3 & tr3 & g3 --> sgo
+
+    ai[AI fix engine<br/>Claude generates patch PR<br/>+ Gitea issue created]
+    ga[Grafana alerting<br/>Push metrics via pushgateway<br/>Dashboard panels update]
+    ne[Notification engine<br/>Slack · WhatsApp · Jira<br/>webhook dispatcher]
+
+    sgo --> ai & ga & ne
+
+    %% -------------------------------------------------------------
+    %% ACTIONS LAYER
+    %% -------------------------------------------------------------
+    bj[Block Jenkins build]
+    sl[Slack]
+    wh[WhatsApp]
+    ji[Jira]
+
+    ai --> bj
+    ne --> sl & wh & ji
+
+    %% -------------------------------------------------------------
+    %% STYLING AND THEME DEFINTIONS
+    %% -------------------------------------------------------------
+    %% Layout tweaks for invisible scanner containers
+    style Col1 fill:none,stroke:none;
+    style Col2 fill:none,stroke:none;
+    style Col3 fill:none,stroke:none;
+    style Col4 fill:none,stroke:none;
+    style ScannerGrid fill:#fcfcfc,stroke:#ccc,stroke-dasharray: 5 5;
+    style Triggers fill:none,stroke:none;
+
+    %% Element Colors
+    classDef existingScanner fill:#e2f0d9,stroke:#a8d08d,color:#1e4620;
+    classDef newScanner fill:#eedeff,stroke:#b4a2db,color:#3b1e6e;
+    classDef orchestrator fill:#ddebf7,stroke:#9cc2e6,color:#1f4e79;
+    classDef aiRemediation fill:#e2efda,stroke:#a8d08d,color:#385723;
+    classDef grafana fill:#fff2cc,stroke:#ffd966,color:#7f6000;
+    classDef notification fill:#fce4d6,stroke:#f8cbad,color:#c65911;
+    classDef blockBuild fill:#fff2cc,stroke:#ffc000,color:#b22222,font-weight:bold;
+    classDef actionNode fill:#f2f2f2,stroke:#bfbfbf,color:#595959;
+    classDef triggerNode fill:#fff,stroke:#7f7f7f,color:#595959;
+
+    %% Class Assignments
+    class t1,t2,t3,t4 triggerNode;
+    class jp,sgo orchestrator;
+    class s1,b1,tr1,g1 existingScanner;
+    class s2,s3,b2,b3,tr2,tr3,g2,g3 newScanner;
+    class ai aiRemediation;
+    class ga grafana;
+    class ne notification;
+    class bj blockBuild;
+    class sl,wh,ji actionNode;
+```
 
 ##  Project Overview
 
