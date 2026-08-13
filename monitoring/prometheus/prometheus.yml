@@ -82,3 +82,8 @@ scrape_configs:
     relabel_configs:
       - target_label: service
         replacement: cadvisor
+
+  - job_name: 'pushgateway'
+    honor_labels: true
+    static_configs:
+      - targets: ['sg-pushgateway:9091']

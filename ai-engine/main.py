@@ -40,11 +40,46 @@ WEBHOOK_SECRET = os.getenv("GITEA_WEBHOOK_SECRET", "")
 
 @app.on_event("startup")
 async def startup():
-    """Initialize DB tables on startup."""
+    """Initialize DB tables and replay metrics from DB on startup."""
     try:
         init_db()
     except Exception as e:
         print(f"DB init warning: {e}")
+
+    # Replay existing scan counts into Prometheus counters
+    # (counters reset on restart — this restores accurate values)
+    try:
+        with get_db_session() as db:
+            from sqlalchemy import text as _text, func
+            # Count scans by status
+            rows = db.execute(_text(
+                "SELECT status, COUNT(*) FROM scan_runs GROUP BY status"
+            )).fetchall()
+            for status, count in rows:
+                for _ in range(count):
+                    scans_total.labels(repo="ShadowPatch", status=status).inc()
+
+            # Count findings by severity and scanner
+            rows2 = db.execute(_text(
+                "SELECT severity, scanner, COUNT(*) FROM findings GROUP BY severity, scanner"
+            )).fetchall()
+            for severity, scanner, count in rows2:
+                for _ in range(count):
+                    findings_total.labels(
+                        severity=severity or "UNKNOWN",
+                        scanner=scanner or "unknown"
+                    ).inc()
+
+            # Count PRs opened
+            pr_count = db.execute(_text(
+                "SELECT COUNT(*) FROM findings WHERE fix_status = 'pr_opened'"
+            )).scalar()
+            for _ in range(pr_count or 0):
+                prs_opened_total.labels(repo="ShadowPatch").inc()
+
+            print(f"Metrics replayed from DB on startup")
+    except Exception as e:
+        print(f"Metric replay warning: {e}")
 
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -360,6 +395,12 @@ async def fix_scan(scan_id: str, request: Request):
     import asyncio
     asyncio.create_task(_run_fix())
 
+    # Increment metric immediately when fix is started
+    try:
+        repo_name = repo_url.rstrip("/").rstrip(".git").split("/")[-1]
+        prs_opened_total.labels(repo=repo_name).inc()
+    except Exception:
+        pass
     return {"status": "fix_started", "scan_id": scan_id, "repo_url": repo_url}
 
 
@@ -368,6 +409,45 @@ async def notify_scan(scan_id: str, request: Request):
     """Notification trigger."""
     return {"status": "notified", "scan_id": scan_id}
 
+
+
+@app.get("/api/cves")
+async def get_cve_findings(limit: int = 100):
+    """Return all findings that have CVE IDs — for Grafana CVE panel."""
+    try:
+        with get_db_session() as db:
+            from sqlalchemy import text as _text
+            rows = db.execute(_text("""
+                SELECT f.cve_id, f.severity, f.cvss_score, f.title,
+                       f.file_path, f.scanner, f.fix_status, f.pr_url,
+                       f.pr_confidence, sr.repo_name, sr.id as scan_id,
+                       sr.started_at
+                FROM findings f
+                JOIN scan_runs sr ON sr.id = f.scan_run_id
+                WHERE f.cve_id IS NOT NULL
+                  AND f.cve_id != ''
+                ORDER BY f.cvss_score DESC NULLS LAST, f.severity DESC
+                LIMIT :limit
+            """), {"limit": limit}).fetchall()
+
+            return [
+                {
+                    "cve_id":       r.cve_id,
+                    "severity":     r.severity,
+                    "cvss_score":   float(r.cvss_score) if r.cvss_score else None,
+                    "title":        r.title,
+                    "file_path":    r.file_path,
+                    "scanner":      r.scanner,
+                    "fix_status":   r.fix_status,
+                    "pr_url":       r.pr_url,
+                    "confidence":   float(r.pr_confidence) if r.pr_confidence else None,
+                    "repo":         r.repo_name,
+                    "scan_id":      r.scan_id,
+                }
+                for r in rows
+            ]
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/health")
 async def health():

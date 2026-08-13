@@ -1,0 +1,34 @@
+apiVersion: 1
+
+datasources:
+
+  - name: Prometheus
+    type: prometheus
+    uid: PBFA97CFB590B2093
+    access: proxy
+    url: http://sg-prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: '15s'
+
+  - name: Loki
+    type: loki
+    uid: sg-loki-uid
+    access: proxy
+    url: http://sg-loki:3100
+    isDefault: false
+    editable: true
+
+  - name: Infinity
+    type: yesoreyeram-infinity-datasource
+    uid: sg-infinity-uid
+    access: proxy
+    isDefault: false
+    editable: true
+    jsonData:
+      tlsSkipVerify: true
+      allowedHosts:
+        - http://sg-wazuh-proxy:8002
+        - http://sg-cve-intel:8001

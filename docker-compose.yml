@@ -9,6 +9,8 @@ networks:
           gateway: 172.18.0.1
 
 volumes:
+  sonarqube_data:
+  sonarqube_logs:
   postgres_data:
   redis_data:
   gitea_data:
@@ -110,9 +112,12 @@ services:
     build: ./ai-engine
     container_name: sg-celery
     env_file: .env
+    environment:
+      - PUSHGATEWAY_URL=http://sg-pushgateway:9091
     depends_on:
       - redis
       - postgres
+      - sg-pushgateway
     volumes:
       - ./ai-engine:/app
       - /var/run/docker.sock:/var/run/docker.sock
@@ -175,11 +180,26 @@ services:
   # ── Prometheus ───────────────────────────────────────────
   prometheus:
     image: prom/prometheus:latest
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--web.enable-lifecycle"
     container_name: sg-prometheus
     ports:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      - sg-pushgateway
+    networks:
+      - sg-net
+    restart: unless-stopped
+
+  # ── Pushgateway (metrics bridge for Celery workers) ──────
+  sg-pushgateway:
+    image: prom/pushgateway:latest
+    container_name: sg-pushgateway
+    ports:
+      - "9091:9091"
     networks:
       - sg-net
     restart: unless-stopped
@@ -193,6 +213,12 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=VR@b3y0nd
+      # Install Infinity datasource plugin on every startup
+      - GF_PLUGINS_PREINSTALL=yesoreyeram-infinity-datasource
+      # Allow the plugin to make outbound requests to internal services
+      - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=yesoreyeram-infinity-datasource
+      # Allow Infinity to reach internal Docker network URLs
+      - GF_SECURITY_ANGULAR_SUPPORT_ENABLED=true
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
@@ -310,7 +336,7 @@ services:
       - sg-net
     restart: unless-stopped
 
-# ── Loki (log aggregation) ───────────────────────────────────
+  # ── Loki (log aggregation) ───────────────────────────────
   loki:
     image: grafana/loki:2.9.0
     container_name: sg-loki
@@ -321,7 +347,7 @@ services:
       - sg-net
     restart: unless-stopped
 
-  # ── Promtail (reads Wazuh alerts and ships to Loki) ──────────
+  # ── Promtail (reads Wazuh alerts and ships to Loki) ──────
   promtail:
     image: grafana/promtail:2.9.0
     container_name: sg-promtail
@@ -336,6 +362,7 @@ services:
       - sg-net
     restart: unless-stopped
 
+  # ── Wazuh API proxy ──────────────────────────────────────
   wazuh-proxy:
     build: ./wazuh-proxy
     container_name: sg-wazuh-proxy

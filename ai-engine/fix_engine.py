@@ -25,7 +25,9 @@ from collections import defaultdict
 import httpx
 import psycopg2
 import psycopg2.extras
+from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
+PUSHGATEWAY_URL = os.getenv("PUSHGATEWAY_URL", "http://sg-pushgateway:9091")
 log = logging.getLogger("ai-fix-v3")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -417,6 +419,57 @@ Average confidence: **{avg_confidence:.0%}**
     return None
 
 
+def push_cve_metrics(scan_run_id: int, all_findings: list[dict], fixed_files: list[dict]):
+    """
+    Push secureguard_cve_fixed_total metrics to Pushgateway.
+    Panel expects labels: cve_id, job, package, severity
+    """
+    registry = CollectorRegistry()
+    cve_gauge = Gauge(
+        'secureguard_cve_fixed_total',
+        'CVEs detected and auto-fixed by SecureGuard AI engine per scan run',
+        ['cve_id', 'job', 'package', 'severity'],
+        registry=registry,
+    )
+
+    # Build a set of fixed file paths for quick lookup
+    fixed_paths = {f['file_path'] for f in fixed_files}
+
+    seen = set()
+    for finding in all_findings:
+        # Only emit for findings in files that were actually fixed
+        if finding.get('file_path') not in fixed_paths:
+            continue
+
+        cve_id   = finding.get('cve_id') or finding.get('rule_id') or 'N/A'
+        package  = finding.get('file_path', 'unknown')
+        severity = finding.get('severity', 'UNKNOWN')
+        job      = finding.get('scanner', 'secureguard')
+
+        key = (cve_id, package, severity, job)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        cve_gauge.labels(
+            cve_id=cve_id,
+            job=job,
+            package=package,
+            severity=severity,
+        ).set(1)
+
+    try:
+        push_to_gateway(
+            PUSHGATEWAY_URL,
+            job=f'sg-ai-fix-engine-scan-{scan_run_id}',
+            registry=registry,
+        )
+        log.info(f"Pushed {len(seen)} CVE metrics to Pushgateway")
+    except Exception as e:
+        log.error(f"Pushgateway push failed: {e}")
+
+
+
 # ── Main ──────────────────────────────────────────────────────
 
 def run_ai_fix_engine(scan_run_id: int, repo_url: str,
@@ -536,6 +589,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                           fixed_files, avg_conf, model_used)
         if pr_url:
             mark_all_pr_opened(scan_run_id, pr_url, avg_conf)
+            push_cve_metrics(scan_run_id, all_findings, fixed_files)
             return {
                 "status":          "complete",
                 "fixes_attempted": len(by_file),
