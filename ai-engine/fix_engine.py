@@ -122,9 +122,8 @@ CURRENT FILE CONTENT:
 {file_content}
 ```
 OUTPUT RULES:
-- Output ONLY raw source code — zero other text
-- Do NOT wrap in markdown fences (no ```)
-- First line of output = first line of the fixed file"""
+- You MUST wrap your final fixed code in a single markdown block (```)
+- The markdown block must contain the FULL file content, not just a snippet."""
 
 def build_secondary_prompt(file_path: str, file_content: str, findings: list[dict]) -> str:
     vuln_list = ""
@@ -138,7 +137,7 @@ CODE:
 ```
 {file_content}
 ```
-Rule: Return ONLY the raw fixed code. No explanation. No formatting."""
+Rule: Return the FULL fixed code wrapped in a markdown block (```)."""
 
 def build_fallback_prompt(file_path: str, file_content: str, findings: list[dict]) -> str:
     vuln_list = ""
@@ -153,7 +152,7 @@ CODE:
 ```
 {file_content}
 ```
-Return just the raw code."""
+Return the code wrapped in ```"""
 
 def build_fix_prompt(file_path: str, file_content: str,
                       findings: list[dict]) -> str:
