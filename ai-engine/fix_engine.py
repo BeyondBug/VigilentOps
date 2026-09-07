@@ -35,7 +35,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 NVIDIA_API_URL   = "https://integrate.api.nvidia.com/v1/chat/completions"
 NVIDIA_API_KEY   = os.getenv("NVIDIA_API_KEY", "")
 PRIMARY_MODEL    = os.getenv("NVIDIA_MODEL",   "meta/llama-3.1-70b-instruct")
-FALLBACK_MODEL   = "nvidia/kimi-k2"
+SECONDARY_MODEL  = os.getenv("SECONDARY_MODEL", "meta/llama-3.1-8b-instruct")
+FALLBACK_MODEL   = os.getenv("FALLBACK_MODEL",  "nvidia/kimi-k2")
 GITEA_URL        = os.getenv("GITEA_URL",      "http://gitea:3000")
 GITEA_TOKEN      = os.getenv("GITEA_TOKEN",    "")
 
@@ -202,24 +203,36 @@ def call_nim(prompt: str, model: str, max_tokens: int = 4096) -> tuple[str, floa
 
 def try_with_fallback(prompt: str, max_tokens: int = 4096) -> tuple[str, float, str]:
     """
-    Try primary model first. If quality is poor, use fallback.
+    Try primary model first. If quality is poor, use secondary, then fallback.
     Returns (content, confidence, model_used)
     """
+    # 1. Primary
     content, confidence = call_nim(prompt, PRIMARY_MODEL, max_tokens)
-
     if confidence >= MIN_CONFIDENCE and content:
         return content, confidence, PRIMARY_MODEL
 
-    log.warning(f"Primary model confidence {confidence:.0%} — trying fallback {FALLBACK_MODEL}")
-    content2, confidence2 = call_nim(prompt, FALLBACK_MODEL, max_tokens)
+    log.warning(f"Primary model confidence {confidence:.0%} — trying secondary {SECONDARY_MODEL}")
+    
+    # 2. Secondary
+    content2, confidence2 = call_nim(prompt, SECONDARY_MODEL, max_tokens)
+    if confidence2 >= MIN_CONFIDENCE and content2:
+        return content2, confidence2, SECONDARY_MODEL
 
-    if confidence2 > confidence and content2:
-        return content2, confidence2, FALLBACK_MODEL
+    log.warning(f"Secondary model confidence {confidence2:.0%} — trying fallback {FALLBACK_MODEL}")
 
-    # Return whichever was better
-    if content and confidence >= 0.3:
+    # 3. Fallback
+    content3, confidence3 = call_nim(prompt, FALLBACK_MODEL, max_tokens)
+    if confidence3 > max(confidence, confidence2) and content3:
+        return content3, confidence3, FALLBACK_MODEL
+
+    # Return whichever was best
+    best_conf = max(confidence, confidence2, confidence3)
+    if best_conf == confidence and content:
         return content, confidence, PRIMARY_MODEL
-    return content2, confidence2, FALLBACK_MODEL
+    elif best_conf == confidence2 and content2:
+        return content2, confidence2, SECONDARY_MODEL
+    else:
+        return content3, confidence3, FALLBACK_MODEL
 
 
 # ── File operations ───────────────────────────────────────────
@@ -394,7 +407,7 @@ Average confidence: **{avg_confidence:.0%}**
 - [ ] Confirm bumped dependency versions are compatible with your codebase
 
 > ⚠️ AI-generated — requires human review before merging.
-> _SecureGuard AI Engine v3 · Primary: {PRIMARY_MODEL} · Fallback: {FALLBACK_MODEL}_"""
+> _SecureGuard AI Engine v3 · Primary: {PRIMARY_MODEL} · Secondary: {SECONDARY_MODEL} · Fallback: {FALLBACK_MODEL}_"""
 
     title = (f"[SecureGuard] Scan #{scan_run_id} — "
              f"{total} vulns fixed in {len(fixed_files)} files "
@@ -582,7 +595,12 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
 
         # Calculate average confidence
         avg_conf   = sum(i["confidence"] for i in fixed_files) / len(fixed_files)
-        model_used = FALLBACK_MODEL if FALLBACK_MODEL in models_used else PRIMARY_MODEL
+        if FALLBACK_MODEL in models_used:
+            model_used = FALLBACK_MODEL
+        elif SECONDARY_MODEL in models_used:
+            model_used = SECONDARY_MODEL
+        else:
+            model_used = PRIMARY_MODEL
 
         # Open single PR
         pr_url = open_pr(repo_url, branch_name, scan_run_id,
