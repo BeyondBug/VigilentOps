@@ -552,8 +552,8 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                        commit_sha: str) -> dict:
     log.info(f"AI Fix Engine v3 — scan #{scan_run_id}")
 
-    if not NVIDIA_API_KEY:
-        return {"status": "skipped", "reason": "NVIDIA_API_KEY not set"}
+    if not PRIMARY_API_KEY:
+        return {"status": "skipped", "reason": "PRIMARY_API_KEY not set"}
 
     all_findings = get_all_findings(scan_run_id)
     log.info(f"Total MEDIUM+ findings: {len(all_findings)}")
