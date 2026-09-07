@@ -34,10 +34,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 # ── Config ────────────────────────────────────────────────────
 NVIDIA_API_URL   = "https://integrate.api.nvidia.com/v1/chat/completions"
 NVIDIA_API_KEY   = os.getenv("NVIDIA_API_KEY", "")
-PRIMARY_MODEL    = os.getenv("NVIDIA_MODEL",   "meta/llama-3.1-70b-instruct")
-SECONDARY_MODEL  = os.getenv("SECONDARY_MODEL", "meta/llama-3.1-8b-instruct")
-FALLBACK_MODEL   = os.getenv("FALLBACK_MODEL",  "nvidia/kimi-k2")
-GITEA_URL        = os.getenv("GITEA_URL",      "http://gitea:3000")
+PRIMARY_MODEL    = os.getenv("NVIDIA_MODEL",   "nvidia/nemotron-3-ultra-550b-a55b")
+SECONDARY_MODEL  = os.getenv("NVIDIA_MODEL_SECONDARY", "nvidia/llama-3.3-nemotron-super-49b-v1")
+FALLBACK_MODEL   = os.getenv("NVIDIA_MODEL_FALLBACK",  "nvidia/llama-3.1-nemotron-70b-instruct")
+GITEA_URL        = os.getenv("GITEA_URL",      "http://sg-gitea:3000")
 GITEA_TOKEN      = os.getenv("GITEA_TOKEN",    "")
 
 DB_PARAMS = {
@@ -101,6 +101,8 @@ def mark_all_pr_opened(scan_run_id: int, pr_url: str, confidence: float):
 
 # ── NIM call — whole-file approach ───────────────────────────
 
+MAX_FILE_CHARS = 200_000 # Maximum source content sent to the AI model
+
 def build_fix_prompt(file_path: str, file_content: str,
                       findings: list[dict]) -> str:
     """
@@ -142,7 +144,13 @@ STRICT RULES:
 11. Replace hardcoded secrets with os.environ.get()
 12. For requirements.txt: bump vulnerable packages to latest safe versions
 
-OUTPUT: The complete fixed file content only. First character must be the first character of the file."""
+OUTPUT RULES (violating any = failure):
+- Output ONLY raw source code — zero other text
+- Do NOT open with any explanation, preamble, or thinking steps
+- Do NOT close with any explanation or notes
+- Do NOT wrap in markdown fences (no ``` or ```python)
+- First line of output = first line of the fixed file
+- Last line of output = last line of the fixed file"""
 
 
 def call_nim(prompt: str, model: str, max_tokens: int = 4096) -> tuple[str, float]:
