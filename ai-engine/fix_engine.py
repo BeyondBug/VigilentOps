@@ -220,8 +220,6 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
                 "model":       model,
                 "messages":    [{"role": "user", "content": prompt}],
                 "max_tokens":  max_tokens,
-                "temperature": 0.05,
-                "top_p":       0.9,
             },
             timeout=120,
         )
