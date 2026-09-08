@@ -65,6 +65,15 @@ pipeline {
                         '''
                     }
                 }
+                stage('Checkov') {
+                    steps {
+                        sh '''
+                            docker run --rm -v $(pwd)/scan_workspace:/src \
+                                bridgecrew/checkov:latest -d /src -o json \
+                                > reports/checkov.json || true
+                        '''
+                    }
+                }
             }
         }
 

@@ -202,6 +202,27 @@ pipeline {
                     }
                 }
 
+                stage('Checkov IaC') {
+                    steps {
+                        sh """
+                            echo "Running Checkov via HOST path: ${env.HOST_SOURCE}"
+
+                            docker run --rm \
+                              -v ${env.HOST_SOURCE}:/src \
+                              -v ${env.HOST_REPORTS}:/reports \
+                              bridgecrew/checkov:latest \
+                                -d /src \
+                                -o sarif \
+                                --output-file-path /reports/checkov.sarif \
+                                --soft-fail 2>&1 | tail -8 || true
+
+                            ls -lh ${REPORTS_DIR}/checkov.sarif 2>/dev/null \
+                              && echo "Checkov OK — \$(wc -c < ${REPORTS_DIR}/checkov.sarif) bytes" \
+                              || echo "WARNING: checkov no output"
+                        """
+                    }
+                }
+
             }
         }
 
@@ -214,6 +235,7 @@ pipeline {
                     for f in ${REPORTS_DIR}/semgrep.sarif \
                               ${REPORTS_DIR}/gitleaks.sarif \
                               ${REPORTS_DIR}/trivy-deps.sarif \
+                              ${REPORTS_DIR}/checkov.sarif \
                               ${REPORTS_DIR}/bandit.json; do
                         [ -f "\$f" ] || continue
                         TOOL=\$(basename \$f | sed 's/\\.sarif//;s/\\.json//')
