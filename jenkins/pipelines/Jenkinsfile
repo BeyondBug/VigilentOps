@@ -34,7 +34,7 @@ pipeline {
     }
 
     environment {
-        TARGET_REPO   = "${(env.REPO_URL ?: 'http://gitea:3000/BeyondBug/ShadowPatch.git').replace('localhost:3000', 'sg-gitea:3000').replace('gitea:3000', 'sg-gitea:3000')}"
+        TARGET_REPO   = "${(env.REPO_URL ?: 'http://gitea:3000/BeyondBug/ShadowPatch.git').replace('localhost:3000', 'sg-gitea:3000').replace('http://gitea:3000', 'http://sg-gitea:3000')}"
         TARGET_BRANCH = "${env.BRANCH_REF ? env.BRANCH_REF.replace('refs/heads/', '') : 'main'}"
         COMMIT_SHA    = "${env.COMMIT_SHA ?: 'HEAD'}"
         REPO_FULLNAME = "${env.REPO_NAME ?: 'ShadowPatch'}"
