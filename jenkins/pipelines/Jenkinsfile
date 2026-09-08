@@ -212,9 +212,7 @@ pipeline {
                               -v ${env.HOST_REPORTS}:/reports \
                               bridgecrew/checkov:latest \
                                 -d /src \
-                                -o sarif \
-                                --output-file-path /reports/checkov.sarif \
-                                --soft-fail 2>&1 | tail -8 || true
+                                -o sarif > ${REPORTS_DIR}/checkov.sarif || true
 
                             ls -lh ${REPORTS_DIR}/checkov.sarif 2>/dev/null \
                               && echo "Checkov OK — \$(wc -c < ${REPORTS_DIR}/checkov.sarif) bytes" \
