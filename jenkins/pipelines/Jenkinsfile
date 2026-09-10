@@ -221,6 +221,102 @@ pipeline {
                     }
                 }
 
+                stage('Snyk SCA') {
+                    steps {
+                        sh """
+                            echo "Running Snyk via HOST path: ${env.HOST_SOURCE}"
+                            if [ -z "\${SNYK_TOKEN}" ]; then
+                                echo "WARNING: SNYK_TOKEN not set, skipping."
+                                exit 0
+                            fi
+                            docker run --rm \
+                              -e SNYK_TOKEN=\${SNYK_TOKEN} \
+                              -v ${env.HOST_SOURCE}:/src \
+                              snyk/snyk:linux test --sarif --all-projects > ${REPORTS_DIR}/snyk.sarif || true
+
+                            ls -lh ${REPORTS_DIR}/snyk.sarif 2>/dev/null \
+                              && echo "Snyk OK — \$(wc -c < ${REPORTS_DIR}/snyk.sarif) bytes" \
+                              || echo "WARNING: snyk no output"
+                        """
+                    }
+                }
+
+                stage('Dockle Image') {
+                    steps {
+                        sh """
+                            echo "Running Dockle via HOST path: ${env.HOST_SOURCE}"
+                            docker build -t sg-target-scan:${env.BUILD_ID} ${env.HOST_SOURCE} || true
+                            docker run --rm \
+                              -v /var/run/docker.sock:/var/run/docker.sock \
+                              -v ${env.HOST_REPORTS}:/reports \
+                              goodwithtech/dockle:latest \
+                                -f json -o /reports/dockle.json \
+                                sg-target-scan:${env.BUILD_ID} || true
+
+                            ls -lh ${REPORTS_DIR}/dockle.json 2>/dev/null \
+                              && echo "Dockle OK — \$(wc -c < ${REPORTS_DIR}/dockle.json) bytes" \
+                              || echo "WARNING: dockle no output"
+                        """
+                    }
+                }
+
+                stage('Dep-Check SCA') {
+                    steps {
+                        sh """
+                            echo "Running Dep-Check via HOST path: ${env.HOST_SOURCE}"
+                            docker run --rm \
+                              -v ${env.HOST_SOURCE}:/src \
+                              -v ${env.HOST_REPORTS}:/reports \
+                              -v depcheck-cache:/usr/share/dependency-check/data \
+                              owasp/dependency-check:latest \
+                                --scan /src \
+                                --format SARIF \
+                                --out /reports/dep-check.sarif || true
+
+                            ls -lh ${REPORTS_DIR}/dep-check.sarif 2>/dev/null \
+                              && echo "Dep-Check OK — \$(wc -c < ${REPORTS_DIR}/dep-check.sarif) bytes" \
+                              || echo "WARNING: dep-check no output"
+                        """
+                    }
+                }
+
+                stage('Nuclei DAST') {
+                    steps {
+                        sh """
+                            echo "Running Nuclei offline via HOST path: ${env.HOST_SOURCE}"
+                            docker run --rm \
+                              -v ${env.HOST_SOURCE}:/src \
+                              -v ${env.HOST_REPORTS}:/reports \
+                              projectdiscovery/nuclei:latest \
+                                -u /src \
+                                -t file \
+                                -json-export /reports/nuclei.json || true
+
+                            ls -lh ${REPORTS_DIR}/nuclei.json 2>/dev/null \
+                              && echo "Nuclei OK — \$(wc -c < ${REPORTS_DIR}/nuclei.json) bytes" \
+                              || echo "WARNING: nuclei no output"
+                        """
+                    }
+                }
+
+                stage('Grype SCA') {
+                    steps {
+                        sh """
+                            echo "Running Grype via HOST path: ${env.HOST_SOURCE}"
+                            docker run --rm \
+                              -v ${env.HOST_SOURCE}:/src \
+                              -v ${env.HOST_REPORTS}:/reports \
+                              anchore/grype:latest \
+                                dir:/src \
+                                -o sarif > ${REPORTS_DIR}/grype.sarif || true
+
+                            ls -lh ${REPORTS_DIR}/grype.sarif 2>/dev/null \
+                              && echo "Grype OK — \$(wc -c < ${REPORTS_DIR}/grype.sarif) bytes" \
+                              || echo "WARNING: grype no output"
+                        """
+                    }
+                }
+
             }
         }
 
@@ -234,7 +330,12 @@ pipeline {
                               ${REPORTS_DIR}/gitleaks.sarif \
                               ${REPORTS_DIR}/trivy-deps.sarif \
                               ${REPORTS_DIR}/checkov.sarif \
-                              ${REPORTS_DIR}/bandit.json; do
+                              ${REPORTS_DIR}/bandit.json \
+                              ${REPORTS_DIR}/snyk.sarif \
+                              ${REPORTS_DIR}/dockle.json \
+                              ${REPORTS_DIR}/dep-check.sarif \
+                              ${REPORTS_DIR}/nuclei.json \
+                              ${REPORTS_DIR}/grype.sarif; do
                         [ -f "\$f" ] || continue
                         TOOL=\$(basename \$f | sed 's/\\.sarif//;s/\\.json//')
                         SIZE=\$(wc -c < "\$f")
