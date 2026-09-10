@@ -245,7 +245,7 @@ pipeline {
                     steps {
                         sh """
                             echo "Running Dockle via HOST path: ${env.HOST_SOURCE}"
-                            docker build -t sg-target-scan:${env.BUILD_ID} ${env.HOST_SOURCE} || true
+                            docker build -t sg-target-scan:${env.BUILD_ID} . || true
                             docker run --rm \
                               -v /var/run/docker.sock:/var/run/docker.sock \
                               -v ${env.HOST_REPORTS}:/reports \
