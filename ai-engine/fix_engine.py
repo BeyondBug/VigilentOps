@@ -257,14 +257,19 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
         return "", 0.0
 
 
-def try_with_fallback(file_path: str, file_content: str, findings: list[dict], max_tokens: int = 4096) -> tuple[str, float, str]:
+def try_with_fallback(file_path: str, file_content: str, findings: list[dict], max_tokens: int = 4096, is_requirements: bool = False) -> tuple[str, float, str]:
     """
     Try primary model first. If quality is poor, use secondary, then fallback.
     Returns (content, confidence, model_used)
     """
-    p1 = build_primary_prompt(file_path, file_content, findings)
-    p2 = build_secondary_prompt(file_path, file_content, findings)
-    p3 = build_fallback_prompt(file_path, file_content, findings)
+    if is_requirements:
+        p1 = build_sca_prompt(file_path, file_content, findings)
+        p2 = p1
+        p3 = p1
+    else:
+        p1 = build_primary_prompt(file_path, file_content, findings)
+        p2 = build_secondary_prompt(file_path, file_content, findings)
+        p3 = build_fallback_prompt(file_path, file_content, findings)
 
     # 1. Primary
     content, confidence = call_llm(p1, PRIMARY_MODEL, PRIMARY_API_URL, PRIMARY_API_KEY, max_tokens)
@@ -607,7 +612,8 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
             # Call LLM with fallback
             fixed_content, confidence, model_used = try_with_fallback(
                 file_path, file_content, findings,
-                max_tokens=max(2048, len(file_content.split()) * 3)
+                max_tokens=max(2048, len(file_content.split()) * 3),
+                is_requirements=is_requirements
             )
             models_used.append(model_used)
 
