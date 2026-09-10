@@ -208,53 +208,52 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
     """
     Call the LLM API. Returns (fixed_content, confidence).
     """
-    try:
-        r = httpx.post(
-            api_url,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type":  "application/json",
-            },
-            json={
-                "model":       model,
-                "messages":    [{"role": "user", "content": prompt}],
-                "max_tokens":  max_tokens,
-            },
-            timeout=300,
-        )
-        r.raise_for_status()
-        content = r.json()["choices"][0]["message"]["content"].strip()
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            r = httpx.post(
+                api_url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": 0.1,
+                },
+                timeout=45.0
+            )
+            r.raise_for_status()
 
-        # Strip accidental markdown fences
-        content = re.sub(r"^```[\w]*\n?", "", content)
-        content = re.sub(r"\n?```\s*$", "", content)
-        content = content.strip()
+            content = r.json()["choices"][0]["message"]["content"].strip()
+            
+            # Estimate confidence
+            lines        = content.splitlines()
+            comment_lines = sum(1 for l in lines if l.strip().startswith("#") and "TODO" not in l)
+            code_lines    = sum(1 for l in lines if l.strip() and not l.strip().startswith("#"))
+            comment_ratio = comment_lines / max(len(lines), 1)
 
-        # Estimate confidence:
-        # Low confidence if model added lots of comments or explanatory text
-        lines        = content.splitlines()
-        comment_lines = sum(1 for l in lines if l.strip().startswith("#") and "TODO" not in l)
-        code_lines    = sum(1 for l in lines if l.strip() and not l.strip().startswith("#"))
-        comment_ratio = comment_lines / max(len(lines), 1)
+            has_prose = any(l.strip().startswith(("The ", "This ", "I ", "Here", "Note"))
+                           for l in lines[:5])
 
-        # Penalise if the output looks like explanation not code
-        has_prose = any(l.strip().startswith(("The ", "This ", "I ", "Here", "Note"))
-                       for l in lines[:5])
+            confidence = 0.85
+            if comment_ratio > 0.3:
+                confidence -= 0.2
+            if has_prose:
+                confidence -= 0.3
 
-        confidence = 0.85
-        if comment_ratio > 0.3:
-            confidence -= 0.2
-        if has_prose:
-            confidence -= 0.3
+            return content, max(0.0, confidence)
 
-        return content, max(0.0, confidence)
-
-    except httpx.HTTPStatusError as e:
-        log.error(f"API HTTP {e.response.status_code}: {e.response.text[:200]}")
-        return "", 0.0
-    except Exception as e:
-        log.error(f"API call error: {e}")
-        return "", 0.0
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429 and attempt < max_retries - 1:
+                log.warning(f"API HTTP 429 Rate Limit. Sleeping for 10s (attempt {attempt + 1}/{max_retries})...")
+                time.sleep(10)
+                continue
+            log.error(f"API HTTP {e.response.status_code}: {e.response.text[:200]}")
+            return "", 0.0
+        except Exception as e:
+            log.error(f"API call error: {e}")
+            return "", 0.0
+    return "", 0.0
 
 
 def try_with_fallback(file_path: str, file_content: str, findings: list[dict], max_tokens: int = 4096, is_requirements: bool = False) -> tuple[str, float, str]:
