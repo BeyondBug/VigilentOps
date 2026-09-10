@@ -1,3 +1,4 @@
+import time
 """
 SecureGuard AI Fix Engine v3
 ─────────────────────────────
