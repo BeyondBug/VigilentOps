@@ -245,13 +245,19 @@ pipeline {
                     steps {
                         sh """
                             echo "Running Dockle via HOST path: ${env.HOST_SOURCE}"
-                            docker build -t sg-target-scan:${env.BUILD_ID} . || true
-                            docker run --rm \
-                              -v /var/run/docker.sock:/var/run/docker.sock \
-                              -v ${env.HOST_REPORTS}:/reports \
-                              goodwithtech/dockle:latest \
-                                -f json -o /reports/dockle.json \
-                                sg-target-scan:${env.BUILD_ID} || true
+                            DOCKERFILE=\$(find . -name Dockerfile | head -1)
+                            if [ -n "\$DOCKERFILE" ]; then
+                                DIR=\$(dirname "\$DOCKERFILE")
+                                docker build -t sg-target-scan:${env.BUILD_ID} "\$DIR" || true
+                                docker run --rm \
+                                  -v /var/run/docker.sock:/var/run/docker.sock \
+                                  -v ${env.HOST_REPORTS}:/reports \
+                                  goodwithtech/dockle:latest \
+                                    -f json -o /reports/dockle.json \
+                                    sg-target-scan:${env.BUILD_ID} || true
+                            else
+                                echo "No Dockerfile found for Dockle."
+                            fi
 
                             ls -lh ${REPORTS_DIR}/dockle.json 2>/dev/null \
                               && echo "Dockle OK — \$(wc -c < ${REPORTS_DIR}/dockle.json) bytes" \
@@ -271,6 +277,7 @@ pipeline {
                               owasp/dependency-check:latest \
                                 --scan /src \
                                 --format SARIF \
+                                --noupdate \
                                 --out /reports/dep-check.sarif || true
 
                             ls -lh ${REPORTS_DIR}/dep-check.sarif 2>/dev/null \
@@ -289,7 +296,6 @@ pipeline {
                               -v ${env.HOST_REPORTS}:/reports \
                               projectdiscovery/nuclei:latest \
                                 -u /src \
-                                -t file \
                                 -json-export /reports/nuclei.json || true
 
                             ls -lh ${REPORTS_DIR}/nuclei.json 2>/dev/null \
