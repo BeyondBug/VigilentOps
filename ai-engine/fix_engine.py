@@ -312,32 +312,6 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
 
     return best_content, best_confidence, best_model
 
-    
-    log.warning(f"Primary model confidence {confidence:.0%} — trying secondary {SECONDARY_MODEL}")
-    
-    # 2. Secondary
-    content2, confidence2 = call_llm(p2, SECONDARY_MODEL, SECONDARY_API_URL, SECONDARY_API_KEY, max_tokens)
-    if confidence2 >= MIN_CONFIDENCE and content2:
-        return content2, confidence2, SECONDARY_MODEL
-    
-    log.warning(f"Secondary model confidence {confidence2:.0%} — trying fallback {FALLBACK_MODEL}")
-    
-    # 3. Fallback
-    content3, confidence3 = call_llm(p3, FALLBACK_MODEL, FALLBACK_API_URL, FALLBACK_API_KEY, max_tokens)
-    if confidence3 > max(confidence, confidence2) and content3:
-        return content3, confidence3, FALLBACK_MODEL
-    
-    # Return whichever was best
-    best_conf = max(confidence, confidence2, confidence3)
-    if best_conf == confidence and content:
-        return content, confidence, PRIMARY_MODEL
-    elif best_conf == confidence2 and content2:
-        return content2, confidence2, SECONDARY_MODEL
-    else:
-        return content3, confidence3, FALLBACK_MODEL
-    
-    return content, confidence, PRIMARY_MODEL
-
 
 # ── File operations ───────────────────────────────────────────
 
@@ -593,8 +567,8 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                        commit_sha: str) -> dict:
     log.info(f"AI Fix Engine v3 — scan #{scan_run_id}")
 
-    if not PRIMARY_API_KEY:
-        return {"status": "skipped", "reason": "PRIMARY_API_KEY not set"}
+    if not MODELS:
+        return {"status": "skipped", "reason": "No models configured in .env"}
 
     all_findings = get_all_findings(scan_run_id)
     log.info(f"Total MEDIUM+ findings: {len(all_findings)}")
