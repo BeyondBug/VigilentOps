@@ -5,6 +5,17 @@
 VigilentOps  is a fully self-hosted and automated vulnerability management platform. It continuously scans source code for security issues, correlates findings with real-world CVE intelligence, applies AI-powered automated remediation, and provides comprehensive monitoring and observability. Human interaction is streamlined exclusively to reviewing and approving the AI-generated pull requests.
 
 
+
+### 🤖 Multi-Model AI Fallback Architecture
+VigilentOps v3 now features an ultra-resilient, dynamic AI fallback engine. 
+- You can configure up to 9 different LLM models/endpoints in `.env`.
+- If the primary API goes down, times out, or returns a 429/503 error, the Orchestrator instantly cascades to the next available model.
+- Automatically compares fix confidence across models to guarantee the highest quality remediation.
+
+### 🔍 Expanded CI/CD Scanners
+- Added **SonarQube SAST** integration to Jenkins pipelines for robust code-quality and vulnerability scanning.
+- Added **OWASP ZAP DAST** integration to simulate live attacks on API endpoints and web apps.
+
 ## Currently Working On 
 ```mermaid
 flowchart TD
