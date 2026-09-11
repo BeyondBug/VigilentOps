@@ -325,25 +325,25 @@ pipeline {
 
                 stage('SonarQube SAST') {
                     steps {
-                        sh '''
+                        sh """
                             echo "Running SonarQube Scanner via HOST path: ${env.HOST_SOURCE}"
                             # Placeholder: Requires a running SonarQube server on sg-sonarqube:9000
                             # docker run --rm --network secureguard_sg-net -v ${env.HOST_SOURCE}:/usr/src sonarsource/sonar-scanner-cli ...
                             echo "SonarQube SAST skipped (waiting for server configuration)"
                             echo "{}" > ${REPORTS_DIR}/sonarqube.json
-                        '''
+                        """
                     }
                 }
 
                 stage('OWASP ZAP DAST') {
                     steps {
-                        sh '''
+                        sh """
                             echo "Running OWASP ZAP Baseline Scan"
                             # Placeholder: Requires a live target URL to scan
                             # docker run --rm -v ${env.HOST_REPORTS}:/zap/wrk/:rw owasp/zap2docker-stable zap-baseline.py -t http://target ...
                             echo "OWASP ZAP DAST skipped (waiting for live target configuration)"
                             echo "{}" > ${REPORTS_DIR}/zap.json
-                        '''
+                        """
                     }
                 }
 
