@@ -21,9 +21,9 @@ app = FastAPI(title="SecureGuard Orchestrator", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://localhost:3000", "http://sg-gitea:3000"],
+    allow_methods=["GET", "POST", "PATCH"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # ── Prometheus metrics ────────────────────────────────────────

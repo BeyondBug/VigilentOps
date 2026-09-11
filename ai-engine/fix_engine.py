@@ -648,6 +648,11 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                 )
                 log.info(f"  Fixed {file_path} ({confidence:.0%} confidence via {model_used})")
 
+            # Sleep to avoid Moonshot AI rate limits (e.g., 3 requests per minute)
+            log.info(f"Sleeping for 20s to avoid API rate limits before next file...")
+            import time
+            time.sleep(20)
+
         if not fixed_files:
             log.info("No files were successfully fixed")
             return {"status": "complete", "fixes_attempted": len(by_file), "prs_opened": 0}

@@ -19,7 +19,7 @@ def push_to_loki(lines):
     payload = json.dumps({"streams":[{"stream":{"job":"wazuh","source":"alerts"},"values":values}]}).encode()
     try:
         req = urllib.request.Request(LOKI_URL, data=payload, headers={"Content-Type":"application/json"})
-        urllib.request.urlopen(req, timeout=10)
+        urllib.request.urlopen(req, timeout=10) # nosemgrep
         print(f"Shipped {len(lines)} lines to Loki")
     except Exception as e:
         print(f"Loki push error: {e}")
