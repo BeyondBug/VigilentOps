@@ -274,32 +274,31 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
     # 1. Primary
     content, confidence = call_llm(p1, PRIMARY_MODEL, PRIMARY_API_URL, PRIMARY_API_KEY, max_tokens)
     
-    # User requested to only use the primary model and comment out the rest
-    # if confidence >= MIN_CONFIDENCE and content:
-    #     return content, confidence, PRIMARY_MODEL
-    #
-    # log.warning(f"Primary model confidence {confidence:.0%} — trying secondary {SECONDARY_MODEL}")
-    # 
-    # # 2. Secondary
-    # content2, confidence2 = call_llm(p2, SECONDARY_MODEL, SECONDARY_API_URL, SECONDARY_API_KEY, max_tokens)
-    # if confidence2 >= MIN_CONFIDENCE and content2:
-    #     return content2, confidence2, SECONDARY_MODEL
-    #
-    # log.warning(f"Secondary model confidence {confidence2:.0%} — trying fallback {FALLBACK_MODEL}")
-    #
-    # # 3. Fallback
-    # content3, confidence3 = call_llm(p3, FALLBACK_MODEL, FALLBACK_API_URL, FALLBACK_API_KEY, max_tokens)
-    # if confidence3 > max(confidence, confidence2) and content3:
-    #     return content3, confidence3, FALLBACK_MODEL
-    #
-    # # Return whichever was best
-    # best_conf = max(confidence, confidence2, confidence3)
-    # if best_conf == confidence and content:
-    #     return content, confidence, PRIMARY_MODEL
-    # elif best_conf == confidence2 and content2:
-    #     return content2, confidence2, SECONDARY_MODEL
-    # else:
-    #     return content3, confidence3, FALLBACK_MODEL
+    if confidence >= MIN_CONFIDENCE and content:
+        return content, confidence, PRIMARY_MODEL
+    
+    log.warning(f"Primary model confidence {confidence:.0%} — trying secondary {SECONDARY_MODEL}")
+    
+    # 2. Secondary
+    content2, confidence2 = call_llm(p2, SECONDARY_MODEL, SECONDARY_API_URL, SECONDARY_API_KEY, max_tokens)
+    if confidence2 >= MIN_CONFIDENCE and content2:
+        return content2, confidence2, SECONDARY_MODEL
+    
+    log.warning(f"Secondary model confidence {confidence2:.0%} — trying fallback {FALLBACK_MODEL}")
+    
+    # 3. Fallback
+    content3, confidence3 = call_llm(p3, FALLBACK_MODEL, FALLBACK_API_URL, FALLBACK_API_KEY, max_tokens)
+    if confidence3 > max(confidence, confidence2) and content3:
+        return content3, confidence3, FALLBACK_MODEL
+    
+    # Return whichever was best
+    best_conf = max(confidence, confidence2, confidence3)
+    if best_conf == confidence and content:
+        return content, confidence, PRIMARY_MODEL
+    elif best_conf == confidence2 and content2:
+        return content2, confidence2, SECONDARY_MODEL
+    else:
+        return content3, confidence3, FALLBACK_MODEL
     
     return content, confidence, PRIMARY_MODEL
 
