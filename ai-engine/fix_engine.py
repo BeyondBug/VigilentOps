@@ -33,18 +33,35 @@ log = logging.getLogger("ai-fix-v3")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # ── Config ────────────────────────────────────────────────────
-PRIMARY_MODEL    = os.getenv("PRIMARY_MODEL",   "moonshotai/kimi-k3")
-PRIMARY_API_KEY  = os.getenv("PRIMARY_API_KEY", "")
-PRIMARY_API_URL  = os.getenv("PRIMARY_API_URL", "https://api.moonshot.cn/v1/chat/completions")
 
-SECONDARY_MODEL  = os.getenv("SECONDARY_MODEL", "deepseek-ai/deepseek-v4-flash-0731")
-SECONDARY_API_KEY= os.getenv("SECONDARY_API_KEY", "")
-SECONDARY_API_URL= os.getenv("SECONDARY_API_URL", "https://api.deepseek.com/chat/completions")
+MODELS = []
+for i in range(1, 10):
+    m = os.getenv(f"MODEL_{i}")
+    k = os.getenv(f"API_KEY_{i}")
+    u = os.getenv(f"API_URL_{i}")
+    if m and k and u:
+        MODELS.append({"model": m, "key": k, "url": u})
 
-FALLBACK_MODEL   = os.getenv("FALLBACK_MODEL",  "meta/muse-glimmer-30b")
-FALLBACK_API_KEY = os.getenv("FALLBACK_API_KEY", "")
-FALLBACK_API_URL = os.getenv("FALLBACK_API_URL", "https://api.together.xyz/v1/chat/completions")
+# Fallback to legacy
+if not MODELS:
+    MODELS.append({
+        "model": os.getenv("PRIMARY_MODEL", "moonshotai/kimi-k3"),
+        "key": os.getenv("PRIMARY_API_KEY", ""),
+        "url": os.getenv("PRIMARY_API_URL", "https://api.moonshot.cn/v1/chat/completions")
+    })
+    MODELS.append({
+        "model": os.getenv("SECONDARY_MODEL", "deepseek-ai/deepseek-v4-flash-0731"),
+        "key": os.getenv("SECONDARY_API_KEY", ""),
+        "url": os.getenv("SECONDARY_API_URL", "https://api.deepseek.com/chat/completions")
+    })
+    MODELS.append({
+        "model": os.getenv("FALLBACK_MODEL", "meta/muse-glimmer-30b"),
+        "key": os.getenv("FALLBACK_API_KEY", ""),
+        "url": os.getenv("FALLBACK_API_URL", "https://api.together.xyz/v1/chat/completions")
+    })
+
 GITEA_URL        = os.getenv("GITEA_URL",      "http://sg-gitea:3000")
+
 GITEA_TOKEN      = os.getenv("GITEA_TOKEN",    "")
 
 DB_PARAMS = {
@@ -205,7 +222,11 @@ OUTPUT RULES (violating any = failure):
 - Last line of output = last line of the fixed file"""
 
 
+
 def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: int = 4096) -> tuple[str, float]:
+    if not api_key or api_key.strip() == "":
+        return "", 0.0
+
     """
     Call the LLM API. Returns (fixed_content, confidence).
     """
@@ -257,25 +278,40 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
     return "", 0.0
 
 
-def try_with_fallback(file_path: str, file_content: str, findings: list[dict], max_tokens: int = 4096, is_requirements: bool = False) -> tuple[str, float, str]:
-    """
-    Try primary model first. If quality is poor, use secondary, then fallback.
-    Returns (content, confidence, model_used)
-    """
-    if is_requirements:
-        p1 = build_sca_prompt(file_path, file_content, findings)
-        p2 = p1
-        p3 = p1
-    else:
-        p1 = build_primary_prompt(file_path, file_content, findings)
-        p2 = build_secondary_prompt(file_path, file_content, findings)
-        p3 = build_fallback_prompt(file_path, file_content, findings)
 
-    # 1. Primary
-    content, confidence = call_llm(p1, PRIMARY_MODEL, PRIMARY_API_URL, PRIMARY_API_KEY, max_tokens)
-    
-    if confidence >= MIN_CONFIDENCE and content:
-        return content, confidence, PRIMARY_MODEL
+def try_with_fallback(file_path: str, file_content: str, findings: list[dict], max_tokens: int = 4096, is_requirements: bool = False) -> tuple[str, float, str]:
+    if is_requirements:
+        prompt = build_sca_prompt(file_path, file_content, findings)
+    else:
+        prompt = build_primary_prompt(file_path, file_content, findings)
+
+    best_content, best_confidence, best_model = "", 0.0, ""
+
+    for i, m_conf in enumerate(MODELS):
+        m = m_conf["model"]
+        k = m_conf["key"]
+        u = m_conf["url"]
+        
+        if not k or k.strip() == "":
+            log.warning(f"Skipping model {m} because API key is empty.")
+            continue
+
+        log.info(f"Trying model {i+1}/{len(MODELS)}: {m}")
+        content, confidence = call_llm(prompt, m, u, k, max_tokens)
+        
+        if confidence >= MIN_CONFIDENCE and content:
+            return content, confidence, m
+            
+        if confidence > best_confidence:
+            best_confidence = confidence
+            best_content = content
+            best_model = m
+            
+        if i < len(MODELS) - 1:
+            log.warning(f"Model {m} confidence {confidence:.0%} — falling back to next model...")
+
+    return best_content, best_confidence, best_model
+
     
     log.warning(f"Primary model confidence {confidence:.0%} — trying secondary {SECONDARY_MODEL}")
     
@@ -475,7 +511,7 @@ Average confidence: **{avg_confidence:.0%}**
 - [ ] Confirm bumped dependency versions are compatible with your codebase
 
 > ⚠️ AI-generated — requires human review before merging.
-> _SecureGuard AI Engine v3 · Primary: {PRIMARY_MODEL} · Secondary: {SECONDARY_MODEL} · Fallback: {FALLBACK_MODEL}_"""
+> _SecureGuard AI Engine v3 · Supported Models: {len(MODELS)} configured_"""
 
     title = (f"[SecureGuard] Scan #{scan_run_id} — "
              f"{total} vulns fixed in {len(fixed_files)} files "
@@ -664,12 +700,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
 
         # Calculate average confidence
         avg_conf   = sum(i["confidence"] for i in fixed_files) / len(fixed_files)
-        if FALLBACK_MODEL in models_used:
-            model_used = FALLBACK_MODEL
-        elif SECONDARY_MODEL in models_used:
-            model_used = SECONDARY_MODEL
-        else:
-            model_used = PRIMARY_MODEL
+        model_used = models_used[0] if models_used else "Unknown"
 
         # Open single PR
         pr_url = open_pr(repo_url, branch_name, scan_run_id,
