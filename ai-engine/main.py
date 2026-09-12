@@ -407,6 +407,30 @@ async def fix_scan(scan_id: str, request: Request):
 @app.post("/api/scans/{scan_id}/notify")
 async def notify_scan(scan_id: str, request: Request):
     """Notification trigger."""
+    try:
+        with get_db_session() as db:
+            scan = db.query(ScanRun).filter_by(id=int(scan_id)).first()
+            if not scan:
+                return {"status": "error", "reason": "scan not found"}
+            
+            repo_name = scan.repo_url.rstrip("/").rstrip(".git").split("/")[-1] if scan.repo_url else "Unknown Repo"
+            
+            # Get critical findings for this scan
+            findings = db.query(Finding).filter(
+                Finding.scan_run_id == int(scan_id),
+                Finding.severity.in_(["HIGH", "CRITICAL"])
+            ).all()
+            
+            if findings:
+                criticals = [f.to_dict() for f in findings]
+                from notifier import Notifier
+                notifier = Notifier()
+                notifier.send_alert(repo_name, scan.commit_sha or "HEAD", criticals)
+                
+    except Exception as e:
+        print(f"Notification error: {e}")
+        return {"status": "error", "reason": str(e)}
+
     return {"status": "notified", "scan_id": scan_id}
 
 
