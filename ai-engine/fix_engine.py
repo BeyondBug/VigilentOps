@@ -625,6 +625,9 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                 is_requirements=is_requirements
             )
             models_used.append(model_used)
+            if len(by_file) > 1:
+                log.info("Proactive Throttle: Sleeping for 15s to prevent NVIDIA API rate limit...")
+                time.sleep(15)
 
             if not fixed_content or confidence < MIN_CONFIDENCE:
                 log.warning(f"  Low confidence {confidence:.0%} for {file_path} — skipping")
