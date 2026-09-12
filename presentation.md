@@ -30,3 +30,9 @@ The security team or developers then manually review the vulnerable code against
 
 The entire workflow, including pipeline execution, vulnerability findings, remediation activities, and system metrics, is monitored through Prometheus and visualized using Grafana dashboards, 
 providing complete observability of the DevSecOps ecosystem.
+
+
+## Version 3 - The Multi-Model Fallback Update
+In our latest iteration, we have made the AI-Engine virtually indestructible against API outages and rate limits. By pioneering a **Dynamic Multi-Model Architecture**, the AI-Engine can seamlessly load up to 9 different LLMs. If the primary model goes offline or throws a 429 Rate Limit, the engine instantly cascades to the next available model, ensuring that automated Pull Requests are generated without interruption. 
+
+We also expanded our DevSecOps scanner grid to include industry standards **SonarQube** for deep static code analysis and **OWASP ZAP** for dynamic runtime scanning of live web applications.
