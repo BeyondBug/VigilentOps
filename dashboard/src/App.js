@@ -43,11 +43,24 @@ function sevBadge(sev) {
 
 // ── Tool icons (text) ─────────────────────────────────────────────────────────
 const TOOL_ICON = {
-  semgrep:  "⬡",
-  bandit:   "🐍",
-  gitleaks: "🔑",
-  trivy:    "📦",
-  zap:      "⚡",
+  semgrep:       "⬡",
+  bandit:        "🐍",
+  gitleaks:      "🔑",
+  "trivy-deps":  "📦",
+  "trivy-image": "🐋",
+  zap:           "⚡",
+  checkov:       "🏗️",
+  snyk:          "🐕",
+  dockle:        "🐳",
+  "dep-check":   "🔗",
+  nuclei:        "☢️",
+  grype:         "🦑",
+  sonarqube:     "🔍",
+  "syft-sbom":   "📑",
+  clamav:        "🦠",
+  ffuf:          "💣",
+  openscap:      "📋",
+  cosign:        "✍️",
 };
 
 // ── Top-level fetch helpers ───────────────────────────────────────────────────
