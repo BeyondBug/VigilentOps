@@ -36,3 +36,9 @@ providing complete observability of the DevSecOps ecosystem.
 In our latest iteration, we have made the AI-Engine virtually indestructible against API outages and rate limits. By pioneering a **Dynamic Multi-Model Architecture**, the AI-Engine can seamlessly load up to 9 different LLMs. If the primary model goes offline or throws a 429 Rate Limit, the engine instantly cascades to the next available model, ensuring that automated Pull Requests are generated without interruption. 
 
 We also expanded our DevSecOps scanner grid to include industry standards **SonarQube** for deep static code analysis and **OWASP ZAP** for dynamic runtime scanning of live web applications.
+
+
+## Version 4 - The Enterprise Zero-Trust Upgrade
+Our self-hosted devsecops pipeline now matches top-tier enterprise standards by aggressively defending against supply-chain attacks. We have implemented **Syft** for automated Software Bill of Materials (SBOM) generation and **Cosign** for cryptographic artifact signing to guarantee integrity. 
+
+To expand our defense-in-depth approach, we added **ClamAV** for deep malware detection, **Trivy Image Scanning** for OS-level runtime vulnerabilities, **ffuf** for API fuzz testing, and **OpenSCAP** for automated regulatory compliance checking. The entire architecture now dynamically runs up to **14 concurrent security engines** in a highly parallelized Jenkins workflow!

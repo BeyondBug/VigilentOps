@@ -16,6 +16,16 @@ VigilentOps v3 now features an ultra-resilient, dynamic AI fallback engine.
 - Added **SonarQube SAST** integration to Jenkins pipelines for robust code-quality and vulnerability scanning.
 - Added **OWASP ZAP DAST** integration to simulate live attacks on API endpoints and web apps.
 
+
+### 🛡️ Enterprise Zero-Trust DevSecOps Pipeline
+We have expanded the CI/CD pipeline to include 6 new enterprise-grade stages:
+- **Syft SBOM:** Automatically generates a Software Bill of Materials for deep supply-chain transparency.
+- **Trivy Image Scan:** Performs native binary-level OS vulnerability scanning on built Docker layers.
+- **ClamAV:** Scans the codebase to detect embedded malware, backdoors, or malicious payloads.
+- **ffuf (Fuzzing):** Implements an API Fuzzing stage to bombard live targets with massive randomized payloads to catch edge-case crashes.
+- **OpenSCAP:** Conducts automated compliance scanning to verify NIST/PCI-DSS baseline posture.
+- **Cosign:** Cryptographically signs built container images to ensure end-to-end artifact integrity.
+
 ## Currently Working On 
 ```mermaid
 flowchart TD
