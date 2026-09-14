@@ -17,6 +17,16 @@ VigilentOps v3 now features an ultra-resilient, dynamic AI fallback engine.
 - Added **OWASP ZAP DAST** integration to simulate live attacks on API endpoints and web apps.
 
 
+
+### 🤖 Resilient AI Auto-Remediation
+- **Dynamic Multi-Model Fallback:** The AI Orchestrator seamlessly supports up to 9 different LLM configurations (e.g., NVIDIA NIM, OpenAI, Anthropic). If a primary model experiences an outage or throws a `503 Service Unavailable`, it instantly cascades to the next available model, ensuring automated Pull Requests are generated without interruption.
+- **Intelligent API Throttling:** Implements proactive API pacing and backoff strategies to completely prevent `429 Too Many Requests` rate limits when scanning massive enterprise repositories with hundreds of vulnerabilities.
+
+### 📱 Multi-Channel Alerting
+The Orchestrator includes a natively integrated notification engine that fires the moment a `HIGH` or `CRITICAL` vulnerability is detected:
+- **Messaging:** Slack, Telegram, Twilio WhatsApp, and SMTP Email.
+- **Ticketing:** Automatically creates Jira tickets containing vulnerability details, CVSS scores, and remediation statuses.
+
 ### 🛡️ Enterprise Zero-Trust DevSecOps Pipeline
 We have expanded the CI/CD pipeline to include 6 new enterprise-grade stages:
 - **Syft SBOM:** Automatically generates a Software Bill of Materials for deep supply-chain transparency.

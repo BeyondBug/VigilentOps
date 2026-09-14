@@ -42,3 +42,9 @@ We also expanded our DevSecOps scanner grid to include industry standards **Sona
 Our self-hosted devsecops pipeline now matches top-tier enterprise standards by aggressively defending against supply-chain attacks. We have implemented **Syft** for automated Software Bill of Materials (SBOM) generation and **Cosign** for cryptographic artifact signing to guarantee integrity. 
 
 To expand our defense-in-depth approach, we added **ClamAV** for deep malware detection, **Trivy Image Scanning** for OS-level runtime vulnerabilities, **ffuf** for API fuzz testing, and **OpenSCAP** for automated regulatory compliance checking. The entire architecture now dynamically runs up to **14 concurrent security engines** in a highly parallelized Jenkins workflow!
+
+
+## Version 5 - The AI Resilience & Alerting Upgrade
+To ensure the AI Engine can handle massive enterprise repositories without crashing, we implemented an **Intelligent API Throttle**. By actively pacing requests and automatically falling back across a 9-model dynamic LLM configuration, the Orchestrator achieves 100% uptime against API rate limits (429s) and service outages (503s). 
+
+Finally, we closed the DevSecOps loop by integrating a **Multi-Channel Alerting System**. The moment a critical vulnerability is detected, the Orchestrator instantly pages the security team via Slack, Telegram, Twilio WhatsApp, or SMTP, while simultaneously creating a detailed Jira ticket for tracking the AI's automated remediation Pull Request.
