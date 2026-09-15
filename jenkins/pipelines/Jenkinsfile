@@ -287,22 +287,7 @@ pipeline {
                     }
                 }
 
-                stage('Nuclei DAST') {
-                    steps {
-                        sh """
-                            echo "Running Nuclei offline via HOST path: ${env.HOST_SOURCE}"
-                            docker run --rm \
-                              -v ${env.HOST_SOURCE}:/src \
-                              -v ${env.HOST_REPORTS}:/reports \
-                              projectdiscovery/nuclei:latest \
-                                -u /src \
-                                -json-export /reports/nuclei.json || true
-
-                            ls -lh ${REPORTS_DIR}/nuclei.json 2>/dev/null \
-                              && echo "Nuclei OK — \$(wc -c < ${REPORTS_DIR}/nuclei.json) bytes" \
-                              || echo "WARNING: nuclei no output"
-                        """
-                    }
+                
                 }
 
                 stage('Grype SCA') {
@@ -323,27 +308,26 @@ pipeline {
                     }
                 }
 
-                stage('SonarQube SAST') {
-                    steps {
-                        sh """
-                            echo "Running SonarQube Scanner via HOST path: ${env.HOST_SOURCE}"
-                            # Placeholder: Requires a running SonarQube server on sg-sonarqube:9000
-                            # docker run --rm --network secureguard_sg-net -v ${env.HOST_SOURCE}:/usr/src sonarsource/sonar-scanner-cli ...
-                            echo "SonarQube SAST skipped (waiting for server configuration)"
-                            echo "{}" > ${REPORTS_DIR}/sonarqube.json
-                        """
-                    }
+                
                 }
 
-                stage('OWASP ZAP DAST') {
+                
+                }
+
+                stage('OSV SCA') {
                     steps {
-                        sh """
-                            echo "Running OWASP ZAP Baseline Scan"
-                            # Placeholder: Requires a live target URL to scan
-                            # docker run --rm -v ${env.HOST_REPORTS}:/zap/wrk/:rw owasp/zap2docker-stable zap-baseline.py -t http://target ...
-                            echo "OWASP ZAP DAST skipped (waiting for live target configuration)"
-                            echo "{}" > ${REPORTS_DIR}/zap.json
-                        """
+                        sh '''
+                            docker run --rm \
+                              -v ${env.HOST_SOURCE}:/src \
+                              -v ${env.HOST_REPORTS}:/reports \
+                              ghcr.io/google/osv-scanner:latest \
+                                scan source -r --format sarif /src \
+                                > ${REPORTS_DIR}/osv.sarif || true
+
+                            ls -lh ${REPORTS_DIR}/osv.sarif 2>/dev/null \
+                              && echo "OSV OK — \$(wc -c < ${REPORTS_DIR}/osv.sarif) bytes" \
+                              || echo "WARNING: osv no output"
+                        '''
                     }
                 }
 
@@ -367,48 +351,16 @@ pipeline {
                     }
                 }
 
-                stage('ClamAV Anti-Malware') {
-                    steps {
-                        sh """
-                            echo "Running ClamAV Malware Scan via HOST path: ${env.HOST_SOURCE}"
-                            # ClamAV writes scan results to stdout, we redirect to json for reporting
-                            docker run --rm -v ${env.HOST_SOURCE}:/scandir clamav/clamav:latest clamscan -r /scandir --infected > ${REPORTS_DIR}/clamav.txt || true
-                            echo "{\"status\":\"complete\"}" > ${REPORTS_DIR}/clamav.json
-                        """
-                    }
+                
                 }
 
-                stage('API Fuzzing (ffuf)') {
-                    steps {
-                        sh """
-                            echo "Running ffuf API Fuzzer"
-                            # Placeholder: Requires a live target URL and wordlist
-                            echo "ffuf Fuzzing skipped (waiting for live target configuration)"
-                            echo "{}" > ${REPORTS_DIR}/ffuf.json
-                        """
-                    }
+                
                 }
 
-                stage('OpenSCAP Compliance') {
-                    steps {
-                        sh """
-                            echo "Running OpenSCAP Compliance Scan"
-                            # Placeholder: Requires an OS baseline profile (e.g. NIST 800-53 or PCI-DSS)
-                            echo "OpenSCAP skipped (waiting for baseline profile configuration)"
-                            echo "{}" > ${REPORTS_DIR}/openscap.json
-                        """
-                    }
+                
                 }
 
-                stage('Cosign Image Signing') {
-                    steps {
-                        sh """
-                            echo "Running Cosign Image Signature"
-                            # Placeholder: Requires generating a sigstore keypair
-                            echo "Cosign skipped (waiting for cosign.key configuration)"
-                            echo "{}" > ${REPORTS_DIR}/cosign.json
-                        """
-                    }
+                
                 }
 
 

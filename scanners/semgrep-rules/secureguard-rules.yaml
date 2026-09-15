@@ -19,7 +19,7 @@ rules:
       category: security
 
   - id: python-sql-injection
-    patterns:
+    pattern-either:
       - pattern: |
           $CUR.execute("..." % $VAR)
       - pattern: |
@@ -32,7 +32,7 @@ rules:
       category: security
 
   - id: python-command-injection
-    patterns:
+    pattern-either:
       - pattern: os.system($CMD)
       - pattern: subprocess.call($CMD, shell=True)
       - pattern: subprocess.run($CMD, shell=True)
@@ -53,7 +53,7 @@ rules:
       category: security
 
   - id: python-weak-crypto
-    patterns:
+    pattern-either:
       - pattern: hashlib.md5(...)
       - pattern: hashlib.sha1(...)
     message: "Weak cryptographic hash function — use SHA-256 or stronger"
@@ -67,9 +67,10 @@ rules:
 
   - id: js-hardcoded-secret
     patterns:
-      - pattern: const $KEY = "..."
-      - pattern: let $KEY = "..."
-      - pattern: var $KEY = "..."
+      - pattern-either:
+          - pattern: const $KEY = "..."
+          - pattern: let $KEY = "..."
+          - pattern: var $KEY = "..."
       - metavariable-regex:
           metavariable: $KEY
           regex: '(?i)(password|secret|api_key|token|apikey)'
@@ -81,7 +82,7 @@ rules:
       category: security
 
   - id: js-eval-injection
-    patterns:
+    pattern-either:
       - pattern: eval($INPUT)
       - pattern: new Function($INPUT)
     message: "Code injection via eval() or new Function()"
@@ -101,7 +102,7 @@ rules:
       category: security
 
   - id: js-prototype-pollution
-    patterns:
+    pattern-either:
       - pattern: Object.assign($TARGET, $SOURCE)
       - pattern: $OBJ[__proto__] = $VAL
     message: "Potential prototype pollution"
@@ -112,7 +113,7 @@ rules:
       category: security
 
   - id: js-nosql-injection
-    patterns:
+    pattern-either:
       - pattern: |
           $DB.find({$KEY: $REQ.body.$VAL})
       - pattern: |
@@ -127,7 +128,7 @@ rules:
   # ── Java ─────────────────────────────────────────────────────
 
   - id: java-sql-injection
-    patterns:
+    pattern-either:
       - pattern: |
           $STMT.executeQuery("..." + $VAR)
       - pattern: |
@@ -202,7 +203,7 @@ rules:
       category: security
 
   - id: c-format-string
-    patterns:
+    pattern-either:
       - pattern: printf($VAR)
       - pattern: fprintf($FD, $VAR)
     message: "Potential format string vulnerability"

@@ -96,6 +96,21 @@ def verify_signature(payload: bytes, signature: str) -> bool:
     return hmac.compare_digest(f"sha256={expected}", signature)
 
 
+CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}")
+
+def _extract_cve(rule_id: str, rule: dict, result: dict):
+    if rule_id.startswith("CVE-"):
+        return rule_id
+    blob = " ".join([
+        rule.get("fullDescription", {}).get("text", ""),
+        rule.get("shortDescription", {}).get("text", ""),
+        result.get("message", {}).get("text", ""),
+    ])
+    m = CVE_RE.search(blob)
+    if m:
+        return m.group(0)
+    return rule_id if rule_id.startswith("GHSA-") else None
+
 def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
     """Parse SARIF 2.1.0 format into finding dicts."""
     findings = []
@@ -120,7 +135,7 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
                 "scanner":        tool,
                 "rule_id":        rule_id,
                 "cve_id":         (result.get("properties", {}).get("cve_id")
-                                   or (rule_id if rule_id.startswith("CVE-") else None)),
+                                   or _extract_cve(rule_id, rule, result)),
                 "cwe_id":         result.get("properties", {}).get("cwe_id"),
                 "severity":       sev,
                 "cvss_score":     result.get("properties", {}).get("cvss_score"),
