@@ -71,11 +71,14 @@ async def startup():
                     ).inc()
 
             # Count PRs opened
-            pr_count = db.execute(_text(
-                "SELECT COUNT(*) FROM findings WHERE fix_status = 'pr_opened'"
-            )).scalar()
-            for _ in range(pr_count or 0):
-                prs_opened_total.labels(repo="ShadowPatch").inc()
+            prs = db.execute(_text(
+                """SELECT s.repo_name, COUNT(*) 
+                   FROM findings f JOIN scan_runs s ON f.scan_run_id = s.id 
+                   WHERE f.fix_status = 'pr_opened' GROUP BY s.repo_name"""
+            )).fetchall()
+            for repo_name, count in prs:
+                for _ in range(count):
+                    prs_opened_total.labels(repo=repo_name or "unknown").inc()
 
             print(f"Metrics replayed from DB on startup")
     except Exception as e:
@@ -130,9 +133,19 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
                 "line_start":     region.get("startLine"),
                 "line_end":       region.get("endLine"),
                 "vulnerable_code": result.get("properties", {}).get("snippet", "")[:5000],
+            "finding_class": determine_finding_class(tool_name),
             })
     return findings
 
+
+
+def determine_finding_class(tool: str) -> str:
+    t = tool.lower()
+    if t in ["trivy", "trivy-image", "grype", "syft", "osv", "osv-scanner", "dependency-check"]: return "sca"
+    if t in ["semgrep", "bandit", "sonarqube", "zap"]: return "sast"
+    if t in ["gitleaks", "trufflehog"]: return "secret"
+    if t in ["checkov", "terrascan", "openscap"]: return "iac"
+    return "sast"
 
 def parse_bandit(bandit_data: dict) -> list[dict]:
     """Parse Bandit JSON format into finding dicts."""
@@ -148,10 +161,11 @@ def parse_bandit(bandit_data: dict) -> list[dict]:
             "cvss_score":     None,
             "title":          issue.get("test_name", "")[:500],
             "description":    issue.get("issue_text", "")[:2000],
-            "file_path":      issue.get("filename", "").lstrip("/src/"),
+            "file_path":      issue.get("filename", "").removeprefix("/src/"),
             "line_start":     issue.get("line_number"),
             "line_end":       (issue.get("line_range") or [None])[-1],
             "vulnerable_code": issue.get("code", "")[:5000],
+            "finding_class": determine_finding_class("bandit"),
         })
     return findings
 
@@ -188,13 +202,11 @@ def save_findings_to_db(db, scan_run_id: int, findings: list[dict]):
     # Update scan_run counters
     scan = db.query(ScanRun).filter_by(id=scan_run_id).first()
     if scan:
-        scan.total_findings = len(findings)
-        scan.critical_count = counts["CRITICAL"]
-        scan.high_count     = counts["HIGH"]
-        scan.medium_count   = counts["MEDIUM"]
-        scan.low_count      = counts["LOW"]
-        scan.status         = "complete"
-        scan.finished_at    = datetime.utcnow()
+        scan.total_findings = (scan.total_findings or 0) + len(findings)
+        scan.critical_count = (scan.critical_count or 0) + counts["CRITICAL"]
+        scan.high_count     = (scan.high_count or 0) + counts["HIGH"]
+        scan.medium_count   = (scan.medium_count or 0) + counts["MEDIUM"]
+        scan.low_count      = (scan.low_count or 0) + counts["LOW"]
 
 
 # ── API endpoints ─────────────────────────────────────────────
@@ -229,7 +241,7 @@ async def create_scan(request: Request):
     repo_url   = body.get("repo_url", "")
     commit_sha = body.get("commit_sha", "HEAD")
     branch     = body.get("branch", "main")
-    repo_name  = body.get("repo_name") or repo_url.rstrip("/").rstrip(".git").split("/")[-1]
+    repo_name  = body.get("repo_name") or repo_url.rstrip("/").removesuffix(".git").split("/")[-1]
 
     try:
         with get_db_session() as db:
@@ -395,13 +407,7 @@ async def fix_scan(scan_id: str, request: Request):
     import asyncio
     asyncio.create_task(_run_fix())
 
-    # Increment metric immediately when fix is started
-    try:
-        repo_name = repo_url.rstrip("/").rstrip(".git").split("/")[-1]
-        prs_opened_total.labels(repo=repo_name).inc()
-    except Exception:
-        pass
-    return {"status": "fix_started", "scan_id": scan_id, "repo_url": repo_url}
+        return {"status": "fix_started", "scan_id": scan_id, "repo_url": repo_url}
 
 
 @app.post("/api/scans/{scan_id}/notify")
@@ -413,7 +419,7 @@ async def notify_scan(scan_id: str, request: Request):
             if not scan:
                 return {"status": "error", "reason": "scan not found"}
             
-            repo_name = scan.repo_url.rstrip("/").rstrip(".git").split("/")[-1] if scan.repo_url else "Unknown Repo"
+            repo_name = scan.repo_url.rstrip("/").removesuffix(".git").split("/")[-1] if scan.repo_url else "Unknown Repo"
             
             # Get critical findings for this scan
             findings = db.query(Finding).filter(

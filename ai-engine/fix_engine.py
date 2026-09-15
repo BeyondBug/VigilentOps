@@ -23,6 +23,34 @@ from pathlib import Path
 from typing import Optional
 from collections import defaultdict
 
+import re, ast, json as _json
+
+FENCE_RE = re.compile(r"^\s*```[a-zA-Z0-9_+.\-]*\s*\n(.*?)\n\s*```\s*$", re.DOTALL)
+
+def unfence(text: str) -> str:
+    m = FENCE_RE.match(text.strip())
+    return m.group(1) if m else text.strip()
+
+def parses_ok(path: str, content: str) -> bool:
+    if path.endswith(".py"):
+        try:
+            ast.parse(content); return True
+        except SyntaxError as e:
+            log.warning(f"REJECT {path}: syntax error L{e.lineno}: {e.msg}")
+            return False
+    if path.endswith(".json"):
+        try:
+            _json.loads(content); return True
+        except Exception:
+            log.warning(f"REJECT {path}: invalid JSON"); return False
+    if path.endswith(".txt"):
+        bad = [l for l in content.splitlines()
+               if l.strip() and not re.match(r'^[A-Za-z0-9._\-\[\]]+\s*[=<>!~]', l.strip())]
+        if bad:
+            log.warning(f"REJECT {path}: {len(bad)} malformed requirement lines")
+            return False
+    return True
+
 import httpx
 import psycopg2
 import psycopg2.extras
@@ -246,7 +274,7 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
             )
             r.raise_for_status()
 
-            content = r.json()["choices"][0]["message"]["content"].strip()
+            content = unfence(r.json()["choices"][0]["message"]["content"].strip())
             
             # Estimate confidence
             lines        = content.splitlines()
@@ -257,18 +285,13 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
             has_prose = any(l.strip().startswith(("The ", "This ", "I ", "Here", "Note"))
                            for l in lines[:5])
 
-            confidence = 0.85
-            if comment_ratio > 0.3:
-                confidence -= 0.2
-            if has_prose:
-                confidence -= 0.3
+            confidence = 0.85 # Replaced by gating logic below
 
             return content, max(0.0, confidence)
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429 and attempt < max_retries - 1:
-                log.warning(f"API HTTP 429 Rate Limit. Sleeping for 10s (attempt {attempt + 1}/{max_retries})...")
-                time.sleep(10)
+                continue
                 continue
             log.error(f"API HTTP {e.response.status_code}: {e.response.text[:200]}")
             return "", 0.0
@@ -316,19 +339,11 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
 # ── File operations ───────────────────────────────────────────
 
 def find_file_in_repo(repo_path: str, file_path: str) -> Optional[Path]:
-    """Find a file in the repo, trying multiple path variations."""
-    candidates = [
-        Path(repo_path) / file_path.lstrip("/"),
-        Path(repo_path) / Path(file_path).name,
-    ]
-    # Also search recursively by filename
-    fname = Path(file_path).name
-    for match in Path(repo_path).rglob(fname):
-        candidates.append(match)
-
-    for c in candidates:
-        if c.exists() and c.is_file():
-            return c
+    p = (Path(repo_path) / file_path.lstrip("/")).resolve()
+    root = Path(repo_path).resolve()
+    if p.is_file() and root in p.parents:
+        return p
+    log.warning(f"SKIP: cannot resolve {file_path} under repo root")
     return None
 
 
@@ -343,6 +358,13 @@ def apply_file_fix(repo_path: str, file_path: str,
     original = fpath.read_text(errors="ignore")
     if original.strip() == fixed_content.strip():
         log.info(f"No changes in {file_path}")
+        return False
+
+    # Hard gates
+    if not parses_ok(file_path, fixed_content):
+        return False
+    if len(fixed_content.splitlines()) < len(original.splitlines()) * 0.7:
+        log.warning(f"REJECT {file_path}: patch removes >30% of lines")
         return False
 
     fpath.write_text(fixed_content)
@@ -441,7 +463,7 @@ def commit_and_push(tmpdir: str, repo_url: str,
 def open_pr(repo_url: str, branch_name: str, scan_run_id: int,
              fixed_files: list[dict], avg_confidence: float,
              model_used: str) -> Optional[str]:
-    parts     = repo_url.rstrip("/").rstrip(".git").split("/")
+    parts     = repo_url.rstrip("/").removesuffix(".git").split("/")
     owner     = parts[-2] if len(parts) >= 2 else "BeyondBug"
     repo_name = parts[-1] if parts else "ShadowPatch"
 
@@ -503,7 +525,12 @@ Average confidence: **{avg_confidence:.0%}**
         if r.status_code in (200, 201):
             pr_url = r.json().get("html_url", "")
             log.info(f"PR: {pr_url}")
-            return pr_url
+            try:
+        from main import prs_opened_total
+        prs_opened_total.labels(repo=repo_name).inc()
+    except Exception:
+        pass
+    return pr_url
         log.error(f"PR failed {r.status_code}: {r.text[:300]}")
     except Exception as e:
         log.error(f"PR error: {e}")
@@ -617,7 +644,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                 continue
 
             # Choose prompt based on file type
-            is_requirements = "requirements" in file_path.lower() or file_path.endswith(".txt")
+            is_requirements = Path(file_path).name.lower() in ("requirements.txt", "requirements-dev.txt", "constraints.txt")
             # Call LLM with fallback
             fixed_content, confidence, model_used = try_with_fallback(
                 file_path, file_content, findings,
@@ -626,8 +653,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
             )
             models_used.append(model_used)
             if len(by_file) > 1:
-                log.info("Proactive Throttle: Sleeping for 15s to prevent NVIDIA API rate limit...")
-                time.sleep(15)
+                
 
             if not fixed_content or confidence < MIN_CONFIDENCE:
                 log.warning(f"  Low confidence {confidence:.0%} for {file_path} — skipping")
@@ -660,10 +686,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                 )
                 log.info(f"  Fixed {file_path} ({confidence:.0%} confidence via {model_used})")
 
-            # Sleep to avoid Moonshot AI rate limits (e.g., 3 requests per minute)
-            log.info(f"Sleeping for 20s to avoid API rate limits before next file...")
-            import time
-            time.sleep(20)
+            
 
         if not fixed_files:
             log.info("No files were successfully fixed")
