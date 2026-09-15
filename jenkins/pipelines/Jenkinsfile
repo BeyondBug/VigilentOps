@@ -221,6 +221,24 @@ pipeline {
                     }
                 }
 
+                stage('OSV SCA') {
+                    steps {
+                        sh """
+                            echo "Running OSV-Scanner against supported lockfiles and manifests"
+                            docker run --rm \
+                              -v ${env.HOST_SOURCE}:/src:ro \
+                              -v ${env.HOST_REPORTS}:/reports \
+                              ghcr.io/google/osv-scanner:v2.4.0 \
+                                scan source --recursive --format sarif \
+                                --output-file /reports/osv.sarif /src || true
+
+                            python3 -m json.tool ${REPORTS_DIR}/osv.sarif >/dev/null 2>&1 \
+                              && echo "OSV OK — \$(wc -c < ${REPORTS_DIR}/osv.sarif) bytes" \
+                              || { echo "WARNING: OSV did not produce valid SARIF"; rm -f ${REPORTS_DIR}/osv.sarif; }
+                        """
+                    }
+                }
+
             }
         }
 
@@ -234,6 +252,7 @@ pipeline {
                               ${REPORTS_DIR}/gitleaks.sarif \
                               ${REPORTS_DIR}/trivy-deps.sarif \
                               ${REPORTS_DIR}/checkov.sarif \
+                              ${REPORTS_DIR}/osv.sarif \
                               ${REPORTS_DIR}/bandit.json; do
                         [ -f "\$f" ] || continue
                         TOOL=\$(basename \$f | sed 's/\\.sarif//;s/\\.json//')
