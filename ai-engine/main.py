@@ -148,7 +148,7 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
                 "line_start":     region.get("startLine"),
                 "line_end":       region.get("endLine"),
                 "vulnerable_code": result.get("properties", {}).get("snippet", "")[:5000],
-            "finding_class": determine_finding_class(tool_name),
+                "finding_class": determine_finding_class(tool),
             })
     return findings
 
@@ -156,7 +156,8 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
 
 def determine_finding_class(tool: str) -> str:
     t = tool.lower()
-    if t in ["trivy", "trivy-image", "grype", "syft", "osv", "osv-scanner", "dependency-check"]: return "sca"
+    if t in ["trivy", "trivy-deps", "trivy-image", "grype", "syft", "syft-sbom",
+             "osv", "osv-scanner", "dependency-check", "dep-check", "snyk"]: return "sca"
     if t in ["semgrep", "bandit", "sonarqube", "zap"]: return "sast"
     if t in ["gitleaks", "trufflehog"]: return "secret"
     if t in ["checkov", "terrascan", "openscap"]: return "iac"
@@ -208,6 +209,7 @@ def save_findings_to_db(db, scan_run_id: int, findings: list[dict]):
             line_start     = f.get("line_start"),
             line_end       = f.get("line_end"),
             vulnerable_code= f.get("vulnerable_code", "")[:5000],
+            finding_class  = f.get("finding_class", determine_finding_class(f.get("scanner", "unknown"))),
         ))
         findings_total.labels(
             severity=sev,
@@ -392,37 +394,23 @@ async def fix_scan(scan_id: str, request: Request):
     Reads HIGH/CRITICAL findings, calls NVIDIA NIM, opens Gitea PRs.
     Runs in background so Jenkins does not timeout.
     """
+    # Repository coordinates are always loaded from the trusted scan record. Never
+    # accept a caller-provided URL because clone_repo injects the Gitea credential.
     try:
-        body       = await request.json()
-        repo_url   = body.get("repo_url", "")
-        commit_sha = body.get("commit_sha", "HEAD")
-    except Exception:
-        repo_url   = ""
-        commit_sha = "HEAD"
+        numeric_scan_id = int(scan_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="scan_id must be an integer")
 
-    # Get repo_url from DB if not provided
-    if not repo_url:
-        try:
-            with get_db_session() as db:
-                scan = db.query(ScanRun).filter_by(id=int(scan_id)).first()
-                if scan:
-                    repo_url   = scan.repo_url
-                    commit_sha = scan.commit_sha
-        except Exception:
-            pass
+    with get_db_session() as db:
+        scan = db.query(ScanRun).filter_by(id=numeric_scan_id).first()
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scan not found")
+        repo_url = scan.repo_url
+        commit_sha = scan.commit_sha
 
-    async def _run_fix():
-        try:
-            from fix_engine import run_ai_fix_engine
-            result = run_ai_fix_engine(int(scan_id), repo_url, commit_sha)
-            log.info(f"AI fix complete for scan {scan_id}: {result}")
-        except Exception as e:
-            log.error(f"AI fix engine error for scan {scan_id}: {e}")
-
-    import asyncio
-    asyncio.create_task(_run_fix())
-
-        return {"status": "fix_started", "scan_id": scan_id, "repo_url": repo_url}
+    from tasks import run_ai_fix
+    job = run_ai_fix.delay(numeric_scan_id, repo_url, commit_sha)
+    return {"status": "fix_queued", "scan_id": scan_id, "job_id": job.id}
 
 
 @app.post("/api/scans/{scan_id}/notify")

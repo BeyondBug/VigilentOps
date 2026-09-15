@@ -526,11 +526,11 @@ Average confidence: **{avg_confidence:.0%}**
             pr_url = r.json().get("html_url", "")
             log.info(f"PR: {pr_url}")
             try:
-        from main import prs_opened_total
-        prs_opened_total.labels(repo=repo_name).inc()
-    except Exception:
-        pass
-    return pr_url
+                from main import prs_opened_total
+                prs_opened_total.labels(repo=repo_name).inc()
+            except Exception:
+                pass
+            return pr_url
         log.error(f"PR failed {r.status_code}: {r.text[:300]}")
     except Exception as e:
         log.error(f"PR error: {e}")
@@ -652,8 +652,6 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                 is_requirements=is_requirements
             )
             models_used.append(model_used)
-            if len(by_file) > 1:
-                
 
             if not fixed_content or confidence < MIN_CONFIDENCE:
                 log.warning(f"  Low confidence {confidence:.0%} for {file_path} — skipping")

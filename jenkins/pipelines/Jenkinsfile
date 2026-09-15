@@ -287,9 +287,6 @@ pipeline {
                     }
                 }
 
-                
-                }
-
                 stage('Grype SCA') {
                     steps {
                         sh """
@@ -308,26 +305,21 @@ pipeline {
                     }
                 }
 
-                
-                }
-
-                
-                }
-
                 stage('OSV SCA') {
                     steps {
-                        sh '''
+                        sh """
+                            echo "Running OSV-Scanner against supported lockfiles and manifests"
                             docker run --rm \
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
-                              ghcr.io/google/osv-scanner:latest \
-                                scan source -r --format sarif /src \
-                                > ${REPORTS_DIR}/osv.sarif || true
+                              ghcr.io/google/osv-scanner:v2.4.0 \
+                                scan source --recursive --format sarif \
+                                --output-file /reports/osv.sarif /src || true
 
                             ls -lh ${REPORTS_DIR}/osv.sarif 2>/dev/null \
                               && echo "OSV OK — \$(wc -c < ${REPORTS_DIR}/osv.sarif) bytes" \
                               || echo "WARNING: osv no output"
-                        '''
+                        """
                     }
                 }
 
@@ -350,20 +342,6 @@ pipeline {
                         """
                     }
                 }
-
-                
-                }
-
-                
-                }
-
-                
-                }
-
-                
-                }
-
-
 
             }
         }

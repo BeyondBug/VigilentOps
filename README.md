@@ -177,7 +177,7 @@ The platform automates the entire security lifecycle for software products in a 
 * **Languages:** Python (~56%), JavaScript (~22%), Go Template, Shell, Groovy, Dockerfile, HTML.
 * **Infrastructure:** Docker Compose, custom bridge network (`sg-net`).
 * **Database & Queue:** PostgreSQL (with automated schema initialization), Redis (Celery background tasks).
-* **Security Scanners:** Semgrep, Bandit, Trivy, Gitleaks, Falco, Wazuh.
+* **Security Scanners:** Semgrep, Bandit, Trivy, OSV-Scanner, Gitleaks, Falco, Wazuh.
 
 
 
@@ -279,6 +279,7 @@ The system is orchestrated using Docker Compose. All services operate within a d
   * **Semgrep** (utilizing custom rules located in `scanners/semgrep-rules`).
   * **Bandit** (Python SAST analysis).
   * **Trivy** & **Gitleaks** (Container, dependency, and secret scanning).
+  * **OSV-Scanner** (version-aware dependency scanning from supported manifests and lockfiles).
 * Reports (in SARIF/JSON formats) are uploaded to the Orchestrator API endpoint (`/api/scans/{id}/reports/{tool}`).
 * The engine parses findings, applies severity mappings, and extracts relevant code snippets.
 
@@ -341,5 +342,4 @@ The system is orchestrated using Docker Compose. All services operate within a d
 * **Security Engineers:** Review automated PRs, investigate deep vulnerability insights, and monitor system health via Grafana dashboards.
 * **API Consumers:** Access interactive API documentation at `/docs` (provided by FastAPI) for custom tooling integrations.
 * **Webhooks:** Gitea webhooks ensure real-time event-driven triggers to the Orchestrator service.
-
 
