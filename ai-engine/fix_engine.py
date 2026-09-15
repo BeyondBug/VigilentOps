@@ -456,7 +456,8 @@ def commit_and_push(tmpdir: str, repo_url: str,
         log.info(f"Pushed: {branch_name}")
         return True
     except subprocess.CalledProcessError as e:
-        log.error(f"Push failed: {e.stderr.decode()[:300] if e.stderr else str(e)}")
+        err = e.stderr.decode()[:300] if e.stderr else str(e)
+        log.error(f"Push failed: {err.replace(GITEA_TOKEN, '***') if GITEA_TOKEN else err}")
         return False
 
 

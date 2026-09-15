@@ -7,7 +7,8 @@ import re
 from datetime import datetime
 from typing import Optional
 
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Security, Depends
+from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Counter, Gauge, Histogram
@@ -246,7 +247,7 @@ async def gitea_webhook(request: Request):
 
 
 @app.post("/api/scans")
-async def create_scan(request: Request):
+async def create_scan(request: Request, api_key: str = Depends(verify_api_key)):
     """Called by Jenkins pipeline — registers a new scan run, returns real DB id."""
     try:
         body = await request.json()

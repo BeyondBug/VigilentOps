@@ -49,6 +49,7 @@ pipeline {
 
         GITEA_TOKEN   = credentials('gitea-cred')
         ORCHESTRATOR  = "http://sg-orchestrator:8000"
+        API_KEY       = "sg-secret-key-123"
         SONAR_TOKEN   = credentials('sonar-token')
     }
 
@@ -76,8 +77,8 @@ pipeline {
                         repo_url: TARGET_REPO, commit_sha: COMMIT_SHA,
                         branch: TARGET_BRANCH, repo_name: REPO_FULLNAME,
                     ])
-                    def resp = sh(script: """curl -sf -X POST ${ORCHESTRATOR}/api/scans \
-                        -H 'Content-Type: application/json' -d '${body}' || echo '{"id":0}'""",
+                    writeFile file: 'scan_payload.json', text: body
+                    def resp = sh(script: "curl -sf -X POST ${ORCHESTRATOR}/api/scans -H 'X-API-Key: ${API_KEY}' -H 'Content-Type: application/json' -d @scan_payload.json || echo '{\"id\":0}'",
                         returnStdout: true).trim()
                     try { env.SCAN_RUN_ID = readJSON(text: resp).id.toString() }
                     catch (e) { env.SCAN_RUN_ID = "0" }
@@ -381,7 +382,7 @@ pipeline {
                         echo "  Uploading \$TOOL (\$SIZE bytes)..."
                         CODE=\$(curl -s -o /dev/null -w "%{http_code}" \
                           -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/reports/\$TOOL \
-                          -H 'Content-Type: application/json' \
+                          -H 'X-API-Key: ${API_KEY}' -H 'Content-Type: application/json' \
                           --data-binary @\$f)
                         echo "  -> HTTP \$CODE"
                         UPLOADED=\$((UPLOADED+1))
@@ -395,7 +396,7 @@ pipeline {
             steps {
                 sh """
                     curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/enrich \
-                      -H 'Content-Type: application/json' -d '{}' \
+                      -H 'X-API-Key: ${API_KEY}' -H 'Content-Type: application/json' -d '{}' \
                       -o /tmp/enrich_resp.json || true
                     cat /tmp/enrich_resp.json 2>/dev/null || echo "no response"
                 """
@@ -404,24 +405,32 @@ pipeline {
 
         stage('AI Auto-Remediation') {
             steps {
-                sh """
-                    curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/fix \
-                      -H 'Content-Type: application/json' \
-                      -d '{"repo_url":"${TARGET_REPO}","commit_sha":"${COMMIT_SHA}"}' \
-                      -o /tmp/fix_resp.json || true
-                    cat /tmp/fix_resp.json 2>/dev/null || echo "no response"
-                """
+                script {
+                    def fixBody = groovy.json.JsonOutput.toJson([repo_url: TARGET_REPO, commit_sha: COMMIT_SHA])
+                    writeFile file: 'fix_payload.json', text: fixBody
+                    sh """
+                        curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/fix \
+                          -H 'X-API-Key: ${API_KEY}' -H 'Content-Type: application/json' \
+                          -d @fix_payload.json \
+                          -o /tmp/fix_resp.json || true
+                        cat /tmp/fix_resp.json 2>/dev/null || echo "no response"
+                    """
+                }
             }
         }
 
         stage('Notify') {
             steps {
-                sh """
-                    curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/notify \
-                      -H 'Content-Type: application/json' \
-                      -d '{"build_url":"${env.BUILD_URL}"}' || true
-                    echo "Done — Scan #${env.SCAN_RUN_ID}"
-                """
+                script {
+                    def notifyBody = groovy.json.JsonOutput.toJson([build_url: env.BUILD_URL])
+                    writeFile file: 'notify_payload.json', text: notifyBody
+                    sh """
+                        curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/notify \
+                          -H 'X-API-Key: ${API_KEY}' -H 'Content-Type: application/json' \
+                          -d @notify_payload.json || true
+                        echo "Done — Scan #${env.SCAN_RUN_ID}"
+                    """
+                }
             }
         }
 
@@ -434,10 +443,10 @@ pipeline {
             cleanWs()
         }
         success {
-            sh "curl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'Content-Type: application/json' -d '{\"status\":\"complete\"}' || true"
+            sh "curl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"complete\"}' || true"
         }
         failure {
-            sh "curl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'Content-Type: application/json' -d '{\"status\":\"failed\"}' || true"
+            sh "curl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"failed\"}' || true"
         }
     }
 }
