@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS findings (
     line_start      INT,
     line_end        INT,
     vulnerable_code TEXT,
+    finding_class   TEXT,
     fix_status      TEXT DEFAULT 'open',
     ai_fix_code     TEXT,
     pr_url          TEXT,
@@ -70,6 +71,7 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 -- Add repo_name column if upgrading from old schema
 ALTER TABLE scan_runs ADD COLUMN IF NOT EXISTS repo_name TEXT DEFAULT 'unknown';
+ALTER TABLE findings ADD COLUMN IF NOT EXISTS finding_class TEXT;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_scan_runs_started  ON scan_runs(started_at DESC);

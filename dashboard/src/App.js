@@ -5,7 +5,7 @@ import {
 } from "recharts";
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const API = process.env.REACT_APP_API_URL || "http://localhost:8000";
+const API = process.env.REACT_APP_API_URL || "";
 const POLL_MS = 15000; // re-fetch every 15s
 
 // ── Severity helpers ──────────────────────────────────────────────────────────
@@ -686,7 +686,7 @@ function FindingCard({ finding, showRepo }) {
 }
 
 // ── CVE Feed Tab ──────────────────────────────────────────────────────────────
-const CVE_INTEL = process.env.REACT_APP_CVE_INTEL_URL || "http://localhost:8001";
+const CVE_INTEL = process.env.REACT_APP_CVE_INTEL_URL || "/cve-intel";
 
 function CVEFeed({ scans }) {
   const [loading, setLoading] = useState(false);

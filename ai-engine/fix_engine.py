@@ -19,17 +19,13 @@ import tempfile
 import shutil
 import subprocess
 import logging
+from urllib.parse import urlparse
 from pathlib import Path
 from typing import Optional
 from collections import defaultdict
 
 import re, ast, json as _json
-
-FENCE_RE = re.compile(r"^\s*```[a-zA-Z0-9_+.\-]*\s*\n(.*?)\n\s*```\s*$", re.DOTALL)
-
-def unfence(text: str) -> str:
-    m = FENCE_RE.match(text.strip())
-    return m.group(1) if m else text.strip()
+from llm_response import extract_llm_content
 
 def parses_ok(path: str, content: str) -> bool:
     if path.endswith(".py"):
@@ -96,7 +92,7 @@ DB_PARAMS = {
     "host":     "postgres",
     "dbname":   os.getenv("POSTGRES_DB",      "secureguard"),
     "user":     os.getenv("POSTGRES_USER",     "sgadmin"),
-    "password": os.getenv("POSTGRES_PASSWORD", "sgpassword123"),
+    "password": os.getenv("POSTGRES_PASSWORD", ""),
 }
 
 # Process MEDIUM and above (not just HIGH/CRITICAL)
@@ -133,8 +129,11 @@ def get_all_findings(scan_run_id: int) -> list[dict]:
             return [dict(r) for r in cur.fetchall()]
 
 
-def mark_all_pr_opened(scan_run_id: int, pr_url: str, confidence: float):
-    """Mark entire scan as AI-fixed with the PR URL."""
+def mark_pr_opened(scan_run_id: int, pr_url: str, confidence: float,
+                   fixed_paths: list[str]):
+    """Mark only findings whose files were actually changed."""
+    if not fixed_paths:
+        return
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -144,7 +143,8 @@ def mark_all_pr_opened(scan_run_id: int, pr_url: str, confidence: float):
                     pr_confidence = %s
                 WHERE scan_run_id = %s
                   AND fix_status = 'open'
-            """, (pr_url, confidence, scan_run_id))
+                  AND file_path = ANY(%s)
+            """, (pr_url, confidence, scan_run_id, fixed_paths))
             cur.execute("""
                 UPDATE scan_runs SET status = 'ai_fixed' WHERE id = %s
             """, (scan_run_id,))
@@ -274,24 +274,14 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
             )
             r.raise_for_status()
 
-            content = unfence(r.json()["choices"][0]["message"]["content"].strip())
-            
-            # Estimate confidence
-            lines        = content.splitlines()
-            comment_lines = sum(1 for l in lines if l.strip().startswith("#") and "TODO" not in l)
-            code_lines    = sum(1 for l in lines if l.strip() and not l.strip().startswith("#"))
-            comment_ratio = comment_lines / max(len(lines), 1)
-
-            has_prose = any(l.strip().startswith(("The ", "This ", "I ", "Here", "Note"))
-                           for l in lines[:5])
-
-            confidence = 0.85 # Replaced by gating logic below
-
-            return content, max(0.0, confidence)
+            content = extract_llm_content(r.json())
+            # This is a generation score, not a correctness claim. Syntax and
+            # size gates are enforced separately before any file is written.
+            return content, 0.70
 
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429 and attempt < max_retries - 1:
-                continue
+            if e.response.status_code in (429, 502, 503, 504) and attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
                 continue
             log.error(f"API HTTP {e.response.status_code}: {e.response.text[:200]}")
             return "", 0.0
@@ -408,6 +398,18 @@ RULES:
 # ── Git operations ────────────────────────────────────────────
 
 def clone_repo(repo_url: str, branch: str = "main") -> Optional[str]:
+    parsed = urlparse(repo_url)
+    allowed_hosts = {
+        h.strip() for h in os.getenv(
+            "GITEA_ALLOWED_HOSTS", "sg-gitea,gitea,localhost"
+        ).split(",") if h.strip()
+    }
+    if parsed.scheme not in ("http", "https") or parsed.hostname not in allowed_hosts:
+        log.error("Clone rejected: repository host is not allowlisted")
+        return None
+    if parsed.username or parsed.password:
+        log.error("Clone rejected: repository URL contains credentials")
+        return None
     repo_url = repo_url.replace("localhost:3000", "gitea:3000")
     tmpdir   = tempfile.mkdtemp(prefix="sg_fix_")
     try:
@@ -450,7 +452,7 @@ def commit_and_push(tmpdir: str, repo_url: str,
                   .replace("localhost:3000", "gitea:3000")
                   .replace("http://", f"http://secureguard:{GITEA_TOKEN}@"))
         subprocess.run(
-            ["git", "push", authed, f"HEAD:{branch_name}", "--force"],
+            ["git", "push", authed, f"HEAD:{branch_name}"],
             cwd=tmpdir, check=True, capture_output=True, timeout=30
         )
         log.info(f"Pushed: {branch_name}")
@@ -527,11 +529,11 @@ Average confidence: **{avg_confidence:.0%}**
             pr_url = r.json().get("html_url", "")
             log.info(f"PR: {pr_url}")
             try:
-        from main import prs_opened_total
-        prs_opened_total.labels(repo=repo_name).inc()
-    except Exception:
-        pass
-    return pr_url
+                from main import prs_opened_total
+                prs_opened_total.labels(repo=repo_name).inc()
+            except Exception:
+                pass
+            return pr_url
         log.error(f"PR failed {r.status_code}: {r.text[:300]}")
     except Exception as e:
         log.error(f"PR error: {e}")
@@ -653,8 +655,6 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                 is_requirements=is_requirements
             )
             models_used.append(model_used)
-            if len(by_file) > 1:
-                
 
             if not fixed_content or confidence < MIN_CONFIDENCE:
                 log.warning(f"  Low confidence {confidence:.0%} for {file_path} — skipping")
@@ -707,7 +707,10 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
         pr_url = open_pr(repo_url, branch_name, scan_run_id,
                           fixed_files, avg_conf, model_used)
         if pr_url:
-            mark_all_pr_opened(scan_run_id, pr_url, avg_conf)
+            mark_pr_opened(
+                scan_run_id, pr_url, avg_conf,
+                [item["file_path"] for item in fixed_files],
+            )
             push_cve_metrics(scan_run_id, all_findings, fixed_files)
             return {
                 "status":          "complete",

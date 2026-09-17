@@ -1,14 +1,14 @@
 import os
 import json
 from contextlib import contextmanager
-from sqlalchemy import create_engine, Column, String, Integer, Float, Text, DateTime, Boolean
+from sqlalchemy import create_engine, Column, String, Integer, Float, Text, DateTime, Boolean, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    f"postgresql://{os.getenv('POSTGRES_USER','sgadmin')}:{os.getenv('POSTGRES_PASSWORD','sgpassword123')}@postgres:5432/{os.getenv('POSTGRES_DB','secureguard')}"
+    f"postgresql://{os.getenv('POSTGRES_USER','sgadmin')}:{os.getenv('POSTGRES_PASSWORD','')}@postgres:5432/{os.getenv('POSTGRES_DB','secureguard')}"
 )
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
@@ -55,7 +55,7 @@ class ScanRun(Base):
 
     def _extract_repo_name(self):
         if self.repo_url:
-            return self.repo_url.rstrip("/").rstrip(".git").split("/")[-1]
+            return self.repo_url.rstrip("/").removesuffix(".git").split("/")[-1]
         return "unknown"
 
 
@@ -77,6 +77,7 @@ class Finding(Base):
     line_start     = Column(Integer)
     line_end       = Column(Integer)
     vulnerable_code= Column(Text)
+    finding_class   = Column(Text)
     fix_status     = Column(Text, default="open")
     ai_fix_code    = Column(Text)
     pr_url         = Column(Text)
@@ -92,10 +93,13 @@ class Finding(Base):
             "severity":    self.severity,
             "cvss_score":  self.cvss_score,
             "title":       self.title,
+            "description": self.description,
             "file_path":   self.file_path,
             "line_start":  self.line_start,
+            "finding_class": self.finding_class,
             "fix_status":  self.fix_status,
             "pr_url":      self.pr_url,
+            "pr_confidence": self.pr_confidence,
         }
 
 
@@ -106,6 +110,11 @@ ScanResult = ScanRun
 def init_db():
     """Create tables if they don't exist (idempotent)."""
     Base.metadata.create_all(engine)
+    # create_all() does not add columns to existing installations.
+    with engine.begin() as conn:
+        conn.execute(text(
+            "ALTER TABLE findings ADD COLUMN IF NOT EXISTS finding_class TEXT"
+        ))
 
 
 @contextmanager

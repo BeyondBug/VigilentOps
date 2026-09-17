@@ -37,9 +37,9 @@ class Notifier:
 Top finding:
 - *{top_finding.get('rule_id', 'unknown')}*
 - CVSS: {top_finding.get('cvss_score', 'N/A')}
-- {top_finding.get('message', '')[:100]}
+- {top_finding.get('description', '')[:100]}
 
-AI fix PR opened in Gitea ✅"""
+        AI remediation has been queued for review."""
 
         if self.telegram_token and self.telegram_chat:
             self._send_telegram(msg)
@@ -92,7 +92,7 @@ AI fix PR opened in Gitea ✅"""
                 "fields": {
                     "project": {"key": self.jira_key},
                     "summary": f"Security Alert: {finding.get('rule_id', 'Vuln')} in {repo}",
-                    "description": finding.get("message", "No description provided."),
+                    "description": finding.get("description", "No description provided."),
                     "issuetype": {"name": "Task"}
                 }
             }

@@ -7,8 +7,8 @@ import re
 from datetime import datetime
 from typing import Optional
 
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Security, Depends
-from fastapi.security.api_key import APIKeyHeader
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Counter, Gauge, Histogram
@@ -22,9 +22,9 @@ app = FastAPI(title="SecureGuard Orchestrator", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://sg-gitea:3000"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],
     allow_methods=["GET", "POST", "PATCH"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 
 # ── Prometheus metrics ────────────────────────────────────────
@@ -37,6 +37,19 @@ cve_fixed_total  = Counter("secureguard_cve_fixed_total",  "CVEs matched and fix
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 WEBHOOK_SECRET = os.getenv("GITEA_WEBHOOK_SECRET", "")
+API_KEY = os.getenv("SG_API_KEY", "")
+
+
+@app.middleware("http")
+async def protect_mutating_api_routes(request: Request, call_next):
+    """Require the shared Jenkins key for state-changing API calls."""
+    if request.url.path.startswith("/api/") and request.method in {"POST", "PATCH", "PUT", "DELETE"}:
+        supplied = request.headers.get("X-API-Key", "")
+        if not API_KEY or not hmac.compare_digest(supplied, API_KEY):
+            return JSONResponse(
+                status_code=401, content={"detail": "Unauthorized"}
+            )
+    return await call_next(request)
 
 
 @app.on_event("startup")
@@ -90,11 +103,12 @@ async def startup():
 
 def verify_signature(payload: bytes, signature: str) -> bool:
     if not WEBHOOK_SECRET:
-        return True
+        return False
     expected = hmac.new(
         WEBHOOK_SECRET.encode(), payload, hashlib.sha256
     ).hexdigest()
-    return hmac.compare_digest(f"sha256={expected}", signature)
+    # Gitea sends the SHA-256 HMAC as a bare hexadecimal value.
+    return hmac.compare_digest(expected, signature.removeprefix("sha256="))
 
 
 CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}")
@@ -149,7 +163,7 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
                 "line_start":     region.get("startLine"),
                 "line_end":       region.get("endLine"),
                 "vulnerable_code": result.get("properties", {}).get("snippet", "")[:5000],
-            "finding_class": determine_finding_class(tool_name),
+                "finding_class": determine_finding_class(tool),
             })
     return findings
 
@@ -157,7 +171,8 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
 
 def determine_finding_class(tool: str) -> str:
     t = tool.lower()
-    if t in ["trivy", "trivy-image", "grype", "syft", "osv", "osv-scanner", "dependency-check"]: return "sca"
+    if t in ["trivy", "trivy-deps", "trivy-image", "grype", "syft", "syft-sbom",
+             "osv", "osv-scanner", "dependency-check", "dep-check", "snyk"]: return "sca"
     if t in ["semgrep", "bandit", "sonarqube", "zap"]: return "sast"
     if t in ["gitleaks", "trufflehog"]: return "secret"
     if t in ["checkov", "terrascan", "openscap"]: return "iac"
@@ -209,6 +224,7 @@ def save_findings_to_db(db, scan_run_id: int, findings: list[dict]):
             line_start     = f.get("line_start"),
             line_end       = f.get("line_end"),
             vulnerable_code= f.get("vulnerable_code", "")[:5000],
+            finding_class  = f.get("finding_class", determine_finding_class(f.get("scanner", "unknown"))),
         ))
         findings_total.labels(
             severity=sev,
@@ -282,7 +298,7 @@ async def create_scan(request: Request, api_key: str = Depends(verify_api_key)):
 
     except Exception as e:
         print(f"DB error in create_scan: {e}")
-        return {"id": 0, "status": "db_error", "error": str(e)}
+        raise HTTPException(status_code=503, detail="Database unavailable") from e
 
 
 @app.get("/api/scans")
@@ -293,13 +309,19 @@ async def get_scans(limit: int = 100):
             results = (
                 db.query(ScanRun)
                 .order_by(ScanRun.started_at.desc())
-                .limit(limit)
+                .limit(max(1, min(limit, 500)))
                 .all()
             )
-            return [r.to_dict() for r in results]
+            payload = []
+            for row in results:
+                item = row.to_dict()
+                findings = db.query(Finding).filter_by(scan_run_id=row.id).all()
+                item["findings"] = [finding.to_dict() for finding in findings]
+                payload.append(item)
+            return payload
     except Exception as e:
         print(f"DB error in get_scans: {e}")
-        return []
+        raise HTTPException(status_code=503, detail="Database unavailable") from e
 
 
 @app.get("/api/scans/{scan_id}")
@@ -332,7 +354,11 @@ async def update_scan(scan_id: str, request: Request):
                 if body.get("status") in ("complete", "failed"):
                     scan.finished_at = datetime.utcnow()
                     scans_active.dec()
+            else:
+                raise HTTPException(status_code=404, detail="Scan not found")
         return {"status": "updated"}
+    except HTTPException:
+        raise
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -348,7 +374,7 @@ async def upload_report(scan_id: str, tool: str, request: Request):
         raw = await request.body()
         data = json.loads(raw)
     except Exception:
-        return {"status": "parse_error", "tool": tool}
+        raise HTTPException(status_code=400, detail=f"Invalid {tool} JSON report")
 
     findings = []
     if tool == "bandit":
@@ -361,7 +387,8 @@ async def upload_report(scan_id: str, tool: str, request: Request):
             with get_db_session() as db:
                 save_findings_to_db(db, int(scan_id), findings)
         except Exception as e:
-            print(f"DB error saving findings for {tool}: {e}")
+            log.exception("DB error saving findings for %s", tool)
+            raise HTTPException(status_code=500, detail="Could not persist findings")
 
     return {
         "status":   "received",
@@ -393,37 +420,23 @@ async def fix_scan(scan_id: str, request: Request):
     Reads HIGH/CRITICAL findings, calls NVIDIA NIM, opens Gitea PRs.
     Runs in background so Jenkins does not timeout.
     """
+    # Repository coordinates are always loaded from the trusted scan record. Never
+    # accept a caller-provided URL because clone_repo injects the Gitea credential.
     try:
-        body       = await request.json()
-        repo_url   = body.get("repo_url", "")
-        commit_sha = body.get("commit_sha", "HEAD")
-    except Exception:
-        repo_url   = ""
-        commit_sha = "HEAD"
+        numeric_scan_id = int(scan_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="scan_id must be an integer")
 
-    # Get repo_url from DB if not provided
-    if not repo_url:
-        try:
-            with get_db_session() as db:
-                scan = db.query(ScanRun).filter_by(id=int(scan_id)).first()
-                if scan:
-                    repo_url   = scan.repo_url
-                    commit_sha = scan.commit_sha
-        except Exception:
-            pass
+    with get_db_session() as db:
+        scan = db.query(ScanRun).filter_by(id=numeric_scan_id).first()
+        if not scan:
+            raise HTTPException(status_code=404, detail="Scan not found")
+        repo_url = scan.repo_url
+        commit_sha = scan.commit_sha
 
-    async def _run_fix():
-        try:
-            from fix_engine import run_ai_fix_engine
-            result = run_ai_fix_engine(int(scan_id), repo_url, commit_sha)
-            log.info(f"AI fix complete for scan {scan_id}: {result}")
-        except Exception as e:
-            log.error(f"AI fix engine error for scan {scan_id}: {e}")
-
-    import asyncio
-    asyncio.create_task(_run_fix())
-
-        return {"status": "fix_started", "scan_id": scan_id, "repo_url": repo_url}
+    from tasks import run_ai_fix
+    job = run_ai_fix.delay(numeric_scan_id, repo_url, commit_sha)
+    return {"status": "fix_queued", "scan_id": scan_id, "job_id": job.id}
 
 
 @app.post("/api/scans/{scan_id}/notify")
@@ -505,8 +518,9 @@ async def health():
     except Exception as e:
         db_status = f"error: {e}"
 
-    return {
-        "status":    "ok",
+    payload = {
+        "status":    "ok" if db_status == "ok" else "error",
         "db":        db_status,
         "timestamp": datetime.utcnow().isoformat(),
     }
+    return JSONResponse(payload, status_code=200 if db_status == "ok" else 503)

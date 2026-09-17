@@ -1,5 +1,3 @@
-version: "3.9"
-
 networks:
   sg-net:
     driver: bridge
@@ -31,7 +29,7 @@ services:
       - USER_GID=1000
       - GITEA__database__DB_TYPE=postgres
       - GITEA__database__HOST=postgres:5432
-      - GITEA__database__NAME=gitea
+      - GITEA__database__NAME=${GITEA_DB_NAME:-secureguard}
       - GITEA__database__USER=${POSTGRES_USER}
       - GITEA__database__PASSWD=${POSTGRES_PASSWORD}
       - GITEA__webhook__ALLOWED_HOST_LIST=172.18.0.100
@@ -51,7 +49,7 @@ services:
     container_name: gitea-runner
     environment:
       - GITEA_INSTANCE_URL=http://gitea:3000
-      - GITEA_RUNNER_REGISTRATION_TOKEN=oCnvDve4jZCBFHiZyEUhPuL1bhSul9OlKUJccBm
+      - GITEA_RUNNER_REGISTRATION_TOKEN=${GITEA_RUNNER_REGISTRATION_TOKEN:-}
       - GITEA_RUNNER_NAME=local-runner
       - GITEA_RUNNER_LABELS=ubuntu-latest:docker
     volumes:
@@ -62,6 +60,8 @@ services:
     restart: unless-stopped
     depends_on:
       - gitea
+    profiles:
+      - actions
 
   # ── PostgreSQL ───────────────────────────────────────────
   postgres:
@@ -92,7 +92,7 @@ services:
   orchestrator:
     build: ./ai-engine
     container_name: sg-orchestrator
-    env_file: .env
+    env_file: ${ENV_FILE:-.env}
     ports:
       - "8000:8000"
     depends_on:
@@ -101,7 +101,6 @@ services:
       - gitea
     volumes:
       - ./ai-engine:/app
-      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - sg-net
     restart: unless-stopped
@@ -111,7 +110,7 @@ services:
   celery-worker:
     build: ./ai-engine
     container_name: sg-celery
-    env_file: .env
+    env_file: ${ENV_FILE:-.env}
     environment:
       - PUSHGATEWAY_URL=http://sg-pushgateway:9091
     depends_on:
@@ -120,7 +119,6 @@ services:
       - sg-pushgateway
     volumes:
       - ./ai-engine:/app
-      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - sg-net
     restart: unless-stopped
@@ -130,7 +128,7 @@ services:
   cve-intel:
     build: ./cve-intel
     container_name: sg-cve-intel
-    env_file: .env
+    env_file: ${ENV_FILE:-.env}
     ports:
       - "8001:8001"
     depends_on:
@@ -159,6 +157,7 @@ services:
       - ./jenkins/pipelines:/var/jenkins_home/pipelines
     environment:
       - CASC_JENKINS_CONFIG=/var/jenkins_home/casc_configs
+      - SG_API_KEY=${SG_API_KEY}
     networks:
       sg-net:
         ipv4_address: 172.18.0.100
@@ -170,9 +169,10 @@ services:
     container_name: sg-dashboard
     ports:
       - "3001:3000"
-    env_file: .env
+    env_file: ${ENV_FILE:-.env}
     depends_on:
       - orchestrator
+      - cve-intel
     networks:
       - sg-net
     restart: unless-stopped
@@ -211,8 +211,8 @@ services:
     ports:
       - "3002:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=VR@b3y0nd
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       # Install Infinity datasource plugin on every startup
       - GF_PLUGINS_PREINSTALL=yesoreyeram-infinity-datasource
       # Allow the plugin to make outbound requests to internal services
@@ -258,7 +258,7 @@ services:
     image: prometheuscommunity/postgres-exporter:v0.15.0
     container_name: sg-postgres-exporter
     environment:
-      - DATA_SOURCE_NAME=postgresql://sgadmin:sgpassword123@sg-postgres:5432/secureguard?sslmode=disable
+      - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@sg-postgres:5432/${POSTGRES_DB}?sslmode=disable
     ports:
       - "9187:9187"
     depends_on:
@@ -368,10 +368,10 @@ services:
     container_name: sg-wazuh-proxy
     environment:
       - WAZUH_URL=https://sg-wazuh:55000
-      - WAZUH_USER=wazuh
-      - WAZUH_PASS=wazuh
-    ports:
-      - "8002:8002"
+      - WAZUH_USER=${WAZUH_USER:-wazuh}
+      - WAZUH_PASS=${WAZUH_PASSWORD}
+    expose:
+      - "8002"
     depends_on:
       - wazuh
     networks:
