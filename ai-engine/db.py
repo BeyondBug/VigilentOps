@@ -8,7 +8,7 @@ from datetime import datetime
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    f"postgresql://{os.getenv('POSTGRES_USER','sgadmin')}:{os.getenv('POSTGRES_PASSWORD','sgpassword123')}@postgres:5432/{os.getenv('POSTGRES_DB','secureguard')}"
+    f"postgresql://{os.getenv('POSTGRES_USER','sgadmin')}:{os.getenv('POSTGRES_PASSWORD','')}@postgres:5432/{os.getenv('POSTGRES_DB','secureguard')}"
 )
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
@@ -93,11 +93,13 @@ class Finding(Base):
             "severity":    self.severity,
             "cvss_score":  self.cvss_score,
             "title":       self.title,
+            "description": self.description,
             "file_path":   self.file_path,
             "line_start":  self.line_start,
             "finding_class": self.finding_class,
             "fix_status":  self.fix_status,
             "pr_url":      self.pr_url,
+            "pr_confidence": self.pr_confidence,
         }
 
 

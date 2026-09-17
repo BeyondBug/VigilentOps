@@ -9,8 +9,6 @@ RUN npm install --legacy-peer-deps && \
     npm install ajv@^8.12.0 ajv-keywords@^5.1.0 --legacy-peer-deps
 
 COPY . .
-ENV REACT_APP_API_URL=http://localhost:8000
-ENV REACT_APP_CVE_INTEL_URL=http://localhost:8001
 ENV GENERATE_SOURCEMAP=false
 RUN npm run build
 
@@ -25,6 +23,7 @@ RUN printf 'server {\n\
   location / { try_files $uri $uri/ /index.html; }\n\
   location /api { proxy_pass http://orchestrator:8000; }\n\
   location /health { proxy_pass http://orchestrator:8000; }\n\
+  location /cve-intel/ { proxy_pass http://cve-intel:8001/; }\n\
 }\n' > /etc/nginx/conf.d/default.conf
 
 EXPOSE 3000

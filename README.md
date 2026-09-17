@@ -2,39 +2,45 @@
 
 > **Automated Vulnerability Management and DevSecOps Platform**
 
+> **Deployment status:** This repository is a lab-oriented reference implementation.
+> Automated fixes always require human review. Do not expose its management ports to
+> an untrusted network. See [Deployment](docs/DEPLOYMENT.md) and
+> [Testing](docs/TESTING.md) before starting the stack.
+
 VigilentOps  is a fully self-hosted and automated vulnerability management platform. It continuously scans source code for security issues, correlates findings with real-world CVE intelligence, applies AI-powered automated remediation, and provides comprehensive monitoring and observability. Human interaction is streamlined exclusively to reviewing and approving the AI-generated pull requests.
 
 
 
 ### 🤖 Multi-Model AI Fallback Architecture
-VigilentOps v3 now features an ultra-resilient, dynamic AI fallback engine. 
+VigilentOps supports a configurable AI fallback chain.
 - You can configure up to 9 different LLM models/endpoints in `.env`.
-- If the primary API goes down, times out, or returns a 429/503 error, the Orchestrator instantly cascades to the next available model.
-- Automatically compares fix confidence across models to guarantee the highest quality remediation.
+- If the primary API times out or returns a transient error, the worker retries and
+  can continue with the next configured provider.
+- The reported confidence is a generation score, not proof that a patch is correct.
 
-### 🔍 Expanded CI/CD Scanners
-- Added **SonarQube SAST** integration to Jenkins pipelines for robust code-quality and vulnerability scanning.
-- Added **OWASP ZAP DAST** integration to simulate live attacks on API endpoints and web apps.
+### 🔍 CI/CD scanners
+
+The Jenkins pipeline currently runs Semgrep, Bandit, Gitleaks, Trivy, Checkov,
+Snyk (when configured), Dockle, OWASP Dependency-Check, Grype, OSV-Scanner,
+and Syft. Reports that are produced are uploaded to the orchestrator; optional
+scanner failures do not stop the remaining parallel scans.
 
 
 
 ### 🤖 Resilient AI Auto-Remediation
-- **Dynamic Multi-Model Fallback:** The AI Orchestrator seamlessly supports up to 9 different LLM configurations (e.g., NVIDIA NIM, OpenAI, Anthropic). If a primary model experiences an outage or throws a `503 Service Unavailable`, it instantly cascades to the next available model, ensuring automated Pull Requests are generated without interruption.
-- **Intelligent API Throttling:** Implements proactive API pacing and backoff strategies to completely prevent `429 Too Many Requests` rate limits when scanning massive enterprise repositories with hundreds of vulnerabilities.
+- **Dynamic Multi-Model Fallback:** OpenAI-compatible endpoints can be configured in priority order.
+- **Retry handling:** Transient `429`, `502`, `503`, and `504` responses use bounded exponential backoff before fallback.
 
 ### 📱 Multi-Channel Alerting
 The Orchestrator includes a natively integrated notification engine that fires the moment a `HIGH` or `CRITICAL` vulnerability is detected:
 - **Messaging:** Slack, Telegram, Twilio WhatsApp, and SMTP Email.
 - **Ticketing:** Automatically creates Jira tickets containing vulnerability details, CVSS scores, and remediation statuses.
 
-### 🛡️ Enterprise Zero-Trust DevSecOps Pipeline
-We have expanded the CI/CD pipeline to include 6 new enterprise-grade stages:
-- **Syft SBOM:** Automatically generates a Software Bill of Materials for deep supply-chain transparency.
-- **Trivy Image Scan:** Performs native binary-level OS vulnerability scanning on built Docker layers.
-- **ClamAV:** Scans the codebase to detect embedded malware, backdoors, or malicious payloads.
-- **ffuf (Fuzzing):** Implements an API Fuzzing stage to bombard live targets with massive randomized payloads to catch edge-case crashes.
-- **OpenSCAP:** Conducts automated compliance scanning to verify NIST/PCI-DSS baseline posture.
-- **Cosign:** Cryptographically signs built container images to ensure end-to-end artifact integrity.
+### 🛡️ Pipeline scope
+
+The implemented pipeline covers source, dependency, secret, infrastructure, SBOM,
+and container-image analysis. DAST, malware scanning, compliance validation, and
+artifact signing are future work and are not claimed as active controls.
 
 ## Currently Working On 
 ```mermaid
@@ -312,7 +318,7 @@ The system is orchestrated using Docker Compose. All services operate within a d
 1. Clone the repository and navigate to the project root.
 2. Execute the setup script to install Docker, Python tools (Semgrep, Bandit), Trivy, Gitleaks, and pull required container images:
    ```bash
-   bash setup-kali.sh
+   bash scripts/setup-kali.sh
    ```
 3. Configure your environment variables in the `.env` file (PostgreSQL credentials, webhook secrets, AI/CVE API keys).
 4. Launch the platform using Docker Compose:
@@ -342,4 +348,3 @@ The system is orchestrated using Docker Compose. All services operate within a d
 * **Security Engineers:** Review automated PRs, investigate deep vulnerability insights, and monitor system health via Grafana dashboards.
 * **API Consumers:** Access interactive API documentation at `/docs` (provided by FastAPI) for custom tooling integrations.
 * **Webhooks:** Gitea webhooks ensure real-time event-driven triggers to the Orchestrator service.
-
