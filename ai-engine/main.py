@@ -263,7 +263,7 @@ async def gitea_webhook(request: Request):
 
 
 @app.post("/api/scans")
-async def create_scan(request: Request):
+async def create_scan(request: Request, api_key: str = Depends(verify_api_key)):
     """Called by Jenkins pipeline — registers a new scan run, returns real DB id."""
     try:
         body = await request.json()
