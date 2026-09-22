@@ -49,6 +49,7 @@ pipeline {
 
         GITEA_TOKEN   = credentials('gitea-cred')
         ORCHESTRATOR  = "http://sg-orchestrator:8000"
+        API_KEY       = "sg-secret-key-123"
         SONAR_TOKEN   = credentials('sonar-token')
     }
 
