@@ -271,10 +271,10 @@ The system is orchestrated using Docker Compose. All services operate within a d
 
 ##  Database Schema (`init.sql`)
 
-* `scan_runs`: Tracks pipeline executions (repository, commit hash, status, severity counts).
-* `findings`: Detailed vulnerability records (SARIF/Bandit parsed, linked to specific scan runs).
+* `scan_runs`: Tracks pipeline executions (repository name, commit hash, status, severity counts).
+* `findings`: Detailed vulnerability records (SARIF/Bandit parsed, categorized by `finding_class` [`sca`, `sast`, `secret`, `iac`], linked to scan runs).
 * `cve_feed`: Cached CVE intelligence data (NVD details, severity ratings, KEV flags).
-* `alerts`: Notification tracking and alerting history.
+* `alerts`: Notification tracking and multi-channel alerting history.
 * *Optimized Indexes:* Built-in indexes ensure rapid query performance for recent scans and severity lookups.
 
 
@@ -282,25 +282,34 @@ The system is orchestrated using Docker Compose. All services operate within a d
 
 ### 1. Scanning & Pipelines (`jenkins/`, `scanners/`)
 * Jenkins pipelines (`jenkins/pipelines/`) clone target repositories and execute security tools:
-  * **Semgrep** (utilizing custom rules located in `scanners/semgrep-rules`).
+  * **Semgrep** (tuned rulesets `security-audit`, `secrets`, `owasp-top-ten` plus custom rules in `scanners/semgrep-rules` with corrected `pattern-either` logic).
   * **Bandit** (Python SAST analysis).
-  * **Trivy** & **Gitleaks** (Container, dependency, and secret scanning).
-  * **OSV-Scanner** (version-aware dependency scanning from supported manifests and lockfiles).
-* Reports (in SARIF/JSON formats) are uploaded to the Orchestrator API endpoint (`/api/scans/{id}/reports/{tool}`).
+  * **Trivy** & **Gitleaks** (Container, dependency `--ignore-unfixed`, and secret scanning).
+  * **OSV-Scanner** (version-aware dependency scanning from supported manifests and lockfiles, parsing `GHSA-` & `CVE-` IDs).
+* Reports (in SARIF/JSON formats) are uploaded to the Orchestrator API endpoint (`/api/scans/{id}/reports/{tool}`) secured with `X-API-Key`.
 * The engine parses findings, applies severity mappings, and extracts relevant code snippets.
 
 ### 2. AI Engine (`ai-engine/`)
-* **Core Files:** `main.py` (FastAPI), `fix_engine.py`, `ai_fix.py`, `nvd_client.py`, `tasks.py` (Celery), `db.py`.
+* **Core Files:** `main.py` (FastAPI Orchestrator & API auth), `fix_engine.py` (LLM Fix & AST Parsing Gates), `notifier.py` (Multi-channel Alerts), `db.py`.
+* **Accuracy & Validation Gates:**
+  1. **Markdown Unfencing (`unfence`):** Automatically strips markdown code fences (```python) before file writes.
+  2. **AST Syntax Gate (`parses_ok`):** Validates generated Python patches via `ast.parse()` and JSON patches via `json.loads()`. Rejects invalid syntax automatically.
+  3. **Line Depletion Protection:** Rejects patches that unexpectedly drop more than 30% of total lines.
+  4. **Strict File Resolution:** Prevents path traversal and exact root file resolution.
+* **Security Guardrails:**
+  1. **API Authentication:** Enforces `X-API-Key` headers on all Orchestrator REST endpoints.
+  2. **Token Sanitization:** Scrubs Gitea personal access tokens from git error output logs.
+  3. **Shell Injection Prevention:** Passes JSON payloads via temporary files (`-d @payload.json`) in Jenkins.
 * **Workflow:**
   1. Enriches findings with live CVE data via `/api/scans/{id}/enrich`.
   2. Triggers automated fixes via `/api/scans/{id}/fix` (filters for high/critical issues).
-  3. AI model generates secure code patches.
+  3. AI model generates secure code patches validated through hard syntax gates.
   4. Automatically opens a Gitea Pull Request containing details, CVE references, and remediation notes.
-* **Powered by:** NVIDIA NIM or compatible LLM endpoints for deep code comprehension and patching.
+* **Powered by:** Configurable LLM endpoints (Ollama, NVIDIA NIM, OpenAI) with dynamic multi-model fallback.
 
 ### 3. CVE Intelligence (`cve-intel/`)
-* Poller service periodically fetches the latest vulnerability disclosures (NVD, etc.) and populates the `cve_feed` table.
-* Ensures accurate severity matching and up-to-date remediation guidance.
+* Poller service periodically fetches the latest vulnerability disclosures (NVD, etc.) using strict ID lookups (`CVE-`/`GHSA-`) without keyword poisoning.
+* Populates the `cve_feed` table and updates CVSS metrics without overwriting scanner severity.
 
 ### 4. Dashboard (`dashboard/`)
 * React application (`src/`, `public/`).

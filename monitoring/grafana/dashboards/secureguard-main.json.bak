@@ -1684,63 +1684,6 @@
                     "refId": "D",
                     "hidden": false
                   }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=\"osv\"}[30m])) or vector(0)",
-                        "legendFormat": "OSV-Scanner"
-                      }
-                    },
-                    "refId": "E",
-                    "hidden": false
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=\"grype\"}[30m])) or vector(0)",
-                        "legendFormat": "Grype"
-                      }
-                    },
-                    "refId": "F",
-                    "hidden": false
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=\"checkov\"}[30m])) or vector(0)",
-                        "legendFormat": "Checkov"
-                      }
-                    },
-                    "refId": "G",
-                    "hidden": false
-                  }
                 }
               ],
               "transformations": [],
