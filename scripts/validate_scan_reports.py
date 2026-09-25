@@ -18,8 +18,7 @@ REQUIRED_SARIF = (
     "osv.sarif",
     "dep-check.sarif",
 )
-OPTIONAL_SARIF = ("checkov.sarif", "snyk.sarif", "trivy-image.sarif")
-OPTIONAL_JSON = ("dockle.json",)
+OPTIONAL_SARIF = ("checkov.sarif", "snyk.sarif", "trivy-image.sarif", "dockle.sarif")
 
 
 def _load(path: Path):
@@ -56,6 +55,7 @@ def validate_reports(reports: Path, has_python: bool = False,
         required_sarif.append("snyk.sarif")
     if image_built:
         required_sarif.append("trivy-image.sarif")
+        required_sarif.append("dockle.sarif")
     summary = []
     for filename in required_sarif:
         count = _sarif(reports / filename)
@@ -74,24 +74,12 @@ def validate_reports(reports: Path, has_python: bool = False,
 
     for filename in OPTIONAL_SARIF:
         if (filename == "snyk.sarif" and snyk_enabled) or (
-            filename == "trivy-image.sarif" and image_built
+            filename in ("trivy-image.sarif", "dockle.sarif") and image_built
         ):
             continue
         path = reports / filename
         if path.is_file() and path.stat().st_size:
             summary.append(f"{filename}: {_sarif(path)} results")
-        else:
-            summary.append(f"{filename}: optional report absent")
-    if image_built:
-        _load(reports / "dockle.json")
-        summary.append("dockle.json: valid JSON")
-    for filename in OPTIONAL_JSON:
-        if filename == "dockle.json" and image_built:
-            continue
-        path = reports / filename
-        if path.is_file() and path.stat().st_size:
-            _load(path)
-            summary.append(f"{filename}: valid JSON")
         else:
             summary.append(f"{filename}: optional report absent")
     return summary

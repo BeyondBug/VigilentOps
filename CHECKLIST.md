@@ -30,6 +30,7 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 - [ ] Verify the prepared OWASP Dependency-Check change on the server: Jenkins #308 printed `dep-check no output`. The updated stage allows NVD data updates and fails on a missing SARIF report; tomorrow's server run must confirm a valid report and upload.
 - [ ] Snyk is optional in the documented lab scope. If enabled, configure a valid `SNYK_TOKEN` in the server's private `.env`, recreate Jenkins, and verify a Snyk report without token disclosure. Jenkins #308 skipped it because the token was unset.
 - [x] Prepare Jenkins report validation and upload failure handling. The required report contract and optional scanners are documented in [docs/TESTING.md](docs/TESTING.md); image scanning now follows a successful image build.
+- [x] Prepare Dockle SARIF ingestion so image-configuration findings can reach the dashboard and AI PR conversation; verify the report and mapping on the server.
 - [x] Prepare Jenkins to register the checked out target commit and reject a webhook commit mismatch before creating the scan record; verify this behavior on the server.
 - [ ] Verify the report contract on the server: missing/invalid required output and non-200/201 upload must fail the build. Confirm optional scanner behavior on repositories without applicable files.
 - [ ] Verify each expected scanner report is parsed and represented correctly in the orchestrator, including severity, advisory ID, affected file/package, and finding class.
@@ -64,6 +65,7 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 
 ## Additional gates before production exposure
 
+- [x] Prepare a [backup, recovery, ownership, and maintenance runbook](docs/OPERATIONS.md); its live checks and owner assignments remain open below.
 - [ ] Replace the requested Grafana password before production use: that value appeared in prior repository history. Rotate any other historical secrets and review access to old Jenkins logs.
 - [x] Disable webhook payload and contributed-variable printing in the shared Jenkinsfile.
 - [ ] Replace the hardcoded Jenkins webhook token with a private credential, update all Gitea hooks, and verify that Jenkins accepts only trusted Gitea repository URLs before production exposure.

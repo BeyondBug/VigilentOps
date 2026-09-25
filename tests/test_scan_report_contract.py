@@ -52,7 +52,7 @@ class ReportContractTests(unittest.TestCase):
         (self.reports / "trivy-image.sarif").write_text(
             json.dumps({"version": "2.1.0", "runs": [{"results": []}]})
         )
-        with self.assertRaisesRegex(ValueError, "dockle.json"):
+        with self.assertRaisesRegex(ValueError, "dockle.sarif"):
             validate_reports(self.reports)
 
 

@@ -5,6 +5,27 @@ import re
 
 CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}")
 
+
+def validate_report_shape(data, tool: str) -> None:
+    """Reject uploads that would otherwise be acknowledged without parsing."""
+    if not isinstance(data, dict):
+        raise ValueError("report must be a JSON object")
+    if tool == "bandit":
+        if not isinstance(data.get("results"), list):
+            raise ValueError("Bandit report needs a results list")
+    elif tool == "syft-sbom":
+        if not str(data.get("spdxVersion", "")).startswith("SPDX-"):
+            raise ValueError("Syft report needs an SPDX version")
+    elif data.get("version") != "2.1.0" or not isinstance(data.get("runs"), list):
+        raise ValueError("scanner report must be SARIF 2.1.0")
+    elif any(
+        not isinstance(run, dict) or
+        not isinstance(run.get("results"), list) or
+        any(not isinstance(result, dict) for result in run["results"])
+        for run in data["runs"]
+    ):
+        raise ValueError("SARIF runs and results must be valid lists")
+
 def _extract_cve(rule_id: str, rule: dict, result: dict):
     if rule_id.startswith("CVE-"):
         return rule_id
@@ -47,6 +68,7 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
                 "severity":       sev,
                 "cvss_score":     result.get("properties", {}).get("cvss_score"),
                 "title":          (rule.get("name") or
+                                   rule.get("shortDescription", {}).get("text") or
                                    result.get("message", {}).get("text", rule_id) or
                                    rule_id)[:500],
                 "description":    (rule.get("fullDescription", {}).get("text") or
@@ -67,7 +89,7 @@ def determine_finding_class(tool: str) -> str:
              "osv", "osv-scanner", "dependency-check", "dep-check", "snyk"]: return "sca"
     if t in ["semgrep", "bandit", "sonarqube", "zap"]: return "sast"
     if t in ["gitleaks", "trufflehog"]: return "secret"
-    if t in ["checkov", "terrascan", "openscap"]: return "iac"
+    if t in ["checkov", "terrascan", "openscap", "dockle"]: return "iac"
     return "sast"
 
 def parse_bandit(bandit_data: dict) -> list[dict]:
@@ -91,5 +113,3 @@ def parse_bandit(bandit_data: dict) -> list[dict]:
             "finding_class": determine_finding_class("bandit"),
         })
     return findings
-
-

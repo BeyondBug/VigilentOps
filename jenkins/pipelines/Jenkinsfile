@@ -281,7 +281,7 @@ pipeline {
                                 DIR=\$(dirname "\$DOCKERFILE")
                                 if docker build -t sg-target-scan:${BUILD_NUMBER} "\$DIR"; then
                                     touch ${REPORTS_DIR}/image-built.marker
-                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports goodwithtech/dockle:latest -f json -o /reports/dockle.json sg-target-scan:${BUILD_NUMBER} || true
+                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports goodwithtech/dockle:latest -f sarif -o /reports/dockle.sarif sg-target-scan:${BUILD_NUMBER} || true
                                     docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports aquasec/trivy:latest image --format sarif --output /reports/trivy-image.sarif sg-target-scan:${BUILD_NUMBER} || true
                                 else
                                     echo "WARNING: target image build failed; image scanners skipped"
@@ -290,7 +290,7 @@ pipeline {
                                 echo "No Dockerfile found; image scanners skipped"
                             fi
 
-                            ls -lh ${REPORTS_DIR}/dockle.json 2>/dev/null \
+                            ls -lh ${REPORTS_DIR}/dockle.sarif 2>/dev/null \
                               && echo "Dockle OK" || echo "WARNING: dockle no output"
                             ls -lh ${REPORTS_DIR}/trivy-image.sarif 2>/dev/null \
                               && echo "Trivy Image OK" || echo "WARNING: Trivy Image no output"

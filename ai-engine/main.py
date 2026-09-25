@@ -14,7 +14,7 @@ from prometheus_client import Counter, Gauge, Histogram
 log = logging.getLogger("orchestrator")
 from sqlalchemy import text
 from db import get_db_session, ScanRun, Finding
-from report_parsers import parse_sarif, parse_bandit, determine_finding_class
+from report_parsers import parse_sarif, parse_bandit, determine_finding_class, validate_report_shape
 
 # ── App setup ────────────────────────────────────────────────
 app = FastAPI(title="SecureGuard Orchestrator", version="2.0.0")
@@ -280,7 +280,7 @@ async def update_scan(scan_id: str, request: Request):
 
 
 @app.post("/api/scans/{scan_id}/reports/{tool}")
-async def upload_report(scan_id: str, tool: str, request: Request):
+async def upload_report(scan_id: int, tool: str, request: Request):
     """
     Receives scanner output from Jenkins.
     Accepts SARIF (JSON) or Bandit JSON.
@@ -292,19 +292,32 @@ async def upload_report(scan_id: str, tool: str, request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail=f"Invalid {tool} JSON report")
 
-    findings = []
-    if tool == "bandit":
-        findings = parse_bandit(data)
-    elif "runs" in data:
-        findings = parse_sarif(data, tool)
+    try:
+        validate_report_shape(data, tool)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid {tool} report: {exc}") from exc
 
-    if findings:
-        try:
-            with get_db_session() as db:
+    try:
+        if tool == "bandit":
+            findings = parse_bandit(data)
+        elif tool == "syft-sbom":
+            findings = []  # An inventory, not a vulnerability report.
+        else:
+            findings = parse_sarif(data, tool)
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid {tool} report content") from exc
+
+    try:
+        with get_db_session() as db:
+            if not db.query(ScanRun).filter_by(id=scan_id).first():
+                raise HTTPException(status_code=404, detail="Scan not found")
+            if findings:
                 save_findings_to_db(db, int(scan_id), findings)
-        except Exception as e:
-            log.exception("DB error saving findings for %s", tool)
-            raise HTTPException(status_code=500, detail="Could not persist findings")
+    except HTTPException:
+        raise
+    except Exception:
+        log.exception("DB error saving findings for %s", tool)
+        raise HTTPException(status_code=500, detail="Could not persist findings")
 
     return {
         "status":   "received",

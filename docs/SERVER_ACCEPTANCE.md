@@ -107,6 +107,9 @@ reference when useful.
 | AI PR conversation and PR-head validation | Pending | PR / head commit / scan ID: | |
 | AI 429 retry and invalid-output fallback | Pending | Worker task ID / redacted log: | |
 | Grafana, Wazuh, CVE client checks | Pending | | |
+| Backup and isolated restore drill | Pending | Backup / test environment: | |
+| Alert owner and delivery check | Pending | Owner / alert route: | |
+| Credential, port, and scanner maintenance gates | Pending | Decision / change record: | |
 
 Update [CHECKLIST.md](../CHECKLIST.md) only after the evidence is collected.
 If any row fails, record the issue and rerun against the fixed commit.

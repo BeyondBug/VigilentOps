@@ -83,9 +83,13 @@ must show `OSV OK`, `Uploading osv`, and HTTP 200.
 The `Validate Reports` stage uses `scripts/validate_scan_reports.py` and must
 list valid Semgrep, Gitleaks, Trivy dependency, Grype, OSV, Dependency-Check,
 and Syft reports. Bandit is required when the target has Python files. When
-the target Docker image builds successfully, Dockle and Trivy image reports
+the target Docker image builds successfully, Dockle and Trivy image SARIF reports
 are required too. Checkov and unconfigured Snyk remain optional. An invalid
 required report or non-successful report upload must fail the Jenkins build.
+The orchestrator should reject malformed report bodies and unknown scan IDs;
+a valid SARIF report with zero results is accepted. Confirm Dockle SARIF
+produces `iac` findings when it reports image-configuration issues. Syft's
+SPDX inventory is accepted but does not create vulnerability records.
 This contract needs confirmation on the lab server after the new Jenkinsfile
 is pulled into Gitea.
 
