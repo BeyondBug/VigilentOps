@@ -81,6 +81,9 @@ PR head in a separate server checkout. Verify the PR conversation has every
 numbered finding part across all scanners, counts match stored findings,
 redacted secret values stay absent, and a failed comment posts a partial
 result. A queued AI task or a green base-branch build is not acceptance.
+Follow [AI rate limits and patch quality](AI_RATE_LIMITS_AND_QUALITY.md) to
+check a controlled 429, deferred retry, invalid-output fallback, and final
+diagnostic without exposing a provider key.
 
 ## 6. Check clients and monitoring
 
@@ -102,6 +105,7 @@ reference when useful.
 | Every intended repository has a fresh terminal scan | Pending | Private coverage snapshot: | |
 | High/critical/secret and medium/low triage policy met | Pending | Private triage export: | |
 | AI PR conversation and PR-head validation | Pending | PR / head commit / scan ID: | |
+| AI 429 retry and invalid-output fallback | Pending | Worker task ID / redacted log: | |
 | Grafana, Wazuh, CVE client checks | Pending | | |
 
 Update [CHECKLIST.md](../CHECKLIST.md) only after the evidence is collected.

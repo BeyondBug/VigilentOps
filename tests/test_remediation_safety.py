@@ -7,6 +7,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
+
 
 ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(ROOT, "ai-engine"))
@@ -16,6 +18,44 @@ from pr_findings import build_finding_comments
 
 
 class RemediationSafetyTests(unittest.TestCase):
+    def test_rate_limit_honors_retry_after_without_busy_retry(self):
+        response = httpx.Response(
+            429, headers={"Retry-After": "120"},
+            request=httpx.Request("POST", "https://model.example/chat"),
+        )
+        with (
+            patch.object(fix_engine.httpx, "post", return_value=response) as request,
+            patch.object(fix_engine.time, "sleep") as sleep,
+        ):
+            with self.assertRaises(fix_engine.RateLimitDeferred) as caught:
+                fix_engine.call_llm("prompt", "model", "https://model.example/chat", "key")
+        self.assertEqual(caught.exception.retry_after, 120)
+        request.assert_called_once()
+        sleep.assert_not_called()
+
+    def test_invalid_model_output_tries_next_model(self):
+        models = [
+            {"model": "first", "key": "one", "url": "https://one.example/chat"},
+            {"model": "second", "key": "two", "url": "https://two.example/chat"},
+        ]
+        with (
+            patch.object(fix_engine, "MODELS", models),
+            patch.object(fix_engine, "call_llm", side_effect=["not python ???", "print('safe')\n"]) as call,
+        ):
+            content, model = fix_engine.try_with_fallback("app.py", "print('old')\n", [])
+        self.assertEqual((content, model), ("print('safe')\n", "second"))
+        self.assertEqual(call.call_count, 2)
+
+    def test_all_rate_limited_models_defer_task(self):
+        models = [{"model": "limited", "key": "one", "url": "https://one.example/chat"}]
+        with (
+            patch.object(fix_engine, "MODELS", models),
+            patch.object(fix_engine, "call_llm", side_effect=fix_engine.RateLimitDeferred(90)),
+        ):
+            with self.assertRaises(fix_engine.RateLimitDeferred) as caught:
+                fix_engine.try_with_fallback("app.py", "pass\n", [])
+        self.assertEqual(caught.exception.retry_after, 90)
+
     def test_no_configured_model_skips_before_database_or_clone(self):
         with (
             patch.object(fix_engine, "MODELS", []),

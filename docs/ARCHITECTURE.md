@@ -52,6 +52,8 @@ The current SQL filter in `ai-engine/fix_engine.py` selects findings with `findi
 
 The file validation checks syntax and some structural limits. It cannot prove that the code fixes the finding, preserves service behavior, or passes integration tests. After opening a PR, the worker posts a numbered set of comments containing all stored findings for that scan, grouped by scanner; only findings linked to changed files are marked as having a proposed change. Raw code snippets and descriptions likely to contain credentials are omitted. The PR body states how many comment parts to expect. A comment failure leaves the task result `partial`, and reviewers should not treat an incomplete conversation as a finished report. `pr_opened` in the database means a proposal exists for a changed file; it is not a resolved finding. Follow [AI pull request review](AI_PR_REVIEW.md) before changing PR status or merging.
 
+The worker verifies the target checkout matches the scan commit before proposing changes. It handles provider rate limits with bounded retries and a deferred Celery task, then tries configured fallback models. It rejects unchanged, syntactically invalid, or heavily shortened model output. See [AI rate limits and patch quality](AI_RATE_LIMITS_AND_QUALITY.md) for operations and limits.
+
 ## Where to make changes
 
 - Scanner stages and upload behavior: `jenkins/pipelines/Jenkinsfile`. The

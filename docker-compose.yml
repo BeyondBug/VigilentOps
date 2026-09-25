@@ -151,7 +151,7 @@ services:
     networks:
       - sg-net
     restart: unless-stopped
-    command: celery -A tasks worker --loglevel=info --concurrency=4
+    command: celery -A tasks worker --loglevel=info --concurrency=${AI_WORKER_CONCURRENCY:-1}
 
   # ── CVE Intel poller ─────────────────────────────────────
   cve-intel:

@@ -10,6 +10,9 @@ import tempfile
 import shutil
 import subprocess
 import logging
+import random
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse, unquote
 from pathlib import Path
 from typing import Optional
@@ -128,7 +131,7 @@ def mark_pr_opened(scan_run_id: int, pr_url: str,
         conn.commit()
 
 
-# ── NIM call — whole-file approach ───────────────────────────
+# ── Model call — whole-file approach ─────────────────────────
 
 MAX_FILE_CHARS = 25_000
 MAX_PROMPT_CHARS = 40_000
@@ -138,13 +141,40 @@ GENERATED_LOCKFILES = {
     "composer.lock", ".terraform.lock.hcl",
 }
 
+
+class RateLimitDeferred(Exception):
+    """All usable model routes were rate limited; retry the Celery task later."""
+
+    def __init__(self, retry_after: int):
+        self.retry_after = retry_after
+        super().__init__(f"Model provider rate limited; retry in {retry_after}s")
+
+
+def _retry_delay(value: str | None, attempt: int) -> int:
+    """Honor Retry-After in seconds or HTTP-date form, with a bounded wait."""
+    delay = None
+    if value:
+        try:
+            delay = float(value)
+        except ValueError:
+            try:
+                target = parsedate_to_datetime(value)
+                if target.tzinfo is None:
+                    target = target.replace(tzinfo=timezone.utc)
+                delay = (target - datetime.now(timezone.utc)).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                pass
+    if delay is None:
+        delay = min(60, 2 ** (attempt + 2)) + random.uniform(0, 1)
+    return max(1, min(3600, int(delay + 0.999)))
+
 def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: int = 4096) -> str:
     """Return model output, or an empty string when the request fails."""
     if not api_key or api_key.strip() == "":
         return ""
 
-    max_retries = 3
-    for attempt in range(max_retries):
+    max_attempts = 3
+    for attempt in range(max_attempts):
         try:
             r = httpx.post(
                 api_url,
@@ -162,13 +192,26 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
             return extract_llm_content(r.json())
 
         except httpx.HTTPStatusError as e:
-            if e.response.status_code in (429, 502, 503, 504) and attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
+            status = e.response.status_code
+            if status in (429, 500, 502, 503, 504):
+                delay = _retry_delay(e.response.headers.get("Retry-After"), attempt)
+                if attempt < max_attempts - 1 and delay <= 60:
+                    log.warning("Model API HTTP %s; retrying in %ss", status, delay)
+                    time.sleep(delay)
+                    continue
+                if status == 429:
+                    raise RateLimitDeferred(delay) from e
+            # Provider error bodies may echo request content or credentials.
+            log.error("Model API HTTP %s", status)
+            return ""
+        except httpx.RequestError as e:
+            log.warning("Model transport error: %s", type(e).__name__)
+            if attempt < max_attempts - 1:
+                time.sleep(_retry_delay(None, attempt))
                 continue
-            log.error(f"API HTTP {e.response.status_code}: {e.response.text[:200]}")
             return ""
         except Exception as e:
-            log.error(f"API call error: {e}")
+            log.error("Model response error: %s", type(e).__name__)
             return ""
     return ""
 
@@ -181,6 +224,7 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
         log.warning("SKIP %s: prompt exceeds %s characters", file_path, MAX_PROMPT_CHARS)
         return "", ""
 
+    deferred = []
     for i, m_conf in enumerate(MODELS):
         m = m_conf["model"]
         k = m_conf["key"]
@@ -191,12 +235,21 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
             continue
 
         log.info(f"Trying model {i+1}/{len(MODELS)}: {m}")
-        content = call_llm(prompt, m, u, k, max_tokens)
-        if content:
+        try:
+            content = call_llm(prompt, m, u, k, max_tokens)
+        except RateLimitDeferred as exc:
+            deferred.append(exc.retry_after)
+            log.warning("Model %s rate limited; trying next configured model", m)
+            continue
+        if content and content.strip() != file_content.strip() and parses_ok(file_path, content) and len(content.splitlines()) >= len(file_content.splitlines()) * 0.7:
             return content, m
+        if content:
+            log.warning("Model %s returned unchanged, invalid, or overly shortened code", m)
         if i < len(MODELS) - 1:
             log.warning("Model %s returned no usable content; trying next model", m)
 
+    if deferred:
+        raise RateLimitDeferred(max(deferred))
     return "", ""
 
 
@@ -247,7 +300,7 @@ def apply_file_fix(repo_path: str, file_path: str,
 
 # ── Git operations ────────────────────────────────────────────
 
-def clone_repo(repo_url: str, branch: str = "main") -> Optional[str]:
+def clone_repo(repo_url: str, branch: str = "main", commit_sha: str = "") -> Optional[str]:
     parsed = urlparse(repo_url)
     allowed_hosts = {
         h.strip() for h in os.getenv(
@@ -268,13 +321,22 @@ def clone_repo(repo_url: str, branch: str = "main") -> Optional[str]:
             ["git", "clone", "--depth=20", "-b", branch, authed, tmpdir],
             check=True, capture_output=True, timeout=60
         )
+        actual_commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=tmpdir,
+            check=True, capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+        if commit_sha and commit_sha != "HEAD" and actual_commit.lower() != commit_sha.lower():
+            log.error("Clone rejected: target branch no longer matches scan commit")
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            return None
         subprocess.run(["git", "config", "user.email", "secureguard@cyberlab.local"],
                        cwd=tmpdir, capture_output=True)
         subprocess.run(["git", "config", "user.name", "SecureGuard Bot"],
                        cwd=tmpdir, capture_output=True)
         return tmpdir
     except subprocess.CalledProcessError as e:
-        log.error(f"Clone failed: {e.stderr.decode()[:200] if e.stderr else str(e)}")
+        detail = e.stderr.decode(errors="replace")[:200] if e.stderr else str(e)
+        log.error("Clone failed: %s", detail.replace(GITEA_TOKEN, "***") if GITEA_TOKEN else detail)
         shutil.rmtree(tmpdir, ignore_errors=True)
         return None
 
@@ -431,9 +493,9 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
 
     # Clone repo
     branch_ref  = all_findings[0].get("branch", "main")
-    tmpdir      = clone_repo(repo_url, branch_ref)
+    tmpdir      = clone_repo(repo_url, branch_ref, commit_sha)
     if not tmpdir:
-        return {"status": "error", "reason": "Clone failed"}
+        return {"status": "error", "reason": "Clone failed or target branch no longer matches scan commit"}
 
     branch_name = f"secureguard/scan-{scan_run_id}-fixes"
     try:
@@ -445,6 +507,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
 
     fixed_files   = []
     summary_lines = []
+    model_failures = 0
 
     try:
         candidate_files: dict[str, dict] = {}
@@ -481,6 +544,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
             )
 
             if not fixed_content:
+                model_failures += 1
                 log.warning("No usable model output for %s", file_path)
                 continue
 
@@ -518,7 +582,9 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
 
         if not fixed_files:
             log.info("No files were successfully fixed")
-            return {"status": "complete", "fixes_attempted": len(candidate_files), "prs_opened": 0}
+            return {"status": "no_proposal", "fixes_attempted": len(candidate_files),
+                    "prs_opened": 0,
+                    "reason": "No model produced an acceptable code change" if model_failures else "No eligible file produced a code change"}
 
         scan_findings = get_scan_findings(scan_run_id)
         if not scan_findings:

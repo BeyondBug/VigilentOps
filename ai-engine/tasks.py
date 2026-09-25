@@ -2,7 +2,7 @@ import os
 
 from celery import Celery
 
-from fix_engine import run_ai_fix_engine
+from fix_engine import RateLimitDeferred, run_ai_fix_engine
 
 
 app = Celery(
@@ -18,9 +18,11 @@ app.conf.update(
 )
 
 
-@app.task(name="secureguard.run_ai_fix", bind=True, max_retries=2)
+@app.task(name="secureguard.run_ai_fix", bind=True, max_retries=5)
 def run_ai_fix(self, scan_run_id: int, repo_url: str, commit_sha: str):
     try:
         return run_ai_fix_engine(scan_run_id, repo_url, commit_sha)
+    except RateLimitDeferred as exc:
+        raise self.retry(exc=exc, countdown=exc.retry_after)
     except Exception as exc:
-        raise self.retry(exc=exc, countdown=30)
+        raise self.retry(exc=exc, countdown=min(300, 30 * 2 ** self.request.retries))

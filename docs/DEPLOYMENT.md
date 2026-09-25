@@ -38,8 +38,11 @@ API_URL_1=<provider-chat-completions-url>
 
 Source files selected for remediation are sent to the configured model provider.
 Leave **all** `API_KEY_n` values empty if repository data must not leave the
-lab; replace the example placeholder values too. In that case, the AI worker
+lab. In that case, the AI worker
 skips proposal generation.
+`AI_WORKER_CONCURRENCY` defaults to 1 for the lab. See
+[AI rate limits and patch quality](AI_RATE_LIMITS_AND_QUALITY.md) before
+increasing it or trusting a proposed patch.
 
 ## Start and verify
 
