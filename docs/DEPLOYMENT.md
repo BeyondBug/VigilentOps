@@ -135,6 +135,10 @@ the Jenkins Generic Webhook Trigger endpoint. A push to a branch outside
 `main`, `develop`, or `master` does not match the pipeline trigger. To
 validate an AI PR branch, explicitly run a scan against that branch on the
 server; a preceding main-branch build does not cover it.
+The pipeline now checks the cloned target's commit against the webhook commit
+before registering a scan. A branch that moves before checkout must be
+triggered again. For production exposure, follow the coordinated
+[webhook token rotation](WEBHOOK_TOKEN_ROTATION.md) procedure.
 
 OSV-Scanner is pinned to `v2.4.0`. It scans supported manifests and lockfiles,
 writes `osv.sarif`, and uploads that report to the orchestrator.

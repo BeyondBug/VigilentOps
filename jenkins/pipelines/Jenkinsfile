@@ -80,9 +80,24 @@ pipeline {
                         error('Shared report validator is missing from the pipeline checkout')
                     }
 
+                }
+
+                dir('target') {
+                    git(url: env.TARGET_REPO, branch: "${TARGET_BRANCH}",
+                        credentialsId: 'gitea-cred')
+                }
+
+                script {
+                    def checkedOutCommit = sh(script: 'git -C target rev-parse HEAD',
+                                              returnStdout: true).trim()
+                    if (env.COMMIT_SHA != 'HEAD' &&
+                        !checkedOutCommit.equalsIgnoreCase(env.COMMIT_SHA)) {
+                        error("Webhook commit ${env.COMMIT_SHA} does not match checked out commit ${checkedOutCommit}")
+                    }
+                    env.COMMIT_SHA = checkedOutCommit
                     def body = groovy.json.JsonOutput.toJson([
-                        repo_url: env.TARGET_REPO, commit_sha: COMMIT_SHA,
-                        branch: TARGET_BRANCH, repo_name: REPO_FULLNAME,
+                        repo_url: env.TARGET_REPO, commit_sha: env.COMMIT_SHA,
+                        branch: env.TARGET_BRANCH, repo_name: env.REPO_FULLNAME,
                     ])
                     writeFile file: 'scan-payload.json', text: body
                     def resp = sh(script: '''set +x
@@ -96,15 +111,8 @@ pipeline {
                         error('Orchestrator did not return a valid scan ID')
                     }
                     env.SCAN_RUN_ID = scan.id.toString()
-                    echo "Scan run ID: ${env.SCAN_RUN_ID}"
-                }
+                    echo "Scan run ID: ${env.SCAN_RUN_ID} | commit: ${env.COMMIT_SHA}"
 
-                dir('target') {
-                    git(url: env.TARGET_REPO, branch: "${TARGET_BRANCH}",
-                        credentialsId: 'gitea-cred')
-                }
-
-                script {
                     env.HAS_PYTHON = sh(script: "find ${SOURCE_DIR} -name '*.py' | head -1",
                                         returnStdout: true).trim() ? "true" : "false"
                     env.HAS_REQS   = sh(script: "find ${SOURCE_DIR} -name 'requirements*.txt' | head -1",
@@ -462,7 +470,11 @@ pipeline {
             sh "set +x\ncurl --retry 3 -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"complete\"}'"
         }
         failure {
-            sh "set +x\ncurl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"failed\"}' || true"
+            script {
+                if (env.SCAN_RUN_ID?.trim()) {
+                    sh "set +x\ncurl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"failed\"}' || true"
+                }
+            }
         }
     }
 }

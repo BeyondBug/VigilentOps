@@ -30,6 +30,7 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 - [ ] Verify the prepared OWASP Dependency-Check change on the server: Jenkins #308 printed `dep-check no output`. The updated stage allows NVD data updates and fails on a missing SARIF report; tomorrow's server run must confirm a valid report and upload.
 - [ ] Snyk is optional in the documented lab scope. If enabled, configure a valid `SNYK_TOKEN` in the server's private `.env`, recreate Jenkins, and verify a Snyk report without token disclosure. Jenkins #308 skipped it because the token was unset.
 - [x] Prepare Jenkins report validation and upload failure handling. The required report contract and optional scanners are documented in [docs/TESTING.md](docs/TESTING.md); image scanning now follows a successful image build.
+- [x] Prepare Jenkins to register the checked out target commit and reject a webhook commit mismatch before creating the scan record; verify this behavior on the server.
 - [ ] Verify the report contract on the server: missing/invalid required output and non-200/201 upload must fail the build. Confirm optional scanner behavior on repositories without applicable files.
 - [ ] Verify each expected scanner report is parsed and represented correctly in the orchestrator, including severity, advisory ID, affected file/package, and finding class.
 
@@ -53,6 +54,7 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 ### 5. Final lab acceptance run
 
 - [ ] Pull the exact release commit onto the lab server; record GitHub and Gitea commit hashes and confirm they match.
+- [x] Prepare a redacted [server acceptance record](docs/SERVER_ACCEPTANCE.md) and a coordinated [webhook token rotation procedure](docs/WEBHOOK_TOKEN_ROTATION.md).
 - [ ] Run Compose validation, service builds, the Python suite, migrations, and health checks on the **server** using [docs/TESTING.md](docs/TESTING.md).
 - [ ] Perform one end-to-end Gitea push → Jenkins → reports → database → dashboard check, and one reviewed AI PR branch check. Record build IDs, scan IDs, and the result in this checklist or a dated report.
 - [ ] Verify Grafana dashboards and Wazuh/CVE integrations through their actual clients, not only service health endpoints.

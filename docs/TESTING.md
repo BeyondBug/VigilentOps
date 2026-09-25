@@ -2,6 +2,8 @@
 
 Run these checks on the Linux lab server after pulling the GitHub branch. Do
 not run the application, builds, or tests on the development device.
+Use [the server acceptance record](SERVER_ACCEPTANCE.md) to capture the exact
+commit, build IDs, scan IDs, and redacted results.
 
 ## Pull the development branch on the server
 
