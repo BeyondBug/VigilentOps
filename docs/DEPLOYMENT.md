@@ -56,6 +56,19 @@ registration token and access to the Docker socket. Start it only when needed:
 docker compose --profile actions up -d gitea-runner
 ```
 
+Jenkins and the monitoring stack are optional. Enable the profiles needed on
+this server:
+
+```bash
+docker compose --profile ci up -d jenkins
+docker compose --profile monitoring up -d
+```
+
+The `migrate` service applies numbered SQL files from `ai-engine/migrations/`
+before the API, worker, and CVE service start. It also upgrades existing
+PostgreSQL volumes without removing their data. Back up the database before
+pulling changes that include a new migration.
+
 The orchestrator, Celery worker, and CVE service must have clean startup logs:
 
 ```bash
@@ -76,9 +89,13 @@ Back up PostgreSQL before changing `GITEA_DB_NAME`.
 
 ## Jenkins
 
-The pipeline reads `jenkins/pipelines/Jenkinsfile`. Configure Jenkins credentials
-named `gitea-cred` and `sonar-token`, then configure a Gitea push webhook for the
-Generic Webhook Trigger. The pipeline accepts `main`, `develop`, and `master`.
+The pipeline reads `jenkins/pipelines/Jenkinsfile`. Configure a Jenkins credential
+named `gitea-cred`, then configure a Gitea push webhook for the Generic Webhook
+Trigger. The pipeline accepts `main`, `develop`, and `master`. Set
+`JENKINS_HOME_HOST` in `.env` to the host mountpoint of the `jenkins_data` Docker
+volume (the path returned by `docker volume inspect`). Scanner containers use
+this path to mount the Jenkins workspace. Start Jenkins with the `ci` profile
+after setting it.
 
 OSV-Scanner is pinned to `v2.4.0`. It scans supported manifests and lockfiles,
 writes `osv.sarif`, and uploads that report to the orchestrator.

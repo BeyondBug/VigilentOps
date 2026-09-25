@@ -1,5 +1,7 @@
 # Testing
 
+Run these checks on the local server after pulling the GitHub branch.
+
 ## Static checks
 
 ```bash
@@ -19,8 +21,22 @@ docker compose config -q
 Build the dashboard and service images:
 
 ```bash
-docker compose build dashboard orchestrator celery-worker cve-intel wazuh-proxy
+docker compose build dashboard migrate orchestrator celery-worker cve-intel wazuh-proxy
 ```
+
+After building, confirm migrations completed and the API routes load:
+
+```bash
+docker compose up -d
+docker compose ps
+docker compose logs --tail=100 migrate orchestrator cve-intel
+curl -fsS http://localhost:8000/health
+curl -fsS http://localhost:8001/health
+```
+
+The dashboard uses exact direct dependency versions. Generate and commit
+`dashboard/package-lock.json` on the server before switching its Dockerfile to
+`npm ci`.
 
 ## OSV smoke test
 

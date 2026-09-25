@@ -1,6 +1,6 @@
 -- SecureGuard database tables
--- Runs automatically on first postgres container start
--- Safe to re-run (uses IF NOT EXISTS)
+-- Applied by migrate.py to both new and existing PostgreSQL volumes.
+-- Safe to re-run (uses IF NOT EXISTS).
 
 CREATE TABLE IF NOT EXISTS scan_runs (
     id              SERIAL PRIMARY KEY,

@@ -1,8 +1,8 @@
 import os
 import json
 from contextlib import contextmanager
-from sqlalchemy import create_engine, Column, String, Integer, Float, Text, DateTime, Boolean, text
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import create_engine, Column, Integer, Float, Text, DateTime
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 
@@ -17,7 +17,7 @@ Base = declarative_base()
 
 
 class ScanRun(Base):
-    """Maps to scan_runs table created by init.sql"""
+    """Maps to scan_runs created by migrations/001_initial.sql."""
     __tablename__ = "scan_runs"
 
     id           = Column(Integer, primary_key=True, autoincrement=True)
@@ -60,7 +60,7 @@ class ScanRun(Base):
 
 
 class Finding(Base):
-    """Maps to findings table created by init.sql"""
+    """Maps to findings created by migrations/001_initial.sql."""
     __tablename__ = "findings"
 
     id             = Column(Integer, primary_key=True, autoincrement=True)
@@ -105,16 +105,6 @@ class Finding(Base):
 
 # Keep ScanResult as alias for backwards compat with old imports
 ScanResult = ScanRun
-
-
-def init_db():
-    """Create tables if they don't exist (idempotent)."""
-    Base.metadata.create_all(engine)
-    # create_all() does not add columns to existing installations.
-    with engine.begin() as conn:
-        conn.execute(text(
-            "ALTER TABLE findings ADD COLUMN IF NOT EXISTS finding_class TEXT"
-        ))
 
 
 @contextmanager

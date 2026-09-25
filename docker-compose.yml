@@ -7,8 +7,6 @@ networks:
           gateway: 172.18.0.1
 
 volumes:
-  sonarqube_data:
-  sonarqube_logs:
   postgres_data:
   redis_data:
   gitea_data:
@@ -16,13 +14,12 @@ volumes:
   grafana_data:
   falco-socket:
   wazuh_data:
-  wazuh_logs:
 
 services:
 
   # ── Gitea (self-hosted Git) ──────────────────────────────
   gitea:
-    image: gitea/gitea:latest
+    image: gitea/gitea:1.27.3
     container_name: sg-gitea
     environment:
       - USER_UID=1000
@@ -45,7 +42,7 @@ services:
     restart: unless-stopped
 
   gitea-runner:
-    image: gitea/act_runner:latest
+    image: gitea/act_runner:0.6.1
     container_name: gitea-runner
     environment:
       - GITEA_INSTANCE_URL=http://gitea:3000
@@ -73,7 +70,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks:
       - sg-net
     restart: unless-stopped
@@ -84,9 +85,25 @@ services:
     container_name: sg-redis
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks:
       - sg-net
     restart: unless-stopped
+
+  migrate:
+    build: ./ai-engine
+    env_file: ${ENV_FILE:-.env}
+    command: python migrate.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sg-net
+    restart: "no"
 
   # ── FastAPI orchestrator ─────────────────────────────────
   orchestrator:
@@ -96,13 +113,22 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
-      - redis
-      - gitea
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      gitea:
+        condition: service_started
     volumes:
       - ./ai-engine:/app
     networks:
       - sg-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
     command: uvicorn main:app --host 0.0.0.0 --port 8000
 
@@ -114,9 +140,12 @@ services:
     environment:
       - PUSHGATEWAY_URL=http://sg-pushgateway:9091
     depends_on:
-      - redis
-      - postgres
-      - sg-pushgateway
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      sg-pushgateway:
+        condition: service_started
     volumes:
       - ./ai-engine:/app
     networks:
@@ -132,12 +161,20 @@ services:
     ports:
       - "8001:8001"
     depends_on:
-      - postgres
-      - redis
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     volumes:
       - ./cve-intel:/app
     networks:
       - sg-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     restart: unless-stopped
 
   # ── Jenkins ──────────────────────────────────────────────
@@ -153,15 +190,15 @@ services:
     volumes:
       - jenkins_data:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./jenkins/casc:/var/jenkins_home/casc_configs
       - ./jenkins/pipelines:/var/jenkins_home/pipelines
     environment:
-      - CASC_JENKINS_CONFIG=/var/jenkins_home/casc_configs
       - SG_API_KEY=${SG_API_KEY}
+      - JENKINS_HOME_HOST=${JENKINS_HOME_HOST:-}
     networks:
       sg-net:
         ipv4_address: 172.18.0.100
     restart: unless-stopped
+    profiles: [ci]
 
   # ── React dashboard ──────────────────────────────────────
   dashboard:
@@ -171,15 +208,17 @@ services:
       - "3001:3000"
     env_file: ${ENV_FILE:-.env}
     depends_on:
-      - orchestrator
-      - cve-intel
+      orchestrator:
+        condition: service_healthy
+      cve-intel:
+        condition: service_healthy
     networks:
       - sg-net
     restart: unless-stopped
 
   # ── Prometheus ───────────────────────────────────────────
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.8.0
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--web.enable-lifecycle"
@@ -193,10 +232,11 @@ services:
     networks:
       - sg-net
     restart: unless-stopped
+    profiles: [monitoring]
 
   # ── Pushgateway (metrics bridge for Celery workers) ──────
   sg-pushgateway:
-    image: prom/pushgateway:latest
+    image: prom/pushgateway:v1.11.3
     container_name: sg-pushgateway
     ports:
       - "9091:9091"
@@ -206,7 +246,7 @@ services:
 
   # ── Grafana ──────────────────────────────────────────────
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.2.2
     container_name: sg-grafana
     ports:
       - "3002:3000"
@@ -228,6 +268,7 @@ services:
     networks:
       - sg-net
     restart: unless-stopped
+    profiles: [monitoring]
 
   # ── Falco (kernel syscall + container runtime monitoring) ──
   falco:
@@ -252,6 +293,7 @@ services:
     networks:
       - sg-net
     restart: "no"
+    profiles: [monitoring]
 
   # ── PostgreSQL exporter ──────────────────────────────────
   postgres-exporter:
@@ -266,10 +308,11 @@ services:
     networks:
       - sg-net
     restart: "no"
+    profiles: [monitoring]
 
   # ── Redis exporter ───────────────────────────────────────
   redis-exporter:
-    image: oliver006/redis_exporter:latest
+    image: oliver006/redis_exporter:v1.92.0
     container_name: sg-redis-exporter
     environment:
       - REDIS_ADDR=redis://sg-redis:6379
@@ -280,6 +323,7 @@ services:
     networks:
       - sg-net
     restart: "no"
+    profiles: [monitoring]
 
   # ── cAdvisor (Docker container metrics) ──────────────────
   cadvisor:
@@ -303,10 +347,11 @@ services:
     networks:
       - sg-net
     restart: "no"
+    profiles: [monitoring]
 
   # ── Falco → Prometheus exporter ──────────────────────────
   falco-exporter:
-    image: falcosecurity/falco-exporter:latest
+    image: falcosecurity/falco-exporter:0.8.7
     container_name: sg-falco-exporter
     ports:
       - "9376:9376"
@@ -317,6 +362,7 @@ services:
     networks:
       - sg-net
     restart: unless-stopped
+    profiles: [monitoring]
 
   # ── Wazuh HIDS manager ───────────────────────────────────
   wazuh:
@@ -335,6 +381,7 @@ services:
     networks:
       - sg-net
     restart: unless-stopped
+    profiles: [monitoring]
 
   # ── Loki (log aggregation) ───────────────────────────────
   loki:
@@ -346,6 +393,7 @@ services:
     networks:
       - sg-net
     restart: unless-stopped
+    profiles: [monitoring]
 
   # ── Promtail (reads Wazuh alerts and ships to Loki) ──────
   promtail:
@@ -361,6 +409,7 @@ services:
     networks:
       - sg-net
     restart: unless-stopped
+    profiles: [monitoring]
 
   # ── Wazuh API proxy ──────────────────────────────────────
   wazuh-proxy:
@@ -377,3 +426,4 @@ services:
     networks:
       - sg-net
     restart: unless-stopped
+    profiles: [monitoring]

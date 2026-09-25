@@ -4,9 +4,9 @@ WORKDIR /app
 
 COPY package.json ./
 
-# Force-install ajv@8 first to fix react-scripts peer dep conflict on Node 20
-RUN npm install --legacy-peer-deps && \
-    npm install ajv@^8.12.0 ajv-keywords@^5.1.0 --legacy-peer-deps
+# Keep one dependency resolution step. The server can generate and commit a
+# lockfile, then this can switch to npm ci.
+RUN npm install --legacy-peer-deps
 
 COPY . .
 ENV GENERATE_SOURCEMAP=false

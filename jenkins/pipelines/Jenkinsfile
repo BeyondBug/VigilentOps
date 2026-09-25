@@ -1,8 +1,6 @@
 // SecureGuard — Security Pipeline v5
-// KEY FIX: Jenkins workspace lives in a named Docker volume.
-// Child containers must use the HOST path of that volume:
-// /var/lib/docker/volumes/secureguard_jenkins_data/_data/workspace/...
-// JENKINS_HOME_HOST env var maps /var/jenkins_home → actual host volume path
+// Child scanner containers need the host path of the Jenkins workspace volume.
+// Set JENKINS_HOME_HOST for this server before enabling the ci profile.
 
 pipeline {
     agent any
@@ -34,23 +32,18 @@ pipeline {
     }
 
     environment {
-        TARGET_REPO   = "${(env.REPO_URL ?: 'http://gitea:3000/BeyondBug/ShadowPatch.git').replace('localhost:3000', 'sg-gitea:3000').replace('http://gitea:3000', 'http://sg-gitea:3000')}"
+        TARGET_REPO   = "${env.REPO_URL ?: ''}"
         TARGET_BRANCH = "${env.BRANCH_REF ? env.BRANCH_REF.replace('refs/heads/', '') : 'main'}"
         COMMIT_SHA    = "${env.COMMIT_SHA ?: 'HEAD'}"
-        REPO_FULLNAME = "${env.REPO_NAME ?: 'ShadowPatch'}"
+        REPO_FULLNAME = "${env.REPO_NAME ?: ''}"
 
         // Jenkins container path (what Jenkins itself sees)
         REPORTS_DIR   = "${WORKSPACE}/reports"
         SOURCE_DIR    = "${WORKSPACE}/target"
 
         // HOST path (what Docker child containers must use for -v mounts)
-        // Jenkins /var/jenkins_home → host /var/lib/docker/volumes/secureguard_jenkins_data/_data
-        JENKINS_HOME_HOST = "/var/lib/docker/volumes/secureguard_jenkins_data/_data"
-
         GITEA_TOKEN   = credentials('gitea-cred')
         ORCHESTRATOR  = "http://sg-orchestrator:8000"
-        API_KEY       = "sg-secret-key-123"
-        SONAR_TOKEN   = credentials('sonar-token')
     }
 
     stages {
@@ -58,6 +51,10 @@ pipeline {
         stage('Prepare') {
             steps {
                 script {
+                    if (!env.TARGET_REPO?.trim()) error('REPO_URL is required')
+                    if (!env.JENKINS_HOME_HOST?.trim()) error('JENKINS_HOME_HOST is required')
+                    env.TARGET_REPO = env.TARGET_REPO.replace('localhost:3000', 'sg-gitea:3000').replace('http://gitea:3000', 'http://sg-gitea:3000')
+                    if (!env.REPO_FULLNAME?.trim()) env.REPO_FULLNAME = env.TARGET_REPO.tokenize('/').last().replace('.git', '')
                     echo "SecureGuard Scan #${BUILD_NUMBER} | ${REPO_FULLNAME} | ${COMMIT_SHA.take(8)}"
                     sh "mkdir -p ${REPORTS_DIR}"
 
@@ -120,7 +117,6 @@ pipeline {
                             [ -d "${SOURCE_DIR}/scanners/semgrep-rules" ] && LOCAL="--config=/src/scanners/semgrep-rules"
 
                             docker run --rm \
-                              --network secureguard_sg-net \
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
                               returntocorp/semgrep:latest semgrep \

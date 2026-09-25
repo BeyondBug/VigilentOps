@@ -255,8 +255,8 @@ The system is orchestrated using Docker Compose. All services operate within a d
 | :--- | :--- | :--- | :--- |
 | **Gitea** | Self-hosted Git repository & webhooks | `3000` (Web), `2222` (SSH) | Postgres-backed |
 | **Gitea Runner** | Executes Gitea CI/CD actions and jobs | — | Docker socket mounted |
-| **Jenkins** | Orchestrates scanning pipelines | `8081` (Web), `50000` (Agents) | Custom Dockerfile, Configuration-as-Code (CASC) |
-| **PostgreSQL** | Central database for scans, findings, and CVEs | — | Automated init scripts for schema (`init.sql`) |
+| **Jenkins** | Orchestrates scanning pipelines | `8081` (Web), `50000` (Agents) | Optional `ci` profile; configure credentials in Jenkins |
+| **PostgreSQL** | Central database for scans, findings, and CVEs | — | Versioned SQL migrations in `ai-engine/migrations/` |
 | **Redis** | Job queue for asynchronous tasks | — | Powers Celery workers |
 | **Orchestrator** | Main API for webhooks, scan registration, & reports | `8000` | Python / FastAPI, Prometheus metrics exporter |
 | **Celery Worker** | Background AI fix task runner | — | Processes automated remediation tasks |
@@ -269,7 +269,7 @@ The system is orchestrated using Docker Compose. All services operate within a d
 
 
 
-##  Database Schema (`init.sql`)
+##  Database Schema (`ai-engine/migrations/`)
 
 * `scan_runs`: Tracks pipeline executions (repository name, commit hash, status, severity counts).
 * `findings`: Detailed vulnerability records (SARIF/Bandit parsed, categorized by `finding_class` [`sca`, `sast`, `secret`, `iac`], linked to scan runs).
@@ -297,7 +297,7 @@ The system is orchestrated using Docker Compose. All services operate within a d
   3. **Line Depletion Protection:** Rejects patches that unexpectedly drop more than 30% of total lines.
   4. **Strict File Resolution:** Prevents path traversal and exact root file resolution.
 * **Security Guardrails:**
-  1. **API Authentication:** Enforces `X-API-Key` headers on all Orchestrator REST endpoints.
+  1. **API Authentication:** Enforces `X-API-Key` headers on state-changing Orchestrator `/api/` endpoints.
   2. **Token Sanitization:** Scrubs Gitea personal access tokens from git error output logs.
   3. **Shell Injection Prevention:** Passes JSON payloads via temporary files (`-d @payload.json`) in Jenkins.
 * **Workflow:**
@@ -312,7 +312,7 @@ The system is orchestrated using Docker Compose. All services operate within a d
 * Populates the `cve_feed` table and updates CVSS metrics without overwriting scanner severity.
 
 ### 4. Dashboard (`dashboard/`)
-* React application (`src/`, `public/`).
+* React application (`src/`, `public/`) with separate API, theme, shared components, and page modules.
 * Provides a centralized UI for viewing scan history, active security findings, performance metrics, and embedded Grafana panels.
 
 ### 5. Monitoring & Observability (`monitoring/`)
@@ -325,7 +325,7 @@ The system is orchestrated using Docker Compose. All services operate within a d
 
 ### Option A: Recommended Installation on Kali Linux (`setup-kali.sh`)
 1. Clone the repository and navigate to the project root.
-2. Execute the setup script to install Docker, Python tools (Semgrep, Bandit), Trivy, Gitleaks, and pull required container images:
+2. Execute the setup script to install Docker, Python tools (Semgrep, Bandit), Trivy, and Gitleaks:
    ```bash
    bash scripts/setup-kali.sh
    ```
@@ -342,7 +342,7 @@ The system is orchestrated using Docker Compose. All services operate within a d
    cd vigilentops
    ```
 2. Copy and configure your `.env` file with proper database credentials and API keys.
-3. Initialize the database schema using `init.sql`.
+3. The one-shot `migrate` service applies pending schema migrations before the API starts.
 4. Spin up the containers:
    ```bash
    docker compose up -d
@@ -356,4 +356,4 @@ The system is orchestrated using Docker Compose. All services operate within a d
 * **Developers:** Simply push code changes to your Gitea repository. This triggers automated security scans and potential AI-powered fix Pull Requests.
 * **Security Engineers:** Review automated PRs, investigate deep vulnerability insights, and monitor system health via Grafana dashboards.
 * **API Consumers:** Access interactive API documentation at `/docs` (provided by FastAPI) for custom tooling integrations.
-* **Webhooks:** Gitea webhooks ensure real-time event-driven triggers to the Orchestrator service.
+* **Webhooks:** Point Gitea push webhooks at Jenkins Generic Webhook Trigger to start scans. The Orchestrator `/webhook/gitea` route only validates and acknowledges events.
