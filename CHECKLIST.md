@@ -41,6 +41,7 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 ### 4. Validate AI remediation safely
 
 - [ ] Select a real open Python SAST finding and verify that the worker creates a `WIP:` Gitea PR against the correct repository and base commit, without exposing secrets.
+- [ ] On a server-created PR, verify its conversation contains every numbered finding part for **all** scanner tools in that scan, with counts matching the database. Confirm secret snippets are absent and comment failures report a partial result.
 - [ ] Review the entire proposed diff, map it to its finding, and run applicable checks against the **PR head** in a separate server checkout. Include service/client checks for any changed interface. Follow [docs/AI_PR_REVIEW.md](docs/AI_PR_REVIEW.md).
 - [ ] Rescan the PR head, confirm the original finding is addressed and no material regression appears, then approve or reject it explicitly. Do not auto-merge an unreviewed AI patch.
 - [ ] Confirm failed model calls, malformed responses, and unsafe or irrelevant patches leave the finding open and give a clear diagnostic.

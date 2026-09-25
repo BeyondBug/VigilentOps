@@ -18,6 +18,7 @@ from collections import defaultdict
 from llm_response import extract_llm_content
 from fix_validation import parses_ok
 from fix_prompts import build_primary_prompt
+from pr_findings import build_finding_comments
 
 import httpx
 import psycopg2
@@ -91,6 +92,21 @@ def get_all_findings(scan_run_id: int) -> list[dict]:
                 ORDER BY f.severity DESC, f.file_path, f.line_start
             """, (scan_run_id,))
             return [dict(r) for r in cur.fetchall()]
+
+
+def get_scan_findings(scan_run_id: int) -> list[dict]:
+    """Return every stored scanner finding for the PR conversation."""
+    with get_db() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, scanner, finding_class, severity, rule_id, cve_id,
+                       cwe_id, cvss_score, title, description, file_path,
+                       line_start, line_end, fix_status
+                FROM findings
+                WHERE scan_run_id = %s
+                ORDER BY scanner, id
+            """, (scan_run_id,))
+            return [dict(row) for row in cur.fetchall()]
 
 
 def mark_pr_opened(scan_run_id: int, pr_url: str,
@@ -301,7 +317,8 @@ def commit_and_push(tmpdir: str, repo_url: str,
 
 
 def open_pr(repo_url: str, branch_name: str, scan_run_id: int,
-             fixed_files: list[dict], model_used: str) -> Optional[str]:
+             fixed_files: list[dict], model_used: str,
+             finding_comments: list[str]) -> tuple[Optional[str], bool]:
     parts     = repo_url.rstrip("/").removesuffix(".git").split("/")
     owner     = parts[-2] if len(parts) >= 2 else "BeyondBug"
     repo_name = parts[-1] if parts else "ShadowPatch"
@@ -327,6 +344,14 @@ AI-generated changes in {len(fixed_files)} files associated with {total} scanner
 |---|---:|---|---|
 {rows}
 
+### Complete tool findings
+
+This PR conversation should contain {len(finding_comments)} numbered finding
+comments covering every stored scanner finding from scan #{scan_run_id}.
+Check that all parts are present before review. The proposed code change
+addresses only selected Python SAST findings; other findings are not addressed
+by this proposal.
+
 ### Before marking ready to merge
 - [ ] Review every changed line and the original scanner findings.
 - [ ] Run the affected tests and rescan the branch.
@@ -345,18 +370,43 @@ AI-generated changes in {len(fixed_files)} files associated with {total} scanner
             timeout=15,
         )
         if r.status_code in (200, 201):
-            pr_url = r.json().get("html_url", "")
+            payload = r.json()
+            pr_url = payload.get("html_url", "")
+            pr_number = payload.get("number")
             log.info(f"PR: {pr_url}")
             try:
                 from main import prs_opened_total
                 prs_opened_total.labels(repo=repo_name).inc()
             except Exception:
                 pass
-            return pr_url
+            if not pr_number:
+                log.error("PR created but Gitea returned no PR number; finding comments not posted")
+                return pr_url, False
+            comments_complete = True
+            for index, comment in enumerate(finding_comments, 1):
+                try:
+                    response = httpx.post(
+                        f"{GITEA_URL}/api/v1/repos/{owner}/{repo_name}/issues/{pr_number}/comments",
+                        headers={"Authorization": f"token {GITEA_TOKEN}",
+                                 "Content-Type": "application/json"},
+                        json={"body": comment},
+                        timeout=30,
+                    )
+                    if response.status_code != 201:
+                        log.error("Finding comment %s/%s failed with HTTP %s",
+                                  index, len(finding_comments), response.status_code)
+                        comments_complete = False
+                        break
+                except Exception as exc:
+                    log.error("Finding comment %s/%s failed: %s",
+                              index, len(finding_comments), exc)
+                    comments_complete = False
+                    break
+            return pr_url, comments_complete
         log.error(f"PR failed {r.status_code}: {r.text[:300]}")
     except Exception as e:
         log.error(f"PR error: {e}")
-    return None
+    return None, False
 
 
 # ── Main ──────────────────────────────────────────────────────
@@ -457,6 +507,9 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                     "scanners":   scanners,
                     "model":      model_used,
                     "source_paths": sorted(group["source_paths"]),
+                    "finding_ids": sorted(
+                        {f["id"] for f in findings if f.get("id") is not None}
+                    ),
                 })
                 summary_lines.append(
                     f"- {file_path}: proposed changes for {len(findings)} findings "
@@ -470,6 +523,18 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
             log.info("No files were successfully fixed")
             return {"status": "complete", "fixes_attempted": len(candidate_files), "prs_opened": 0}
 
+        scan_findings = get_scan_findings(scan_run_id)
+        if not scan_findings:
+            return {"status": "error", "reason": "Scan findings unavailable for PR conversation"}
+        proposed_ids = {
+            finding_id
+            for item in fixed_files
+            for finding_id in item["finding_ids"]
+        }
+        finding_comments = build_finding_comments(
+            scan_run_id, scan_findings, proposed_ids
+        )
+
         # Commit and push
         pushed = commit_and_push(tmpdir, repo_url, branch_name,
                                   scan_run_id, summary_lines)
@@ -479,20 +544,24 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
         model_used = fixed_files[0]["model"]
 
         # Open single PR
-        pr_url = open_pr(repo_url, branch_name, scan_run_id,
-                          fixed_files, model_used)
+        pr_url, comments_complete = open_pr(
+            repo_url, branch_name, scan_run_id,
+            fixed_files, model_used, finding_comments,
+        )
         if pr_url:
             mark_pr_opened(
                 scan_run_id, pr_url,
                 [path for item in fixed_files for path in item["source_paths"]],
             )
             return {
-                "status":          "complete",
+                "status":          "complete" if comments_complete else "partial",
                 "fixes_attempted": len(candidate_files),
                 "files_changed":   len(fixed_files),
                 "prs_opened":      1,
                 "pr_url":          pr_url,
                 "model":           model_used,
+                "findings_published": comments_complete,
+                "reason": None if comments_complete else "PR finding comments are incomplete",
             }
         return {"status": "error", "reason": "PR creation failed"}
 
