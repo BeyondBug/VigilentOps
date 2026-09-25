@@ -16,6 +16,17 @@ from pr_findings import build_finding_comments
 
 
 class RemediationSafetyTests(unittest.TestCase):
+    def test_no_configured_model_skips_before_database_or_clone(self):
+        with (
+            patch.object(fix_engine, "MODELS", []),
+            patch.object(fix_engine, "get_all_findings") as findings,
+            patch.object(fix_engine, "clone_repo") as clone,
+        ):
+            result = fix_engine.run_ai_fix_engine(1, "http://gitea/repo.git", "sha")
+        self.assertEqual(result["status"], "skipped")
+        findings.assert_not_called()
+        clone.assert_not_called()
+
     def test_aliases_of_one_file_produce_one_change(self):
         repo = tempfile.mkdtemp()
         Path(repo, "app.py").write_text("pass\n")
@@ -24,6 +35,7 @@ class RemediationSafetyTests(unittest.TestCase):
             {"id": 2, "file_path": "file:///src/app.py", "scanner": "semgrep", "branch": "main"},
         ]
         with (
+            patch.object(fix_engine, "MODELS", [{"model": "model", "key": "test", "url": "http://unused"}]),
             patch.object(fix_engine, "get_all_findings", return_value=findings),
             patch.object(fix_engine, "get_scan_findings", return_value=[
                 {"id": 1, "scanner": "bandit", "finding_class": "sast",

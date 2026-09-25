@@ -44,7 +44,7 @@ sequenceDiagram
 
 The `/api/scans/{id}/enrich` and `/fix` endpoints **queue** work; their HTTP responses do not prove the workers completed successfully. Jenkins completes its pipeline independently of the AI PR. The direct `/webhook/gitea` API route checks a Gitea signature and acknowledges the event; the Jenkins webhook is what starts the scanner pipeline.
 
-Report upload parses Bandit JSON when the tool name is `bandit`, and SARIF when the JSON contains `runs`. A report can be uploaded while contributing zero parsed findings. The database stores scan runs, findings, CVE data, and alert records. The dashboard reads scans from the orchestrator; Grafana reads metrics and configured data sources.
+Report upload parses Bandit JSON when the tool name is `bandit`, and SARIF when the JSON contains `runs`. A report can be uploaded while contributing zero parsed findings. The database stores scan runs, findings, CVE data, and alert records. The dashboard reads scans from the orchestrator; the coverage audit uses `GET /api/scans?summary_only=true` to avoid transferring every historical finding. Grafana reads metrics and configured data sources.
 
 ## AI proposal boundary
 

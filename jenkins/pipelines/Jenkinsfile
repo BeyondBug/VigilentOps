@@ -23,8 +23,8 @@ pipeline {
             ],
             token:           'secureguard-webhook-token',
             causeString:     'Triggered by $PUSHER pushing to $BRANCH_REF',
-            printContributedVariables: true,
-            printPostContent: true,
+            printContributedVariables: false,
+            printPostContent: false,
             silentResponse:  false,
             regexpFilterText:       '$BRANCH_REF',
             regexpFilterExpression: 'refs/heads/(main|develop|master)'
@@ -89,10 +89,13 @@ pipeline {
                         curl -sf -X POST "$ORCHESTRATOR/api/scans" \\
                         -H "X-API-Key: $SG_API_KEY" \\
                         -H 'Content-Type: application/json' \\
-                        --data-binary @scan-payload.json || echo '{"id":0}' ''',
+                        --data-binary @scan-payload.json ''',
                         returnStdout: true).trim()
-                    try { env.SCAN_RUN_ID = readJSON(text: resp).id.toString() }
-                    catch (e) { env.SCAN_RUN_ID = "0" }
+                    def scan = readJSON(text: resp)
+                    if (!(scan.id instanceof Number) || scan.id <= 0) {
+                        error('Orchestrator did not return a valid scan ID')
+                    }
+                    env.SCAN_RUN_ID = scan.id.toString()
                     echo "Scan run ID: ${env.SCAN_RUN_ID}"
                 }
 
@@ -456,7 +459,7 @@ pipeline {
             cleanWs()
         }
         success {
-            sh "set +x\ncurl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"complete\"}' || true"
+            sh "set +x\ncurl --retry 3 -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"complete\"}'"
         }
         failure {
             sh "set +x\ncurl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"failed\"}' || true"

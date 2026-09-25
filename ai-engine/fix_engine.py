@@ -38,21 +38,18 @@ for i in range(1, 10):
 
 # Fallback to legacy
 if not MODELS:
-    MODELS.append({
-        "model": os.getenv("PRIMARY_MODEL", "moonshotai/kimi-k3"),
-        "key": os.getenv("PRIMARY_API_KEY", ""),
-        "url": os.getenv("PRIMARY_API_URL", "https://api.moonshot.cn/v1/chat/completions")
-    })
-    MODELS.append({
-        "model": os.getenv("SECONDARY_MODEL", "deepseek-ai/deepseek-v4-flash-0731"),
-        "key": os.getenv("SECONDARY_API_KEY", ""),
-        "url": os.getenv("SECONDARY_API_URL", "https://api.deepseek.com/chat/completions")
-    })
-    MODELS.append({
-        "model": os.getenv("FALLBACK_MODEL", "meta/muse-glimmer-30b"),
-        "key": os.getenv("FALLBACK_API_KEY", ""),
-        "url": os.getenv("FALLBACK_API_URL", "https://api.together.xyz/v1/chat/completions")
-    })
+    for prefix, default_model, default_url in (
+        ("PRIMARY", "moonshotai/kimi-k3", "https://api.moonshot.cn/v1/chat/completions"),
+        ("SECONDARY", "deepseek-ai/deepseek-v4-flash-0731", "https://api.deepseek.com/chat/completions"),
+        ("FALLBACK", "meta/muse-glimmer-30b", "https://api.together.xyz/v1/chat/completions"),
+    ):
+        key = os.getenv(f"{prefix}_API_KEY", "")
+        if key:
+            MODELS.append({
+                "model": os.getenv(f"{prefix}_MODEL", default_model),
+                "key": key,
+                "url": os.getenv(f"{prefix}_API_URL", default_url),
+            })
 
 GITEA_URL        = os.getenv("GITEA_URL",      "http://sg-gitea:3000")
 

@@ -207,7 +207,7 @@ async def create_scan(request: Request):
 
 
 @app.get("/api/scans")
-async def get_scans(limit: int = 100):
+async def get_scans(limit: int = 100, summary_only: bool = False):
     """Return recent scan runs for the dashboard."""
     try:
         with get_db_session() as db:
@@ -220,8 +220,9 @@ async def get_scans(limit: int = 100):
             payload = []
             for row in results:
                 item = row.to_dict()
-                findings = db.query(Finding).filter_by(scan_run_id=row.id).all()
-                item["findings"] = [finding.to_dict() for finding in findings]
+                if not summary_only:
+                    findings = db.query(Finding).filter_by(scan_run_id=row.id).all()
+                    item["findings"] = [finding.to_dict() for finding in findings]
                 payload.append(item)
             return payload
     except Exception as e:
@@ -243,8 +244,9 @@ async def get_scan(scan_id: str):
             return scan_dict
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        log.exception("Could not read scan %s", scan_id)
+        raise HTTPException(status_code=503, detail="Scan data unavailable")
 
 
 @app.patch("/api/scans/{scan_id}")
@@ -252,20 +254,29 @@ async def update_scan(scan_id: str, request: Request):
     """Called by Jenkins to update scan status."""
     try:
         body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=422, detail="Invalid scan update")
+        status = body.get("status")
+        if not isinstance(status, str) or status not in {"complete", "failed"}:
+            raise HTTPException(status_code=422, detail="Invalid scan status")
         with get_db_session() as db:
             scan = db.query(ScanRun).filter_by(id=int(scan_id)).first()
             if scan:
-                scan.status = body.get("status", scan.status)
-                if body.get("status") in ("complete", "failed"):
+                if scan.finished_at is None:
                     scan.finished_at = datetime.utcnow()
                     scans_active.dec()
+                if status == "failed" or scan.status not in {"pr_opened", "ai_fixed"}:
+                    scan.status = status
             else:
                 raise HTTPException(status_code=404, detail="Scan not found")
         return {"status": "updated"}
     except HTTPException:
         raise
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid scan update")
+    except Exception:
+        log.exception("Could not update scan %s", scan_id)
+        raise HTTPException(status_code=503, detail="Scan update unavailable")
 
 
 @app.post("/api/scans/{scan_id}/reports/{tool}")

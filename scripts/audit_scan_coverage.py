@@ -57,7 +57,7 @@ def audit(gitea_url: str, orchestrator_url: str, token: str) -> str:
             break
         page += 1
 
-    scans = _request(f"{orchestrator_url}/api/scans?limit=500")
+    scans = _request(f"{orchestrator_url}/api/scans?limit=500&summary_only=true")
     if not isinstance(scans, list):
         raise ValueError("Orchestrator scans response was not a list")
     latest = {}

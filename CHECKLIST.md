@@ -22,7 +22,8 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 - [ ] Triage all open high findings, prioritizing reachable runtime dependencies and deployed container images. Scan #235 recorded **239 high**, **1,979 medium**, and **1,133 low** open records; 223 high records came from Trivy image scanning, and 8 each from Grype and Trivy dependency scanning.
 - [ ] Upgrade, replace, or remove affected direct and transitive dependencies and base images where supported. Rebuild and rescan on the server. Record any finding that cannot be fixed, its impact, mitigation, owner, and review date.
 - [ ] Review the 21 open Python SAST records from Bandit. Confirm each actual issue is fixed or documented with evidence; do not treat an AI proposal as a fix until its PR branch is reviewed and tested.
-- [ ] Decide a release threshold for medium and low findings, then record the accepted exceptions and remaining count.
+- [x] Define a lab release threshold and disposition rules in [docs/FINDING_TRIAGE.md](docs/FINDING_TRIAGE.md).
+- [ ] Apply that policy to the latest scan; record all accepted exceptions and the remaining medium/low counts.
 
 ### 2. Make scanner results trustworthy
 
@@ -60,6 +61,8 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 ## Additional gates before production exposure
 
 - [ ] Replace the requested Grafana password before production use: that value appeared in prior repository history. Rotate any other historical secrets and review access to old Jenkins logs.
+- [x] Disable webhook payload and contributed-variable printing in the shared Jenkinsfile.
+- [ ] Replace the hardcoded Jenkins webhook token with a private credential, update all Gitea hooks, and verify that Jenkins accepts only trusted Gitea repository URLs before production exposure.
 - [ ] Restrict published management ports to trusted networks; require appropriate authentication for dashboards, APIs, and management interfaces. Review Docker socket access and service privileges.
 - [ ] Back up and test restore of PostgreSQL and persistent Gitea/Jenkins/Grafana volumes. Document recovery steps and retention.
 - [ ] Pin and maintain scanner/container versions, define update cadence, and establish a monitored vulnerability exception process.
