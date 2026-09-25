@@ -30,7 +30,6 @@ for root in ("ai-engine", "cve-intel", "wazuh-proxy", "monitoring"):
         ast.parse(path.read_text(), filename=str(path))
 print("Python syntax OK")
 PY
-python3 -m unittest discover -s tests -v
 bash -n scripts/setup-kali.sh
 docker compose config -q
 ```
@@ -39,6 +38,14 @@ Build the dashboard and service images:
 
 ```bash
 docker compose build dashboard migrate orchestrator celery-worker cve-intel wazuh-proxy
+```
+
+Run the Python suite with the orchestrator image so its pinned application
+dependencies are available:
+
+```bash
+docker run --rm --network none -v "$PWD":/repo:ro -w /repo \
+  secureguard-orchestrator python -m unittest discover -s tests -v
 ```
 
 After building, confirm migrations completed and the API routes load:
