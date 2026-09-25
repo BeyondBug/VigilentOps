@@ -63,11 +63,17 @@ pipeline {
                     def wsRelative = WORKSPACE.replace('/var/jenkins_home/', '')
                     env.HOST_SOURCE  = "${JENKINS_HOME_HOST}/${wsRelative}/target"
                     env.HOST_REPORTS = "${JENKINS_HOME_HOST}/${wsRelative}/reports"
+                    env.HOST_RULES   = "${JENKINS_HOME_HOST}/${wsRelative}/scanners/semgrep-rules"
 
                     echo "Container SOURCE : ${SOURCE_DIR}"
                     echo "Host SOURCE      : ${env.HOST_SOURCE}"
                     echo "Container REPORTS: ${REPORTS_DIR}"
                     echo "Host REPORTS     : ${env.HOST_REPORTS}"
+                    echo "Host RULES       : ${env.HOST_RULES}"
+                    if (sh(script: "test -f ${WORKSPACE}/scanners/semgrep-rules/secureguard-rules.yaml",
+                           returnStatus: true) != 0) {
+                        error('Shared Semgrep rules are missing from the pipeline checkout')
+                    }
 
                     def body = groovy.json.JsonOutput.toJson([
                         repo_url: env.TARGET_REPO, commit_sha: COMMIT_SHA,
@@ -112,14 +118,12 @@ pipeline {
                         sh """
                             echo "Running Semgrep via HOST path: ${env.HOST_SOURCE}"
 
-                            LOCAL=""
-                            [ -d "${SOURCE_DIR}/scanners/semgrep-rules" ] && LOCAL="--config=/src/scanners/semgrep-rules"
-
                             docker run --rm \
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
+                              -v ${env.HOST_RULES}:/shared-rules:ro \
                               returntocorp/semgrep:latest semgrep \
-                                \$LOCAL \
+                                --config=/shared-rules \
                                 --config=auto \
                                 --sarif \
                                 --output=/reports/semgrep.sarif \

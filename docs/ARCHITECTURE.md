@@ -54,7 +54,10 @@ The file validation checks syntax and some structural limits. It cannot prove th
 
 ## Where to make changes
 
-- Scanner stages and upload behavior: `jenkins/pipelines/Jenkinsfile`.
+- Scanner stages and upload behavior: `jenkins/pipelines/Jenkinsfile`. The
+  shared Jenkins job loads this file from `VigilentOps/main` for every hooked
+  target repository. Its Semgrep stage mounts the central rules from
+  `scanners/semgrep-rules/` for every scan.
 - Report format, severity, and finding class mapping: `ai-engine/report_parsers.py`.
 - Scan API and authentication: `ai-engine/main.py`.
 - AI eligibility, prompting, validation, and PR creation: `ai-engine/fix_engine.py`, `fix_prompts.py`, `fix_validation.py`.
