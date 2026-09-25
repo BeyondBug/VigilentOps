@@ -80,7 +80,8 @@ pipeline {
                         branch: TARGET_BRANCH, repo_name: REPO_FULLNAME,
                     ])
                     writeFile file: 'scan-payload.json', text: body
-                    def resp = sh(script: '''curl -sf -X POST "$ORCHESTRATOR/api/scans" \\
+                    def resp = sh(script: '''set +x
+                        curl -sf -X POST "$ORCHESTRATOR/api/scans" \\
                         -H "X-API-Key: $SG_API_KEY" \\
                         -H 'Content-Type: application/json' \\
                         --data-binary @scan-payload.json || echo '{"id":0}' ''',
@@ -354,6 +355,7 @@ pipeline {
                 echo "=== Reports ==="
                 sh "ls -lh ${REPORTS_DIR}/ || echo 'empty'"
                 sh """
+                    set +x
                     UPLOADED=0
                     for f in ${REPORTS_DIR}/*.sarif ${REPORTS_DIR}/*.json; do
                         [ -f "\$f" ] || continue
@@ -376,6 +378,7 @@ pipeline {
         stage('CVE Enrichment') {
             steps {
                 sh """
+                    set +x
                     set -e
                     curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/enrich \
                       -H 'X-API-Key: ${SG_API_KEY}' \
@@ -389,6 +392,7 @@ pipeline {
         stage('AI Auto-Remediation') {
             steps {
                 sh """
+                    set +x
                     set -e
                     curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/fix \
                       -H 'X-API-Key: ${SG_API_KEY}' \
@@ -403,6 +407,7 @@ pipeline {
         stage('Notify') {
             steps {
                 sh """
+                    set +x
                     curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/notify \
                       -H 'X-API-Key: ${SG_API_KEY}' \
                       -H 'Content-Type: application/json' \
@@ -421,10 +426,10 @@ pipeline {
             cleanWs()
         }
         success {
-            sh "curl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"complete\"}' || true"
+            sh "set +x\ncurl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"complete\"}' || true"
         }
         failure {
-            sh "curl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"failed\"}' || true"
+            sh "set +x\ncurl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"failed\"}' || true"
         }
     }
 }
