@@ -305,17 +305,23 @@ async def upload_report(scan_id: str, tool: str, request: Request):
 
 @app.post("/api/scans/{scan_id}/enrich")
 async def enrich_scan(scan_id: str, request: Request):
-    """CVE enrichment trigger - calls cve-intel service."""
+    """Queue CVE enrichment and return its worker job ID."""
+    try:
+        numeric_scan_id = int(scan_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="scan_id must be an integer")
     CVE_INTEL = os.getenv("CVE_INTEL_URL", "http://sg-cve-intel:8001")
     try:
         import httpx as _httpx
         async with _httpx.AsyncClient() as client:
-            r = await client.post(f"{CVE_INTEL}/enrich/{scan_id}", timeout=300)
-            if r.status_code == 200:
-                return {"status": "enriched", "scan_id": scan_id, **r.json()}
-    except Exception as e:
-        print(f"CVE enrichment call error: {e}")
-    return {"status": "enrichment_queued", "scan_id": scan_id}
+            r = await client.post(f"{CVE_INTEL}/enrich/{numeric_scan_id}", timeout=15)
+    except _httpx.RequestError as e:
+        log.error("CVE enrichment service unavailable: %s", e)
+        raise HTTPException(status_code=502, detail="CVE enrichment service unavailable")
+    if r.status_code != 202:
+        log.error("CVE enrichment rejected scan %s: HTTP %s", scan_id, r.status_code)
+        raise HTTPException(status_code=502, detail="CVE enrichment was not queued")
+    return {**r.json(), "status": "enrichment_queued", "scan_id": numeric_scan_id}
 
 
 @app.post("/api/scans/{scan_id}/fix")

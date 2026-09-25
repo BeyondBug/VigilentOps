@@ -19,7 +19,7 @@ import tempfile
 import shutil
 import subprocess
 import logging
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from pathlib import Path
 from typing import Optional
 from collections import defaultdict
@@ -134,7 +134,13 @@ def mark_pr_opened(scan_run_id: int, pr_url: str, confidence: float,
 
 # ── NIM call — whole-file approach ───────────────────────────
 
-MAX_FILE_CHARS = 200_000 # Maximum source content sent to the AI model
+MAX_FILE_CHARS = 25_000
+MAX_PROMPT_CHARS = 40_000
+GENERATED_LOCKFILES = {
+    "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml",
+    "poetry.lock", "Pipfile.lock", "uv.lock", "Cargo.lock", "Gemfile.lock",
+    "composer.lock", ".terraform.lock.hcl",
+}
 
 def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: int = 4096) -> tuple[str, float]:
     if not api_key or api_key.strip() == "":
@@ -183,6 +189,10 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
     else:
         prompt = build_primary_prompt(file_path, file_content, findings)
 
+    if len(prompt) > MAX_PROMPT_CHARS:
+        log.warning("SKIP %s: prompt exceeds %s characters", file_path, MAX_PROMPT_CHARS)
+        return "", 0.0, ""
+
     best_content, best_confidence, best_model = "", 0.0, ""
 
     for i, m_conf in enumerate(MODELS):
@@ -214,6 +224,13 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
 # ── File operations ───────────────────────────────────────────
 
 def find_file_in_repo(repo_path: str, file_path: str) -> Optional[Path]:
+    if file_path.startswith("file://"):
+        parsed = urlparse(file_path)
+        if parsed.netloc not in ("", "localhost"):
+            return None
+        file_path = unquote(parsed.path)
+    if file_path.startswith("/src/"):
+        file_path = file_path[len("/src/"):]
     p = (Path(repo_path) / file_path.lstrip("/")).resolve()
     root = Path(repo_path).resolve()
     if p.is_file() and root in p.parents:
@@ -490,6 +507,10 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
         for file_path, findings in by_file.items():
             log.info(f"Processing {file_path} — {len(findings)} findings")
 
+            if Path(file_path).name in GENERATED_LOCKFILES:
+                log.info("Skipping generated lockfile %s", file_path)
+                continue
+
             # Find file in repo
             fpath = find_file_in_repo(tmpdir, file_path)
             if not fpath:
@@ -499,13 +520,16 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
             file_content = fpath.read_text(errors="ignore")
             if not file_content.strip():
                 continue
+            if len(file_content) > MAX_FILE_CHARS:
+                log.info("Skipping %s: %s characters exceeds model limit", file_path, len(file_content))
+                continue
 
             # Choose prompt based on file type
             is_requirements = Path(file_path).name.lower() in ("requirements.txt", "requirements-dev.txt", "constraints.txt")
             # Call LLM with fallback
             fixed_content, confidence, model_used = try_with_fallback(
                 file_path, file_content, findings,
-                max_tokens=max(2048, len(file_content.split()) * 3),
+                max_tokens=min(8192, max(2048, len(file_content.split()) * 3)),
                 is_requirements=is_requirements
             )
             models_used.append(model_used)

@@ -372,11 +372,12 @@ pipeline {
         stage('CVE Enrichment') {
             steps {
                 sh """
+                    set -e
                     curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/enrich \
                       -H 'X-API-Key: ${SG_API_KEY}' \
                       -H 'Content-Type: application/json' -d '{}' \
-                      -o /tmp/enrich_resp.json || true
-                    cat /tmp/enrich_resp.json 2>/dev/null || echo "no response"
+                      -o /tmp/enrich_resp.json
+                    cat /tmp/enrich_resp.json
                 """
             }
         }
@@ -384,12 +385,13 @@ pipeline {
         stage('AI Auto-Remediation') {
             steps {
                 sh """
+                    set -e
                     curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/fix \
                       -H 'X-API-Key: ${SG_API_KEY}' \
                       -H 'Content-Type: application/json' \
                       -d '{}' \
-                      -o /tmp/fix_resp.json || true
-                    cat /tmp/fix_resp.json 2>/dev/null || echo "no response"
+                      -o /tmp/fix_resp.json
+                    cat /tmp/fix_resp.json
                 """
             }
         }
