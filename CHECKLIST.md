@@ -25,8 +25,8 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 
 ### 2. Make scanner results trustworthy
 
-- [ ] Fix OWASP Dependency-Check: Jenkins #308 printed `dep-check no output`. Make the stage produce a valid report and verify upload, or explicitly remove it from the supported scanner list and document the reason.
-- [ ] Configure a valid `SNYK_TOKEN` and verify a Snyk report, **or** formally mark Snyk optional in the release scope. Jenkins #308 skipped it because the token was unset.
+- [ ] Verify the prepared OWASP Dependency-Check change on the server: Jenkins #308 printed `dep-check no output`. The updated stage allows NVD data updates and fails on a missing SARIF report; tomorrow's server run must confirm a valid report and upload.
+- [ ] Snyk is optional in the documented lab scope. If enabled, configure a valid `SNYK_TOKEN` in the server's private `.env`, recreate Jenkins, and verify a Snyk report without token disclosure. Jenkins #308 skipped it because the token was unset.
 - [ ] Change Jenkins so a required scanner that fails or produces no usable report cannot silently result in a green build. Record which scanners are required and which are optional.
 - [ ] Verify each expected scanner report is parsed and represented correctly in the orchestrator, including severity, advisory ID, affected file/package, and finding class.
 

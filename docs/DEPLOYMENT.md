@@ -139,6 +139,17 @@ server; a preceding main-branch build does not cover it.
 OSV-Scanner is pinned to `v2.4.0`. It scans supported manifests and lockfiles,
 writes `osv.sarif`, and uploads that report to the orchestrator.
 
+Dependency-Check needs a populated NVD data cache. Its first scan downloads
+vulnerability data into the persistent `depcheck-cache` Docker volume and can
+take substantially longer than later scans. The Jenkins stage now allows the
+update and fails if it cannot produce a SARIF report. Ensure the server can
+reach the [required remote data sources](https://dependency-check.github.io/DependencyCheck/data/index.html)
+before expecting that stage to pass.
+
+Snyk is optional. Set `SNYK_TOKEN` in the server's private `.env` and recreate
+the Jenkins container to enable it; an unset token skips the stage. Keep the
+token out of Git and Jenkins console logs.
+
 ## Security notes
 
 - Rotate all credentials that were ever committed to Git history.

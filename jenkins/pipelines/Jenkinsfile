@@ -228,20 +228,31 @@ pipeline {
                 stage('Snyk SCA') {
                     steps {
                         sh """
+                            set +x
                             echo "Running Snyk via HOST path: ${env.HOST_SOURCE}"
                             if [ -z "\${SNYK_TOKEN}" ]; then
                                 echo "WARNING: SNYK_TOKEN not set, skipping."
                                 exit 0
                             fi
                             docker run --rm \
-                              -e SNYK_TOKEN=\${SNYK_TOKEN} \
+                              -e SNYK_TOKEN \
                               -v ${env.HOST_SOURCE}:/src \
                               snyk/snyk:linux test --sarif --all-projects > ${REPORTS_DIR}/snyk.sarif || true
 
-                            ls -lh ${REPORTS_DIR}/snyk.sarif 2>/dev/null \
-                              && echo "Snyk OK — \$(wc -c < ${REPORTS_DIR}/snyk.sarif) bytes" \
-                              || echo "WARNING: snyk no output"
+                            test -s ${REPORTS_DIR}/snyk.sarif || {
+                                echo "ERROR: Snyk produced no SARIF report"
+                                exit 1
+                            }
+                            echo "Snyk OK — \$(wc -c < ${REPORTS_DIR}/snyk.sarif) bytes"
                         """
+                        script {
+                            if (env.SNYK_TOKEN?.trim()) {
+                                def report = readJSON file: "${REPORTS_DIR}/snyk.sarif"
+                                if (report.version != '2.1.0' || report.runs == null) {
+                                    error('Snyk report is not valid SARIF')
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -281,13 +292,20 @@ pipeline {
                               owasp/dependency-check:latest \
                                 --scan /src \
                                 --format SARIF \
-                                --noupdate \
-                                --out /reports/dep-check.sarif || true
+                                --out /reports/dep-check.sarif
 
-                            ls -lh ${REPORTS_DIR}/dep-check.sarif 2>/dev/null \
-                              && echo "Dep-Check OK — \$(wc -c < ${REPORTS_DIR}/dep-check.sarif) bytes" \
-                              || echo "WARNING: dep-check no output"
+                            test -s ${REPORTS_DIR}/dep-check.sarif || {
+                                echo "ERROR: Dependency-Check produced no SARIF report"
+                                exit 1
+                            }
+                            echo "Dep-Check OK — \$(wc -c < ${REPORTS_DIR}/dep-check.sarif) bytes"
                         """
+                        script {
+                            def report = readJSON file: "${REPORTS_DIR}/dep-check.sarif"
+                            if (report.version != '2.1.0' || report.runs == null) {
+                                error('Dependency-Check report is not valid SARIF')
+                            }
+                        }
                     }
                 }
 

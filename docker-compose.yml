@@ -209,6 +209,7 @@ services:
       - ./jenkins/pipelines:/var/jenkins_home/pipelines
     environment:
       - SG_API_KEY=${SG_API_KEY}
+      - SNYK_TOKEN=${SNYK_TOKEN:-}
       - JENKINS_HOME_HOST=${JENKINS_HOME_HOST:-}
     networks:
       sg-net:

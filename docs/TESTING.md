@@ -77,6 +77,19 @@ python3 -m json.tool reports/osv.sarif >/dev/null
 In Jenkins, verify `OSV SCA`, `Upload Reports`, and `CVE Enrichment`. The console
 must show `OSV OK`, `Uploading osv`, and HTTP 200.
 
+## Dependency-Check and optional Snyk
+
+After deploying a Jenkinsfile change, run a fresh scan on the server. Confirm
+the `Dep-Check SCA` stage writes a nonempty `dep-check.sarif` and that
+`Upload Reports` returns HTTP 200 for `dep-check`. A new `depcheck-cache`
+volume needs its first NVD download, which can take longer than a later scan.
+If data download fails or the report is missing, the stage should fail; inspect
+the Dependency-Check error rather than treating a green pipeline as proof.
+
+Snyk is optional. If `SNYK_TOKEN` is configured in the server's private
+`.env`, recreate Jenkins and verify a nonempty `snyk.sarif` plus HTTP 200
+upload. Confirm the token value does not appear in the Jenkins console.
+
 ## Database verification
 
 ```sql
