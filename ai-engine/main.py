@@ -314,7 +314,10 @@ async def enrich_scan(scan_id: str, request: Request):
     try:
         import httpx as _httpx
         async with _httpx.AsyncClient() as client:
-            r = await client.post(f"{CVE_INTEL}/enrich/{numeric_scan_id}", timeout=15)
+            r = await client.post(
+                f"{CVE_INTEL}/enrich/{numeric_scan_id}",
+                headers={"X-API-Key": API_KEY}, timeout=15,
+            )
     except _httpx.RequestError as e:
         log.error("CVE enrichment service unavailable: %s", e)
         raise HTTPException(status_code=502, detail="CVE enrichment service unavailable")
