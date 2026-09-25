@@ -34,9 +34,8 @@ curl -fsS http://localhost:8000/health
 curl -fsS http://localhost:8001/health
 ```
 
-The dashboard uses exact direct dependency versions. Generate and commit
-`dashboard/package-lock.json` on the server before switching its Dockerfile to
-`npm ci`.
+The dashboard uses `dashboard/package-lock.json` and `npm ci` for reproducible
+dependency installation.
 
 ## OSV smoke test
 

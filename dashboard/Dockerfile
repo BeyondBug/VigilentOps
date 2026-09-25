@@ -2,11 +2,9 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-COPY package.json ./
+COPY package.json package-lock.json ./
 
-# Keep one dependency resolution step. The server can generate and commit a
-# lockfile, then this can switch to npm ci.
-RUN npm install --legacy-peer-deps
+RUN npm ci --legacy-peer-deps
 
 COPY . .
 ENV GENERATE_SOURCEMAP=false

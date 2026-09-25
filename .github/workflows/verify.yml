@@ -29,7 +29,7 @@ jobs:
           node-version: '20'
       - name: Install dashboard dependencies
         working-directory: dashboard
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps
       - name: Build dashboard
         working-directory: dashboard
         run: npm run build

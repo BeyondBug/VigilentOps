@@ -32,7 +32,7 @@ pipeline {
     }
 
     environment {
-        TARGET_REPO   = "${env.REPO_URL ?: ''}"
+        TARGET_REPO   = "${(env.REPO_URL ?: '').replace('localhost:3000', 'sg-gitea:3000').replace('http://gitea:3000', 'http://sg-gitea:3000')}"
         TARGET_BRANCH = "${env.BRANCH_REF ? env.BRANCH_REF.replace('refs/heads/', '') : 'main'}"
         COMMIT_SHA    = "${env.COMMIT_SHA ?: 'HEAD'}"
         REPO_FULLNAME = "${env.REPO_NAME ?: ''}"
@@ -53,7 +53,6 @@ pipeline {
                 script {
                     if (!env.TARGET_REPO?.trim()) error('REPO_URL is required')
                     if (!env.JENKINS_HOME_HOST?.trim()) error('JENKINS_HOME_HOST is required')
-                    env.TARGET_REPO = env.TARGET_REPO.replace('localhost:3000', 'sg-gitea:3000').replace('http://gitea:3000', 'http://sg-gitea:3000')
                     if (!env.REPO_FULLNAME?.trim()) env.REPO_FULLNAME = env.TARGET_REPO.tokenize('/').last().replace('.git', '')
                     echo "SecureGuard Scan #${BUILD_NUMBER} | ${REPO_FULLNAME} | ${COMMIT_SHA.take(8)}"
                     sh "mkdir -p ${REPORTS_DIR}"
@@ -71,7 +70,7 @@ pipeline {
                     echo "Host REPORTS     : ${env.HOST_REPORTS}"
 
                     def body = groovy.json.JsonOutput.toJson([
-                        repo_url: TARGET_REPO, commit_sha: COMMIT_SHA,
+                        repo_url: env.TARGET_REPO, commit_sha: COMMIT_SHA,
                         branch: TARGET_BRANCH, repo_name: REPO_FULLNAME,
                     ])
                     writeFile file: 'scan-payload.json', text: body
@@ -86,7 +85,7 @@ pipeline {
                 }
 
                 dir('target') {
-                    git(url: "${TARGET_REPO}", branch: "${TARGET_BRANCH}",
+                    git(url: env.TARGET_REPO, branch: "${TARGET_BRANCH}",
                         credentialsId: 'gitea-cred')
                 }
 

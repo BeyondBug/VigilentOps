@@ -1,5 +1,3 @@
-"use strict";
-
 export const API = process.env.REACT_APP_API_URL || "";
 export const POLL_MS = 15000; // re-fetch every 15s
 
