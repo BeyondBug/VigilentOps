@@ -188,7 +188,7 @@ export function FindingCard({ finding, showRepo }) {
                 fontSize: 10, padding: "1px 6px", borderRadius: 3,
                 background: `${T.green}20`, color: T.green,
                 fontFamily: T.font, border: `1px solid ${T.green}40`,
-              }}>🤖 AI PR OPENED</span>
+              }}>🤖 REVIEW PR OPEN</span>
             )}
             {finding.fix_status === 'ai_skipped' && (
               <span style={{
@@ -234,8 +234,7 @@ export function FindingCard({ finding, showRepo }) {
               borderRadius: 6,
             }}>
               <div style={{ fontSize: 11, color: T.green, fontFamily: T.font, marginBottom: 6, fontWeight: 700 }}>
-                🤖 AI FIX PR OPENED
-                {finding.pr_confidence && ` — Confidence ${Math.round(finding.pr_confidence * 100)}%`}
+                🤖 REMEDIATION PR OPENED — REVIEW REQUIRED
               </div>
               <a href={finding.pr_url} target="_blank" rel="noreferrer" style={{
                 fontSize: 12, color: T.accent, textDecoration: "none",

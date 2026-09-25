@@ -7,7 +7,7 @@ export default function Overview({ scans }) {
   const totalFindings = scans.reduce((s, r) => s + (r.total_findings || 0), 0);
   const totalCritical = scans.reduce((s, r) => s + (r.critical_count || 0), 0);
   const totalHigh     = scans.reduce((s, r) => s + (r.high_count || 0), 0);
-  const aiFixed       = scans.reduce((s, r) => {
+  const proposedFindings = scans.reduce((s, r) => {
     const findings = r.findings || [];
     return s + findings.filter(f => f.fix_status === "pr_opened" || f.pr_url).length;
   }, 0);
@@ -52,7 +52,7 @@ export default function Overview({ scans }) {
         <StatCard label="TOTAL FINDINGS"  value={totalFindings} icon="⚠" color={T.text}  sub="across all scans" />
         <StatCard label="CRITICAL"        value={totalCritical} icon="🔴" color={SEV_COLOR.CRITICAL} sub="CVSS ≥ 9.0" />
         <StatCard label="HIGH"            value={totalHigh}     icon="🟠" color={SEV_COLOR.HIGH}     sub="CVSS 7.0–8.9" />
-        <StatCard label="AI FIXES OPENED" value={aiFixed}       icon="🤖" color={T.green} sub="auto-remediated" />
+        <StatCard label="FINDINGS WITH PR" value={proposedFindings} icon="🤖" color={T.green} sub="review required" />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>

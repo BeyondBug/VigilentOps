@@ -1,20 +1,11 @@
-import time
 """
 SecureGuard AI Fix Engine v3
 ─────────────────────────────
-Key improvements over v2:
-1. Processes MEDIUM+ findings (not just HIGH/CRITICAL)
-2. Sends ENTIRE FILE to NIM — fixes all vulnerabilities in one pass
-3. No line-by-line patching — NIM returns the complete fixed file
-4. PR description correctly populated with actual changes
-5. Strict prompt — returns only pure code, zero comments
-6. Model fallback: Llama 3.1 70B → Kimi K2 if quality is low
-7. Single branch + single PR per scan run
+Proposes reviewable changes for Python SAST findings.
 """
 
+import time
 import os
-import re
-import json
 import tempfile
 import shutil
 import subprocess
@@ -26,14 +17,11 @@ from collections import defaultdict
 
 from llm_response import extract_llm_content
 from fix_validation import parses_ok
-from fix_prompts import build_primary_prompt, build_sca_prompt
+from fix_prompts import build_primary_prompt
 
 import httpx
 import psycopg2
 import psycopg2.extras
-from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
-
-PUSHGATEWAY_URL = os.getenv("PUSHGATEWAY_URL", "http://sg-pushgateway:9091")
 log = logging.getLogger("ai-fix-v3")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -76,12 +64,6 @@ DB_PARAMS = {
     "password": os.getenv("POSTGRES_PASSWORD", ""),
 }
 
-# Process MEDIUM and above (not just HIGH/CRITICAL)
-MIN_SEVERITY_RANK = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
-PROCESS_MIN_RANK  = 2   # MEDIUM and above
-MIN_CONFIDENCE    = 0.55
-
-
 def get_db():
     return psycopg2.connect(**DB_PARAMS)
 
@@ -89,7 +71,7 @@ def get_db():
 # ── DB helpers ────────────────────────────────────────────────
 
 def get_all_findings(scan_run_id: int) -> list[dict]:
-    """Return all open findings for this scan — MEDIUM and above."""
+    """Return Python SAST findings eligible for a reviewable proposal."""
     with get_db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
@@ -103,14 +85,15 @@ def get_all_findings(scan_run_id: int) -> list[dict]:
                 WHERE f.scan_run_id = %s
                   AND f.severity IN ('CRITICAL','HIGH','MEDIUM')
                   AND f.fix_status = 'open'
+                  AND f.finding_class = 'sast'
                   AND f.file_path IS NOT NULL
-                  AND f.file_path != ''
+                  AND right(lower(f.file_path), 3) = '.py'
                 ORDER BY f.severity DESC, f.file_path, f.line_start
             """, (scan_run_id,))
             return [dict(r) for r in cur.fetchall()]
 
 
-def mark_pr_opened(scan_run_id: int, pr_url: str, confidence: float,
+def mark_pr_opened(scan_run_id: int, pr_url: str,
                    fixed_paths: list[str]):
     """Mark only findings whose files were actually changed."""
     if not fixed_paths:
@@ -121,13 +104,13 @@ def mark_pr_opened(scan_run_id: int, pr_url: str, confidence: float,
                 UPDATE findings SET
                     fix_status    = 'pr_opened',
                     pr_url        = %s,
-                    pr_confidence = %s
+                    pr_confidence = NULL
                 WHERE scan_run_id = %s
                   AND fix_status = 'open'
                   AND file_path = ANY(%s)
-            """, (pr_url, confidence, scan_run_id, fixed_paths))
+            """, (pr_url, scan_run_id, fixed_paths))
             cur.execute("""
-                UPDATE scan_runs SET status = 'ai_fixed' WHERE id = %s
+                UPDATE scan_runs SET status = 'pr_opened' WHERE id = %s
             """, (scan_run_id,))
         conn.commit()
 
@@ -142,13 +125,11 @@ GENERATED_LOCKFILES = {
     "composer.lock", ".terraform.lock.hcl",
 }
 
-def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: int = 4096) -> tuple[str, float]:
+def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: int = 4096) -> str:
+    """Return model output, or an empty string when the request fails."""
     if not api_key or api_key.strip() == "":
-        return "", 0.0
+        return ""
 
-    """
-    Call the LLM API. Returns (fixed_content, confidence).
-    """
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -165,35 +146,27 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
             )
             r.raise_for_status()
 
-            content = extract_llm_content(r.json())
-            # This is a generation score, not a correctness claim. Syntax and
-            # size gates are enforced separately before any file is written.
-            return content, 0.70
+            return extract_llm_content(r.json())
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code in (429, 502, 503, 504) and attempt < max_retries - 1:
                 time.sleep(2 ** attempt)
                 continue
             log.error(f"API HTTP {e.response.status_code}: {e.response.text[:200]}")
-            return "", 0.0
+            return ""
         except Exception as e:
             log.error(f"API call error: {e}")
-            return "", 0.0
-    return "", 0.0
+            return ""
+    return ""
 
 
 
-def try_with_fallback(file_path: str, file_content: str, findings: list[dict], max_tokens: int = 4096, is_requirements: bool = False) -> tuple[str, float, str]:
-    if is_requirements:
-        prompt = build_sca_prompt(file_path, file_content, findings)
-    else:
-        prompt = build_primary_prompt(file_path, file_content, findings)
+def try_with_fallback(file_path: str, file_content: str, findings: list[dict], max_tokens: int = 4096) -> tuple[str, str]:
+    prompt = build_primary_prompt(file_path, file_content, findings)
 
     if len(prompt) > MAX_PROMPT_CHARS:
         log.warning("SKIP %s: prompt exceeds %s characters", file_path, MAX_PROMPT_CHARS)
-        return "", 0.0, ""
-
-    best_content, best_confidence, best_model = "", 0.0, ""
+        return "", ""
 
     for i, m_conf in enumerate(MODELS):
         m = m_conf["model"]
@@ -205,20 +178,13 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
             continue
 
         log.info(f"Trying model {i+1}/{len(MODELS)}: {m}")
-        content, confidence = call_llm(prompt, m, u, k, max_tokens)
-        
-        if confidence >= MIN_CONFIDENCE and content:
-            return content, confidence, m
-            
-        if confidence > best_confidence:
-            best_confidence = confidence
-            best_content = content
-            best_model = m
-            
+        content = call_llm(prompt, m, u, k, max_tokens)
+        if content:
+            return content, m
         if i < len(MODELS) - 1:
-            log.warning(f"Model {m} confidence {confidence:.0%} — falling back to next model...")
+            log.warning("Model %s returned no usable content; trying next model", m)
 
-    return best_content, best_confidence, best_model
+    return "", ""
 
 
 # ── File operations ───────────────────────────────────────────
@@ -335,57 +301,39 @@ def commit_and_push(tmpdir: str, repo_url: str,
 
 
 def open_pr(repo_url: str, branch_name: str, scan_run_id: int,
-             fixed_files: list[dict], avg_confidence: float,
-             model_used: str) -> Optional[str]:
+             fixed_files: list[dict], model_used: str) -> Optional[str]:
     parts     = repo_url.rstrip("/").removesuffix(".git").split("/")
     owner     = parts[-2] if len(parts) >= 2 else "BeyondBug"
     repo_name = parts[-1] if parts else "ShadowPatch"
 
-    # Build detailed table of what was fixed
+    # Describe the proposed changes without claiming findings are resolved.
     rows = ""
     for item in fixed_files:
         fp        = item["file_path"]
         n_vulns   = item["num_vulns"]
         scanners  = ", ".join(set(item["scanners"]))
-        conf      = item["confidence"]
         model     = item.get("model", model_used)
-        rows += f"| `{fp}` | {n_vulns} | {scanners} | {conf:.0%} | {model} |\n"
+        rows += f"| `{fp}` | {n_vulns} | {scanners} | {model} |\n"
 
     total = sum(i["num_vulns"] for i in fixed_files)
 
-    body = f"""##   SecureGuard AI Auto-Remediation — Scan #{scan_run_id}
+    body = f"""## SecureGuard remediation proposal — Scan #{scan_run_id}
 
-**{total} vulnerabilities fixed across {len(fixed_files)} files**
-Average confidence: **{avg_confidence:.0%}**
+AI-generated changes in {len(fixed_files)} files associated with {total} scanner findings. Syntax checks passed; security and behavior are unverified.
 
----
+### Changed files
 
-### Files Fixed
-
-| File | Vulns Fixed | Scanners | Confidence | Model |
-|---|---|---|---|---|
+| File | Associated findings | Scanners | Model |
+|---|---:|---|---|
 {rows}
 
-### What was fixed
-- SQL injection → parameterized queries
-- Command injection → subprocess list args, shell=False
-- Weak crypto (MD5/SHA1) → SHA-256 / PBKDF2
-- Insecure deserialization (pickle) → json
-- Hardcoded secrets → os.environ.get()
-- Vulnerable dependencies → bumped to safe versions
+### Before marking ready to merge
+- [ ] Review every changed line and the original scanner findings.
+- [ ] Run the affected tests and rescan the branch.
+- [ ] Confirm the change preserves behavior and removes the reported issue.
+"""
 
-###   Review checklist
-- [ ] All changed files look correct in the diff tab
-- [ ] Run your test suite before merging
-- [ ] Verify parameterized queries use correct placeholder syntax for your DB driver
-- [ ] Confirm bumped dependency versions are compatible with your codebase
-
-> ⚠️ AI-generated — requires human review before merging.
-> _SecureGuard AI Engine v3 · Supported Models: {len(MODELS)} configured_"""
-
-    title = (f"[SecureGuard] Scan #{scan_run_id} — "
-             f"{total} vulns fixed in {len(fixed_files)} files "
-             f"({avg_confidence:.0%} confidence)")
+    title = f"WIP: [SecureGuard] Review scan #{scan_run_id} changes in {len(fixed_files)} files"
 
     try:
         r = httpx.post(
@@ -411,57 +359,6 @@ Average confidence: **{avg_confidence:.0%}**
     return None
 
 
-def push_cve_metrics(scan_run_id: int, all_findings: list[dict], fixed_files: list[dict]):
-    """
-    Push secureguard_cve_fixed_total metrics to Pushgateway.
-    Panel expects labels: cve_id, job, package, severity
-    """
-    registry = CollectorRegistry()
-    cve_gauge = Gauge(
-        'secureguard_cve_fixed_total',
-        'CVEs detected and auto-fixed by SecureGuard AI engine per scan run',
-        ['cve_id', 'job', 'package', 'severity'],
-        registry=registry,
-    )
-
-    # Build a set of fixed file paths for quick lookup
-    fixed_paths = {f['file_path'] for f in fixed_files}
-
-    seen = set()
-    for finding in all_findings:
-        # Only emit for findings in files that were actually fixed
-        if finding.get('file_path') not in fixed_paths:
-            continue
-
-        cve_id   = finding.get('cve_id') or finding.get('rule_id') or 'N/A'
-        package  = finding.get('file_path', 'unknown')
-        severity = finding.get('severity', 'UNKNOWN')
-        job      = finding.get('scanner', 'secureguard')
-
-        key = (cve_id, package, severity, job)
-        if key in seen:
-            continue
-        seen.add(key)
-
-        cve_gauge.labels(
-            cve_id=cve_id,
-            job=job,
-            package=package,
-            severity=severity,
-        ).set(1)
-
-    try:
-        push_to_gateway(
-            PUSHGATEWAY_URL,
-            job=f'sg-ai-fix-engine-scan-{scan_run_id}',
-            registry=registry,
-        )
-        log.info(f"Pushed {len(seen)} CVE metrics to Pushgateway")
-    except Exception as e:
-        log.error(f"Pushgateway push failed: {e}")
-
-
-
 # ── Main ──────────────────────────────────────────────────────
 
 def run_ai_fix_engine(scan_run_id: int, repo_url: str,
@@ -472,7 +369,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
         return {"status": "skipped", "reason": "No models configured in .env"}
 
     all_findings = get_all_findings(scan_run_id)
-    log.info(f"Total MEDIUM+ findings: {len(all_findings)}")
+    log.info("Eligible Python SAST findings: %s", len(all_findings))
     if not all_findings:
         return {"status": "complete", "fixes_attempted": 0, "prs_opened": 0}
 
@@ -483,7 +380,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
         if fp:
             by_file[fp].append(f)
 
-    log.info(f"Files to fix: {list(by_file.keys())}")
+    log.info("Scanner paths to review: %s", list(by_file))
 
     # Clone repo
     branch_ref  = all_findings[0].get("branch", "main")
@@ -501,21 +398,27 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
 
     fixed_files   = []
     summary_lines = []
-    models_used   = []
 
     try:
+        candidate_files: dict[str, dict] = {}
         for file_path, findings in by_file.items():
-            log.info(f"Processing {file_path} — {len(findings)} findings")
-
             if Path(file_path).name in GENERATED_LOCKFILES:
                 log.info("Skipping generated lockfile %s", file_path)
                 continue
-
-            # Find file in repo
             fpath = find_file_in_repo(tmpdir, file_path)
             if not fpath:
-                log.warning(f"  File not found: {file_path}")
                 continue
+            canonical_path = fpath.relative_to(Path(tmpdir).resolve()).as_posix()
+            group = candidate_files.setdefault(
+                canonical_path, {"findings": [], "source_paths": set()}
+            )
+            group["findings"].extend(findings)
+            group["source_paths"].add(file_path)
+
+        for file_path, group in candidate_files.items():
+            findings = group["findings"]
+            log.info("Processing %s — %s findings", file_path, len(findings))
+            fpath = Path(tmpdir) / file_path
 
             file_content = fpath.read_text(errors="ignore")
             if not file_content.strip():
@@ -524,18 +427,14 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                 log.info("Skipping %s: %s characters exceeds model limit", file_path, len(file_content))
                 continue
 
-            # Choose prompt based on file type
-            is_requirements = Path(file_path).name.lower() in ("requirements.txt", "requirements-dev.txt", "constraints.txt")
             # Call LLM with fallback
-            fixed_content, confidence, model_used = try_with_fallback(
+            fixed_content, model_used = try_with_fallback(
                 file_path, file_content, findings,
                 max_tokens=min(8192, max(2048, len(file_content.split()) * 3)),
-                is_requirements=is_requirements
             )
-            models_used.append(model_used)
 
-            if not fixed_content or confidence < MIN_CONFIDENCE:
-                log.warning(f"  Low confidence {confidence:.0%} for {file_path} — skipping")
+            if not fixed_content:
+                log.warning("No usable model output for %s", file_path)
                 continue
 
             # Verify fixed content looks like code (not a refusal or explanation)
@@ -556,20 +455,20 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                     "file_path":  file_path,
                     "num_vulns":  len(findings),
                     "scanners":   scanners,
-                    "confidence": confidence,
                     "model":      model_used,
+                    "source_paths": sorted(group["source_paths"]),
                 })
                 summary_lines.append(
-                    f"- {file_path}: {len(findings)} vulns fixed "
-                    f"[{', '.join(scanners)}] ({confidence:.0%} conf)"
+                    f"- {file_path}: proposed changes for {len(findings)} findings "
+                    f"[{', '.join(scanners)}]"
                 )
-                log.info(f"  Fixed {file_path} ({confidence:.0%} confidence via {model_used})")
+                log.info("  Proposed change for %s via %s", file_path, model_used)
 
             
 
         if not fixed_files:
             log.info("No files were successfully fixed")
-            return {"status": "complete", "fixes_attempted": len(by_file), "prs_opened": 0}
+            return {"status": "complete", "fixes_attempted": len(candidate_files), "prs_opened": 0}
 
         # Commit and push
         pushed = commit_and_push(tmpdir, repo_url, branch_name,
@@ -577,26 +476,22 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
         if not pushed:
             return {"status": "error", "reason": "Nothing committed or push failed"}
 
-        # Calculate average confidence
-        avg_conf   = sum(i["confidence"] for i in fixed_files) / len(fixed_files)
-        model_used = models_used[0] if models_used else "Unknown"
+        model_used = fixed_files[0]["model"]
 
         # Open single PR
         pr_url = open_pr(repo_url, branch_name, scan_run_id,
-                          fixed_files, avg_conf, model_used)
+                          fixed_files, model_used)
         if pr_url:
             mark_pr_opened(
-                scan_run_id, pr_url, avg_conf,
-                [item["file_path"] for item in fixed_files],
+                scan_run_id, pr_url,
+                [path for item in fixed_files for path in item["source_paths"]],
             )
-            push_cve_metrics(scan_run_id, all_findings, fixed_files)
             return {
                 "status":          "complete",
-                "fixes_attempted": len(by_file),
-                "files_fixed":     len(fixed_files),
+                "fixes_attempted": len(candidate_files),
+                "files_changed":   len(fixed_files),
                 "prs_opened":      1,
                 "pr_url":          pr_url,
-                "avg_confidence":  f"{avg_conf:.0%}",
                 "model":           model_used,
             }
         return {"status": "error", "reason": "PR creation failed"}
