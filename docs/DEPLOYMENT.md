@@ -67,16 +67,34 @@ this server:
 
 ```bash
 docker compose --profile ci up -d jenkins
+```
+
+Prepare Wazuh's API certificate before starting the proxy:
+
+```bash
+docker compose --profile monitoring up -d wazuh
+mkdir -p monitoring/wazuh/certs
+docker cp sg-wazuh:/var/ossec/api/configuration/ssl/server.crt monitoring/wazuh/certs/api.crt
+chmod 644 monitoring/wazuh/certs/api.crt
 docker compose --profile monitoring up -d
 ```
+
+The certificate is specific to this Wazuh instance and is excluded from Git.
+Repeat the copy after replacing the manager's certificate, then recreate the
+proxy. Set `WAZUH_PASSWORD` in `.env` to the actual Wazuh API password before
+starting the proxy; the placeholder is not a valid password. Rotate the
+manager's default API password if this is a new installation. The proxy trusts
+the copied self-signed certificate, checks the certificate chain, and limits
+unauthenticated proxy routes to read-only `/sca/` requests. The bundled
+certificate has only `localhost` in its DNS names, so the proxy pins that
+certificate without a hostname check when connecting to `sg-wazuh`. For full
+hostname validation, issue a certificate with `sg-wazuh` in its SAN.
 
 `docker compose --profile monitoring up -d` starts the base services as well
 as monitoring services. Grafana is published on port 3002. The Wazuh proxy
 listens on port 8002 inside the Compose network; it is not published to the
 host. Grafana uses `http://sg-wazuh-proxy:8002`, so the proxy must listen on
-the container network interface. The current lab Wazuh manager uses a
-self-signed API certificate; any change that enables certificate verification
-requires a trusted CA configuration before deployment.
+the container network interface.
 
 The `migrate` service applies numbered SQL files from `ai-engine/migrations/`
 before the API, worker, and CVE service start. It also upgrades existing
@@ -124,6 +142,9 @@ writes `osv.sarif`, and uploads that report to the orchestrator.
 ## Security notes
 
 - Rotate all credentials that were ever committed to Git history.
+- The old one-off Grafana and Wazuh panel scripts were removed. Grafana now
+  provisions `monitoring/grafana/dashboards/secureguard-main.json`, and
+  Promtail ships Wazuh alerts to Loki.
 - Restrict exposed ports 3000, 8000, 8001, 8081, 9090, and 3002 with a firewall.
 - The Wazuh proxy is internal-only; access it through an authenticated frontend
   or a temporary SSH tunnel when troubleshooting.

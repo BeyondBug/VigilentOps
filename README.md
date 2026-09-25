@@ -37,7 +37,7 @@ See [Architecture](docs/ARCHITECTURE.md) for the service map, repository layout,
 | `jenkins/pipelines/` | Jenkins scanner pipeline |
 | `scanners/` | Custom Semgrep rules |
 | `dashboard/` | React UI served by Nginx; `/api` proxies to the orchestrator |
-| `monitoring/` | Prometheus, Grafana, Falco, Wazuh, Loki, and Promtail configuration and helper scripts |
+| `monitoring/` | Prometheus, Grafana, Falco, Wazuh, Loki, and Promtail configuration |
 | `wazuh-proxy/` | Internal Wazuh API proxy used by Grafana |
 | `scripts/` | Host setup script |
 | `tests/` | Python tests for parsing, API import, and remediation safeguards |

@@ -434,7 +434,10 @@ services:
     environment:
       - WAZUH_URL=https://sg-wazuh:55000
       - WAZUH_USER=${WAZUH_USER:-wazuh}
-      - WAZUH_PASS=${WAZUH_PASSWORD}
+      - WAZUH_PASS=${WAZUH_PASSWORD:?Set WAZUH_PASSWORD in .env}
+      - WAZUH_CA_CERT=/etc/wazuh/certs/api.crt
+    volumes:
+      - ./monitoring/wazuh/certs:/etc/wazuh/certs:ro
     expose:
       - "8002"
     depends_on:

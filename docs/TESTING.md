@@ -31,7 +31,7 @@ for root in ("ai-engine", "cve-intel", "wazuh-proxy", "monitoring"):
 print("Python syntax OK")
 PY
 python3 -m unittest discover -s tests -v
-bash -n scripts/setup-kali.sh monitoring/wazuh/*.sh
+bash -n scripts/setup-kali.sh
 docker compose config -q
 ```
 

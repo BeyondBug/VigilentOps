@@ -12,4 +12,5 @@ dashboard/build/
 reports/
 runner_data/.runner
 *.log
+monitoring/wazuh/certs/
 .DS_Store
