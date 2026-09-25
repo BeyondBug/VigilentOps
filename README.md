@@ -21,7 +21,7 @@ flowchart LR
 ```
 
 1. A Gitea push to `main`, `develop`, or `master` triggers the Jenkins Generic Webhook Trigger job.
-2. Jenkins registers a scan, checks out the pushed repository, and runs its scanner stages. Scanner reports are uploaded to the orchestrator. A green Jenkins build means the pipeline completed; individual scanner commands can still fail or produce no report.
+2. Jenkins registers a scan, checks out the pushed repository, and runs its scanner stages. Before upload, it checks that required reports exist and have the expected format; an upload error fails the build. Optional scanners can still be skipped, and a valid report can contain zero findings.
 3. The orchestrator parses supported SARIF reports and Bandit JSON into findings. The CVE service queues enrichment separately.
 4. The AI worker considers **open, medium or higher Python SAST findings**. It groups them by source file, asks a configured model for whole-file changes, checks basic syntax and change size, and opens one `WIP:` Gitea PR when files changed. It posts every stored finding from that scan, across all tools, as numbered comments in the PR conversation. Raw source snippets and descriptions likely to contain credentials are omitted to avoid republishing secrets. Those checks do not establish security or runtime correctness.
 5. A reviewer checks the diff against the original finding, runs relevant checks on the PR branch, and merges only after approval. The Jenkins build on the base branch does not validate a later AI PR.

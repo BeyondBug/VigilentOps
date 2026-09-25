@@ -150,6 +150,15 @@ Snyk is optional. Set `SNYK_TOKEN` in the server's private `.env` and recreate
 the Jenkins container to enable it; an unset token skips the stage. Keep the
 token out of Git and Jenkins console logs.
 
+The shared pipeline validates required scanner reports with
+`scripts/validate_scan_reports.py` before uploading them. Semgrep, Gitleaks,
+Trivy dependency, Grype, OSV, Dependency-Check, and Syft reports are always
+required; Bandit is required for Python targets. The target image build and
+its Dockle/Trivy scans run in one stage so the scans cannot start before the
+image exists. If the target image builds, both image reports are required.
+Generic image building may fail for repositories that need custom build
+arguments; in that case the image scans are skipped and the console warns.
+
 ## Security notes
 
 - Rotate all credentials that were ever committed to Git history.

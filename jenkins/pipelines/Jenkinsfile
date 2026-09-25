@@ -64,6 +64,7 @@ pipeline {
                     env.HOST_SOURCE  = "${JENKINS_HOME_HOST}/${wsRelative}/target"
                     env.HOST_REPORTS = "${JENKINS_HOME_HOST}/${wsRelative}/reports"
                     env.HOST_RULES   = "${JENKINS_HOME_HOST}/${wsRelative}/scanners/semgrep-rules"
+                    env.HOST_VALIDATOR = "${JENKINS_HOME_HOST}/${wsRelative}/scripts/validate_scan_reports.py"
 
                     echo "Container SOURCE : ${SOURCE_DIR}"
                     echo "Host SOURCE      : ${env.HOST_SOURCE}"
@@ -73,6 +74,10 @@ pipeline {
                     if (sh(script: "test -f ${WORKSPACE}/scanners/semgrep-rules/secureguard-rules.yaml",
                            returnStatus: true) != 0) {
                         error('Shared Semgrep rules are missing from the pipeline checkout')
+                    }
+                    if (sh(script: "test -f ${WORKSPACE}/scripts/validate_scan_reports.py",
+                           returnStatus: true) != 0) {
+                        error('Shared report validator is missing from the pipeline checkout')
                     }
 
                     def body = groovy.json.JsonOutput.toJson([
@@ -256,27 +261,28 @@ pipeline {
                     }
                 }
 
-                stage('Dockle Image') {
+                stage('Container Image Scans') {
                     steps {
                         sh """
-                            echo "Running Dockle via HOST path: ${env.HOST_SOURCE}"
-                            DOCKERFILE=\$(find . -name Dockerfile | head -1)
+                            echo "Building and scanning the first target Dockerfile"
+                            DOCKERFILE=\$(find ${SOURCE_DIR} -name Dockerfile -print -quit)
                             if [ -n "\$DOCKERFILE" ]; then
                                 DIR=\$(dirname "\$DOCKERFILE")
-                                docker build -t sg-target-scan:${env.BUILD_ID} "\$DIR" || true
-                                docker run --rm \
-                                  -v /var/run/docker.sock:/var/run/docker.sock \
-                                  -v ${env.HOST_REPORTS}:/reports \
-                                  goodwithtech/dockle:latest \
-                                    -f json -o /reports/dockle.json \
-                                    sg-target-scan:${env.BUILD_ID} || true
+                                if docker build -t sg-target-scan:${BUILD_NUMBER} "\$DIR"; then
+                                    touch ${REPORTS_DIR}/image-built.marker
+                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports goodwithtech/dockle:latest -f json -o /reports/dockle.json sg-target-scan:${BUILD_NUMBER} || true
+                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports aquasec/trivy:latest image --format sarif --output /reports/trivy-image.sarif sg-target-scan:${BUILD_NUMBER} || true
+                                else
+                                    echo "WARNING: target image build failed; image scanners skipped"
+                                fi
                             else
-                                echo "No Dockerfile found for Dockle."
+                                echo "No Dockerfile found; image scanners skipped"
                             fi
 
                             ls -lh ${REPORTS_DIR}/dockle.json 2>/dev/null \
-                              && echo "Dockle OK — \$(wc -c < ${REPORTS_DIR}/dockle.json) bytes" \
-                              || echo "WARNING: dockle no output"
+                              && echo "Dockle OK" || echo "WARNING: dockle no output"
+                            ls -lh ${REPORTS_DIR}/trivy-image.sarif 2>/dev/null \
+                              && echo "Trivy Image OK" || echo "WARNING: Trivy Image no output"
                         """
                     }
                 }
@@ -355,16 +361,17 @@ pipeline {
                     }
                 }
 
-                stage('Trivy Image') {
-                    steps {
-                        sh """
-                            echo "Running Trivy Image Scan on built container"
-                            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports aquasec/trivy:latest image --format sarif --output /reports/trivy-image.sarif sg-target-scan:${BUILD_NUMBER} || true
-                            ls -lh ${REPORTS_DIR}/trivy-image.sarif 2>/dev/null && echo "Trivy Image OK" || echo "WARNING: Trivy Image no output"
-                        """
-                    }
-                }
 
+            }
+        }
+
+        stage('Validate Reports') {
+            steps {
+                script {
+                    def pythonFlag = env.HAS_PYTHON == 'true' ? '--python' : ''
+                    def snykFlag = env.SNYK_TOKEN?.trim() ? '--snyk' : ''
+                    sh "docker run --rm -v ${env.HOST_REPORTS}:/reports:ro -v ${env.HOST_VALIDATOR}:/validator.py:ro python:3.12-slim python /validator.py /reports ${pythonFlag} ${snykFlag}"
+                }
             }
         }
 
@@ -374,9 +381,10 @@ pipeline {
                 sh "ls -lh ${REPORTS_DIR}/ || echo 'empty'"
                 sh """
                     set +x
+                    set -eu
                     UPLOADED=0
                     for f in ${REPORTS_DIR}/*.sarif ${REPORTS_DIR}/*.json; do
-                        [ -f "\$f" ] || continue
+                        [ -s "\$f" ] || continue
                         TOOL=\$(basename \$f | sed 's/\\.sarif//;s/\\.json//')
                         SIZE=\$(wc -c < "\$f")
                         echo "  Uploading \$TOOL (\$SIZE bytes)..."
@@ -384,8 +392,12 @@ pipeline {
                           -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/reports/\$TOOL \
                           -H 'X-API-Key: ${SG_API_KEY}' \
                           -H 'Content-Type: application/json' \
-                          --data-binary @\$f)
+                          --data-binary @\$f) || CODE=000
                         echo "  -> HTTP \$CODE"
+                        case "\$CODE" in
+                            200|201) ;;
+                            *) echo "ERROR: report upload failed for \$TOOL"; exit 1 ;;
+                        esac
                         UPLOADED=\$((UPLOADED+1))
                     done
                     echo "Uploaded: \$UPLOADED files"

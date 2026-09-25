@@ -17,7 +17,8 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 
 ### 1. Resolve and account for security findings
 
-- [ ] Export the findings from the latest complete scan and group duplicate reports by advisory, package, version, image, and affected path. Scanner record counts are not unique vulnerability counts.
+- [x] Prepare `scripts/export_scan_triage.py` to export private findings and suggested review groups on the server.
+- [ ] Run that export for the latest complete scan and manually group records by advisory, package, version, image, and affected path. The API does not store package/version/image as separate fields, so the suggested groups are not a unique vulnerability count.
 - [ ] Triage all open high findings, prioritizing reachable runtime dependencies and deployed container images. Scan #235 recorded **239 high**, **1,979 medium**, and **1,133 low** open records; 223 high records came from Trivy image scanning, and 8 each from Grype and Trivy dependency scanning.
 - [ ] Upgrade, replace, or remove affected direct and transitive dependencies and base images where supported. Rebuild and rescan on the server. Record any finding that cannot be fixed, its impact, mitigation, owner, and review date.
 - [ ] Review the 21 open Python SAST records from Bandit. Confirm each actual issue is fixed or documented with evidence; do not treat an AI proposal as a fix until its PR branch is reviewed and tested.
@@ -27,11 +28,13 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 
 - [ ] Verify the prepared OWASP Dependency-Check change on the server: Jenkins #308 printed `dep-check no output`. The updated stage allows NVD data updates and fails on a missing SARIF report; tomorrow's server run must confirm a valid report and upload.
 - [ ] Snyk is optional in the documented lab scope. If enabled, configure a valid `SNYK_TOKEN` in the server's private `.env`, recreate Jenkins, and verify a Snyk report without token disclosure. Jenkins #308 skipped it because the token was unset.
-- [ ] Change Jenkins so a required scanner that fails or produces no usable report cannot silently result in a green build. Record which scanners are required and which are optional.
+- [x] Prepare Jenkins report validation and upload failure handling. The required report contract and optional scanners are documented in [docs/TESTING.md](docs/TESTING.md); image scanning now follows a successful image build.
+- [ ] Verify the report contract on the server: missing/invalid required output and non-200/201 upload must fail the build. Confirm optional scanner behavior on repositories without applicable files.
 - [ ] Verify each expected scanner report is parsed and represented correctly in the orchestrator, including severity, advisory ID, affected file/package, and finding class.
 
 ### 3. Verify all target repositories
 
+- [x] Prepare `scripts/audit_scan_coverage.py` for a read-only Gitea/webhook/scan inventory on the server.
 - [ ] Inventory the 13 current Gitea repositories and confirm each webhook delivers a push event to Jenkins on an accepted branch (`main`, `develop`, or `master`).
 - [ ] Run a fresh scan of **each** intended target with the current shared Jenkinsfile and rules. Record repo, branch, commit, Jenkins build, scan ID, result, and date. The current pipeline has only been confirmed on `VigilentOps`.
 - [ ] Investigate old latest scan states: `Netflix-zuul` and `sietlms-moodle-` show `failed`; `Portfolio` and `browser-use` show `running`. Reconcile stale runs and verify new scans reach a terminal state.

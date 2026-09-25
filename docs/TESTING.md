@@ -11,13 +11,14 @@ Before pulling, check for server-only edits so they are not overwritten:
 cd ~/secureguard
 git status --short
 git branch --show-current
-git fetch origin
-git pull --ff-only origin main
+git fetch github main
+git merge --ff-only github/main
 ```
 
-If the server branch is not `main`, replace `main` with the intended branch.
-Stop if `git status --short` shows unexpected edits or the fast-forward pull
-fails; reconcile the server checkout before proceeding.
+On this lab server, `github` points to GitHub and `origin` points to Gitea;
+the deployment checkout is currently on `Features`. The commands above
+fast-forward that checkout to GitHub `main`. Stop if `git status --short`
+shows unexpected edits or the fast-forward fails; reconcile before proceeding.
 
 ## Static checks
 
@@ -77,6 +78,15 @@ python3 -m json.tool reports/osv.sarif >/dev/null
 In Jenkins, verify `OSV SCA`, `Upload Reports`, and `CVE Enrichment`. The console
 must show `OSV OK`, `Uploading osv`, and HTTP 200.
 
+The `Validate Reports` stage uses `scripts/validate_scan_reports.py` and must
+list valid Semgrep, Gitleaks, Trivy dependency, Grype, OSV, Dependency-Check,
+and Syft reports. Bandit is required when the target has Python files. When
+the target Docker image builds successfully, Dockle and Trivy image reports
+are required too. Checkov and unconfigured Snyk remain optional. An invalid
+required report or non-successful report upload must fail the Jenkins build.
+This contract needs confirmation on the lab server after the new Jenkinsfile
+is pulled into Gitea.
+
 ## Dependency-Check and optional Snyk
 
 After deploying a Jenkinsfile change, run a fresh scan on the server. Confirm
@@ -100,6 +110,30 @@ GROUP BY 1,2,3 ORDER BY 1,3;
 ```
 
 OSV rows should use `scanner='osv'`, `finding_class='sca'`, and exact advisory IDs.
+
+Export a completed scan for manual triage on the server:
+
+```bash
+python3 scripts/export_scan_triage.py <scan-id>
+```
+
+This creates private CSV files and a summary under
+`reports/triage/scan-<scan-id>/`, which Git ignores. The review groups are
+only candidates for duplicate findings. Fill package, version, image, owner,
+disposition, and review date after checking the original advisory and affected
+artifact. Do not commit the raw export; descriptions can contain secrets.
+
+Audit current Gitea repositories, active push webhooks, and latest scan
+records with:
+
+```bash
+python3 scripts/audit_scan_coverage.py
+```
+
+The report is saved to ignored `reports/coverage-snapshot.md`. It identifies
+missing scans, nonterminal statuses, and scan history for repositories no
+longer in the current Gitea list. Check webhook delivery history and trigger
+fresh scans to confirm actual coverage.
 
 ## AI pull request validation
 
