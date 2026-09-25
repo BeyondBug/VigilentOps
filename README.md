@@ -1,359 +1,56 @@
-# VigilentOps 
+# VigilentOps
 
-> **Automated Vulnerability Management and DevSecOps Platform**
+VigilentOps (called SecureGuard in several service names) is a self-hosted security scanning lab. Gitea stores the target repository, Jenkins runs scanners, a FastAPI service stores findings in PostgreSQL, and a Celery worker can propose Python fixes as **draft pull requests**. People must review and test those proposals before merging them.
 
-> **Deployment status:** This repository is a lab-oriented reference implementation.
-> Automated fixes always require human review. Do not expose its management ports to
-> an untrusted network. See [Deployment](docs/DEPLOYMENT.md) and
-> [Testing](docs/TESTING.md) before starting the stack.
+This is a lab reference implementation. Several management ports are published by Docker Compose; restrict access to a trusted network. AI-generated code is a proposal, not a verified remediation.
 
-VigilentOps  is a fully self-hosted and automated vulnerability management platform. It continuously scans source code for security issues, correlates findings with real-world CVE intelligence, applies AI-powered automated remediation, and provides comprehensive monitoring and observability. Human interaction is streamlined exclusively to reviewing and approving the AI-generated pull requests.
+## How it works
 
-
-
-### 🤖 Multi-Model AI Fallback Architecture
-VigilentOps supports a configurable AI fallback chain.
-- You can configure up to 9 different LLM models/endpoints in `.env`.
-- If the primary API times out or returns a transient error, the worker retries and
-  can continue with the next configured provider.
-- The reported confidence is a generation score, not proof that a patch is correct.
-
-### 🔍 CI/CD scanners
-
-The Jenkins pipeline currently runs Semgrep, Bandit, Gitleaks, Trivy, Checkov,
-Snyk (when configured), Dockle, OWASP Dependency-Check, Grype, OSV-Scanner,
-and Syft. Reports that are produced are uploaded to the orchestrator; optional
-scanner failures do not stop the remaining parallel scans.
-
-
-
-### 🤖 Resilient AI Auto-Remediation
-- **Dynamic Multi-Model Fallback:** OpenAI-compatible endpoints can be configured in priority order.
-- **Retry handling:** Transient `429`, `502`, `503`, and `504` responses use bounded exponential backoff before fallback.
-
-### 📱 Multi-Channel Alerting
-The Orchestrator includes a natively integrated notification engine that fires the moment a `HIGH` or `CRITICAL` vulnerability is detected:
-- **Messaging:** Slack, Telegram, Twilio WhatsApp, and SMTP Email.
-- **Ticketing:** Automatically creates Jira tickets containing vulnerability details, CVSS scores, and remediation statuses.
-
-### 🛡️ Pipeline scope
-
-The implemented pipeline covers source, dependency, secret, infrastructure, SBOM,
-and container-image analysis. DAST, malware scanning, compliance validation, and
-artifact signing are future work and are not claimed as active controls.
-
-## Currently Working On 
-```mermaid
-flowchart TD
-    %% -------------------------------------------------------------
-    %% TRIGGERS LAYER
-    %% -------------------------------------------------------------
-    subgraph Triggers ["Triggers"]
-        direction LR
-        t1[Git push]
-        t2[Jenkins build]
-        t3[Cron nightly]
-        t4[Manual API]
-    end
-
-    %% -------------------------------------------------------------
-    %% ORCHESTRATION LAYER
-    %% -------------------------------------------------------------
-    jp[Jenkins pipeline<br/>Orchestrates all scans]
-
-    t1 & t2 & t3 & t4 --> jp
-
-    %% -------------------------------------------------------------
-    %% SCANNER GRID LAYER (Subgraphs used to force columns)
-    %% -------------------------------------------------------------
-    subgraph ScannerGrid ["Scanner grid — runs in parallel"]
-        direction TB
-        
-        subgraph Col1 [" "]
-            direction TB
-            s1["Semgrep<br/>SAST — code patterns<br/>existing ✓"]
-            s2["SonarQube<br/>Code quality + SAST<br/>NEW"]
-            s3["Nuclei<br/>Vuln scanner<br/>NEW"]
-            s1 --> s2 --> s3
-        end
-
-        subgraph Col2 [" "]
-            direction TB
-            b1["Bandit<br/>SAST — Python sec<br/>existing ✓"]
-            b2["OWASP ZAP<br/>DAST — web app<br/>NEW"]
-            b3["Dep-Check<br/>OWASP SCA<br/>NEW"]
-            b1 --> b2 --> b3
-        end
-
-        subgraph Col3 [" "]
-            direction TB
-            tr1["Trivy<br/>Container vulns<br/>existing ✓"]
-            tr2["Grype<br/>FS + image vulns<br/>NEW"]
-            tr3["Dockle<br/>Image lint<br/>NEW"]
-            tr1 --> tr2 --> tr3
-        end
-
-        subgraph Col4 [" "]
-            direction TB
-            g1["Gitleaks<br/>Secret detection<br/>existing ✓"]
-            g2["Checkov<br/>IaC — Docker/K8s<br/>NEW"]
-            g3["Snyk<br/>Dep + container<br/>NEW"]
-            g1 --> g2 --> g3
-        end
-    end
-
-    jp --> ScannerGrid
-
-    %% -------------------------------------------------------------
-    %% AGGREGATION & Remediations
-    %% -------------------------------------------------------------
-    sgo[SecureGuard orchestrator<br/>Aggregates + deduplicates findings]
-
-    s3 & b3 & tr3 & g3 --> sgo
-
-    ai[AI fix engine<br/>Claude generates patch PR<br/>+ Gitea issue created]
-    ga[Grafana alerting<br/>Push metrics via pushgateway<br/>Dashboard panels update]
-    ne[Notification engine<br/>Slack · WhatsApp · Jira<br/>webhook dispatcher]
-
-    sgo --> ai & ga & ne
-
-    %% -------------------------------------------------------------
-    %% ACTIONS LAYER
-    %% -------------------------------------------------------------
-    bj[Block Jenkins build]
-    sl[Slack]
-    wh[WhatsApp]
-    ji[Jira]
-
-    ai --> bj
-    ne --> sl & wh & ji
-
-    %% -------------------------------------------------------------
-    %% STYLING AND THEME DEFINTIONS
-    %% -------------------------------------------------------------
-    %% Layout tweaks for invisible scanner containers
-    style Col1 fill:none,stroke:none;
-    style Col2 fill:none,stroke:none;
-    style Col3 fill:none,stroke:none;
-    style Col4 fill:none,stroke:none;
-    style ScannerGrid fill:#fcfcfc,stroke:#ccc,stroke-dasharray: 5 5;
-    style Triggers fill:none,stroke:none;
-
-    %% Element Colors
-    classDef existingScanner fill:#e2f0d9,stroke:#a8d08d,color:#1e4620;
-    classDef newScanner fill:#eedeff,stroke:#b4a2db,color:#3b1e6e;
-    classDef orchestrator fill:#ddebf7,stroke:#9cc2e6,color:#1f4e79;
-    classDef aiRemediation fill:#e2efda,stroke:#a8d08d,color:#385723;
-    classDef grafana fill:#fff2cc,stroke:#ffd966,color:#7f6000;
-    classDef notification fill:#fce4d6,stroke:#f8cbad,color:#c65911;
-    classDef blockBuild fill:#fff2cc,stroke:#ffc000,color:#b22222,font-weight:bold;
-    classDef actionNode fill:#f2f2f2,stroke:#bfbfbf,color:#595959;
-    classDef triggerNode fill:#fff,stroke:#7f7f7f,color:#595959;
-
-    %% Class Assignments
-    class t1,t2,t3,t4 triggerNode;
-    class jp,sgo orchestrator;
-    class s1,b1,tr1,g1 existingScanner;
-    class s2,s3,b2,b3,tr2,tr3,g2,g3 newScanner;
-    class ai aiRemediation;
-    class ga grafana;
-    class ne notification;
-    class bj blockBuild;
-    class sl,wh,ji actionNode;
-```
-
-##  Project Overview
-
-The platform automates the entire security lifecycle for software products in a secure, self-hosted environment:
-
-1. **Trigger:** A developer pushes code to a self-hosted Gitea instance, which triggers a Jenkins pipeline via webhooks.
-2. **Scanning:** Jenkins executes Software Composition Analysis (SCA), Static Application Security Testing (SAST), and Dynamic Application Security Testing (DAST) tools (such as Semgrep, Bandit, Trivy, and Gitleaks) on the cloned repository.
-3. **CVE Correlation:** Security findings are automatically matched against a live CVE intelligence feed.
-4. **AI Remediation:** High and critical vulnerabilities are sent to an AI engine (utilizing models like NVIDIA NIM) to generate code fixes based on official patches and best practices.
-5. **Pull Requests:** The AI engine automatically opens Pull Requests in the developer's Gitea repository complete with code fixes, CVE details, and remediation notes for developer review and merging.
-6. **Observability:** Prometheus scrapes real-time metrics; Grafana visualizes security dashboards. Additional runtime monitoring is provided by Falco, Wazuh (HIDS), Loki/Promtail (logs), and cAdvisor.
-
-### Key Benefits
-* **Fully Self-Hosted:** Maintain complete control over your code, security data, and infrastructure.
-* **Automated Detection + AI Fixing:** Reduces mean-time-to-remediation (MTTR) by automatically generating code patches for critical issues.
-* **End-to-End Visibility:** Comprehensive monitoring of code posture, container security, and runtime threats.
-* **Seamless CI/CD Integration:** Native integration with Gitea webhooks and Jenkins pipelines.
-
-### Tech Stack & Languages
-* **Languages:** Python (~56%), JavaScript (~22%), Go Template, Shell, Groovy, Dockerfile, HTML.
-* **Infrastructure:** Docker Compose, custom bridge network (`sg-net`).
-* **Database & Queue:** PostgreSQL (with automated schema initialization), Redis (Celery background tasks).
-* **Security Scanners:** Semgrep, Bandit, Trivy, OSV-Scanner, Gitleaks, Falco, Wazuh.
-
-
-
-## Component Data Flow
 ```mermaid
 flowchart LR
-    A[Gitea Push/Webhook] --> B[Jenkins Pipeline]
-    B --> C["Security Scanners<br/>(Semgrep/Bandit/Trivy/etc.)"]
-    C --> D["Report Files<br/>(SARIF/JSON)"]
-    D --> E[FastAPI Orchestrator]
-    
-    E --> F["DB: scan_runs + findings"]
-    E <--> G[Redis / Celery]
-    E --> H[CVE-Intel Poller]
-    H --> I[DB: cve_feed]
-    
-    E --> J[AI Engine]
-    J --> K[Code Fix Generation]
-    K --> L[Gitea PR Creation]
-    
-    E & B & J --> M[Prometheus]
-    M --> N[Grafana]
-    O["Falco + Wazuh"] --> P[Loki Logs]
-    P --> N
-    Q[React Dashboard] <--> E
+    G[Gitea push] --> J[Jenkins pipeline]
+    J --> S[Security scanners]
+    S --> A[Orchestrator API]
+    A --> P[(PostgreSQL: scans and findings)]
+    A --> C[CVE enrichment worker]
+    A --> R[Redis / Celery AI worker]
+    R --> D[Draft Gitea pull request]
+    P --> U[React dashboard]
+    A --> M[Prometheus / Grafana]
+    D --> H[Human review and branch validation]
 ```
 
-## End-to-End Workflow
+1. A Gitea push to `main`, `develop`, or `master` triggers the Jenkins Generic Webhook Trigger job.
+2. Jenkins registers a scan, checks out the pushed repository, and runs its scanner stages. Scanner reports are uploaded to the orchestrator. A green Jenkins build means the pipeline completed; individual scanner commands can still fail or produce no report.
+3. The orchestrator parses supported SARIF reports and Bandit JSON into findings. The CVE service queues enrichment separately.
+4. The AI worker considers **open, medium or higher Python SAST findings**. It groups them by source file, asks a configured model for whole-file changes, checks basic syntax and change size, and opens one `WIP:` Gitea PR when files changed. Those checks do not establish security or runtime correctness.
+5. A reviewer checks the diff against the original finding, runs relevant checks on the PR branch, and merges only after approval. The Jenkins build on the base branch does not validate a later AI PR.
 
-```mermaid
-sequenceDiagram
-    participant Dev as Developer
-    participant Gitea as Gitea
-    participant Jenkins as Jenkins Pipeline
-    participant API as FastAPI Orchestrator
-    participant DB as PostgreSQL
-    participant CVE as CVE-Intel Service
-    participant AI as AI Fix Engine (Celery)
-    participant PR as Gitea PR
-    participant Mon as Monitoring Stack
+See [Architecture](docs/ARCHITECTURE.md) for the service map, repository layout, and API flow. See [AI pull request review](docs/AI_PR_REVIEW.md) for the review procedure.
 
-    Dev->>Gitea: git push (new commit)
-    Gitea->>Jenkins: Webhook / Pipeline Trigger
-    Jenkins->>Jenkins: Clone Repo + Run Scanners
-    Jenkins->>API: POST /api/scans (register scan)
-    API->>DB: Create scan_run record
-    Jenkins->>API: POST /api/scans/{id}/reports/{tool} (SARIF/JSON)
-    API->>DB: Parse + Store Findings
-    API->>CVE: Enrich findings with CVE data
-    CVE->>DB: Update cve_feed & match findings
-    API->>AI: Trigger /fix for HIGH/CRITICAL issues
-    AI->>AI: Analyze vulnerability + generate patch
-    AI->>Gitea: Create Pull Request with fixes
-    AI->>DB: Update findings (ai_fix_code, pr_url)
-    Gitea->>Dev: PR Notification for Review
-    Dev->>PR: Review & Merge (if valid)
-    API & Jenkins & AI ->>Mon: Export metrics & logs
-    Mon->>Grafana: Real-time Dashboards
-```
+## Repository map
 
+| Path | Purpose |
+| --- | --- |
+| `ai-engine/` | FastAPI orchestrator, report parsers, database migrations, Celery AI worker, notifications |
+| `cve-intel/` | CVE enrichment API and worker |
+| `jenkins/pipelines/` | Jenkins scanner pipeline |
+| `scanners/` | Custom Semgrep rules |
+| `dashboard/` | React UI served by Nginx; `/api` proxies to the orchestrator |
+| `monitoring/` | Prometheus, Grafana, Falco, Wazuh, Loki, and Promtail configuration and helper scripts |
+| `wazuh-proxy/` | Internal Wazuh API proxy used by Grafana |
+| `scripts/` | Host setup script |
+| `tests/` | Python tests for parsing, API import, and remediation safeguards |
+| `docs/` | Deployment, architecture, validation, and review guides |
 
-##  Architecture & Components
+## Run on the lab server
 
-The system is orchestrated using Docker Compose. All services operate within a dedicated custom bridge network (`sg-net`).
+Use a Linux host with Docker Engine and Compose v2. Configuration and startup steps are in [Deployment](docs/DEPLOYMENT.md). Copy `.env.example` to `.env`, replace placeholders, and keep `.env` out of Git. The base stack starts with `docker compose up -d --build`; Jenkins and monitoring use the `ci` and `monitoring` profiles.
 
-### Core Services
+This project's working workflow is to edit and push from the development checkout, pull the branch on the lab server, and run builds and tests **on the lab server**. See [Testing](docs/TESTING.md) for server commands. Changes tested only on `main` do not validate an AI PR branch.
 
-| Service | Description | Key Ports | Tech / Notes |
-| :--- | :--- | :--- | :--- |
-| **Gitea** | Self-hosted Git repository & webhooks | `3000` (Web), `2222` (SSH) | Postgres-backed |
-| **Gitea Runner** | Executes Gitea CI/CD actions and jobs | — | Docker socket mounted |
-| **Jenkins** | Orchestrates scanning pipelines | `8081` (Web), `50000` (Agents) | Optional `ci` profile; configure credentials in Jenkins |
-| **PostgreSQL** | Central database for scans, findings, and CVEs | — | Versioned SQL migrations in `ai-engine/migrations/` |
-| **Redis** | Job queue for asynchronous tasks | — | Powers Celery workers |
-| **Orchestrator** | Main API for webhooks, scan registration, & reports | `8000` | Python / FastAPI, Prometheus metrics exporter |
-| **Celery Worker** | Background AI fix task runner | — | Processes automated remediation tasks |
-| **CVE-Intel Poller**| Fetches and stores latest CVE data | `8001` | Periodic updates to CVE database |
-| **Dashboard** | Modern React frontend for visibility | `3001` | Connects directly to Orchestrator API |
-| **Prometheus & Grafana**| Metrics collection and visualization dashboards | `9090` / `3002` | Pre-provisioned configuration files |
-| **Falco + Exporter** | Runtime threat detection and monitoring | — | Kernel & container-level monitoring |
-| **Wazuh** | Host Intrusion Detection System (HIDS) | Various | Configured with secure proxy |
-| **Loki + Promtail** | Centralized log aggregation | `3100` | Aggregates system and Wazuh security alerts |
+## Scope and limitations
 
+The Jenkinsfile includes Semgrep, Bandit, Gitleaks, Trivy, Checkov, Snyk when configured, Dockle, OWASP Dependency-Check, Grype, OSV-Scanner, and Syft stages. Their availability and output depend on the server, scanner images, credentials, and target repository. The implemented pipeline does not provide DAST, malware scanning, artifact signing, or an automatic merge gate. Runtime monitoring is available through the optional `monitoring` profile.
 
-
-##  Database Schema (`ai-engine/migrations/`)
-
-* `scan_runs`: Tracks pipeline executions (repository name, commit hash, status, severity counts).
-* `findings`: Detailed vulnerability records (SARIF/Bandit parsed, categorized by `finding_class` [`sca`, `sast`, `secret`, `iac`], linked to scan runs).
-* `cve_feed`: Cached CVE intelligence data (NVD details, severity ratings, KEV flags).
-* `alerts`: Notification tracking and multi-channel alerting history.
-* *Optimized Indexes:* Built-in indexes ensure rapid query performance for recent scans and severity lookups.
-
-
-##  Key Modules & Workflows
-
-### 1. Scanning & Pipelines (`jenkins/`, `scanners/`)
-* Jenkins pipelines (`jenkins/pipelines/`) clone target repositories and execute security tools:
-  * **Semgrep** (tuned rulesets `security-audit`, `secrets`, `owasp-top-ten` plus custom rules in `scanners/semgrep-rules` with corrected `pattern-either` logic).
-  * **Bandit** (Python SAST analysis).
-  * **Trivy** & **Gitleaks** (Container, dependency `--ignore-unfixed`, and secret scanning).
-  * **OSV-Scanner** (version-aware dependency scanning from supported manifests and lockfiles, parsing `GHSA-` & `CVE-` IDs).
-* Reports (in SARIF/JSON formats) are uploaded to the Orchestrator API endpoint (`/api/scans/{id}/reports/{tool}`) secured with `X-API-Key`.
-* The engine parses findings, applies severity mappings, and extracts relevant code snippets.
-
-### 2. AI Engine (`ai-engine/`)
-* **Core Files:** `main.py` (FastAPI Orchestrator & API auth), `fix_engine.py` (LLM Fix & AST Parsing Gates), `notifier.py` (Multi-channel Alerts), `db.py`.
-* **Accuracy & Validation Gates:**
-  1. **Markdown Unfencing (`unfence`):** Automatically strips markdown code fences (```python) before file writes.
-  2. **AST Syntax Gate (`parses_ok`):** Validates generated Python patches via `ast.parse()` and JSON patches via `json.loads()`. Rejects invalid syntax automatically.
-  3. **Line Depletion Protection:** Rejects patches that unexpectedly drop more than 30% of total lines.
-  4. **Strict File Resolution:** Prevents path traversal and exact root file resolution.
-* **Security Guardrails:**
-  1. **API Authentication:** Enforces `X-API-Key` headers on state-changing Orchestrator `/api/` endpoints.
-  2. **Token Sanitization:** Scrubs Gitea personal access tokens from git error output logs.
-  3. **Shell Injection Prevention:** Passes JSON payloads via temporary files (`-d @payload.json`) in Jenkins.
-* **Workflow:**
-  1. Enriches findings with live CVE data via `/api/scans/{id}/enrich`.
-  2. Triggers automated fixes via `/api/scans/{id}/fix` (filters for high/critical issues).
-  3. AI model generates secure code patches validated through hard syntax gates.
-  4. Automatically opens a Gitea Pull Request containing details, CVE references, and remediation notes.
-* **Powered by:** Configurable LLM endpoints (Ollama, NVIDIA NIM, OpenAI) with dynamic multi-model fallback.
-
-### 3. CVE Intelligence (`cve-intel/`)
-* Poller service periodically fetches the latest vulnerability disclosures (NVD, etc.) using strict ID lookups (`CVE-`/`GHSA-`) without keyword poisoning.
-* Populates the `cve_feed` table and updates CVSS metrics without overwriting scanner severity.
-
-### 4. Dashboard (`dashboard/`)
-* React application (`src/`, `public/`) with separate API, theme, shared components, and page modules.
-* Provides a centralized UI for viewing scan history, active security findings, performance metrics, and embedded Grafana panels.
-
-### 5. Monitoring & Observability (`monitoring/`)
-* Prometheus configurations and auto-provisioned Grafana dashboards.
-* Falco security rules, Wazuh configurations, and cAdvisor container resource telemetry.
-
-
-
-##  Setup & Installation
-
-### Option A: Recommended Installation on Kali Linux (`setup-kali.sh`)
-1. Clone the repository and navigate to the project root.
-2. Execute the setup script to install Docker, Python tools (Semgrep, Bandit), Trivy, and Gitleaks:
-   ```bash
-   bash scripts/setup-kali.sh
-   ```
-3. Configure your environment variables in the `.env` file (PostgreSQL credentials, webhook secrets, AI/CVE API keys).
-4. Launch the platform using Docker Compose:
-   ```bash
-   docker compose up -d
-   ```
-
-### Option B: Manual Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-org/vigilentops.git
-   cd vigilentops
-   ```
-2. Copy and configure your `.env` file with proper database credentials and API keys.
-3. The one-shot `migrate` service applies pending schema migrations before the API starts.
-4. Spin up the containers:
-   ```bash
-   docker compose up -d
-   ```
-5. Configure Gitea webhooks to point to your Orchestrator API endpoint for real-time CI triggers.
-
-
-
-##  Usage & Integration
-
-* **Developers:** Simply push code changes to your Gitea repository. This triggers automated security scans and potential AI-powered fix Pull Requests.
-* **Security Engineers:** Review automated PRs, investigate deep vulnerability insights, and monitor system health via Grafana dashboards.
-* **API Consumers:** Access interactive API documentation at `/docs` (provided by FastAPI) for custom tooling integrations.
-* **Webhooks:** Point Gitea push webhooks at Jenkins Generic Webhook Trigger to start scans. The Orchestrator `/webhook/gitea` route only validates and acknowledges events.
+Model calls may send source files and finding details to the configured provider. Read [Deployment](docs/DEPLOYMENT.md) before enabling AI remediation or exposing services.

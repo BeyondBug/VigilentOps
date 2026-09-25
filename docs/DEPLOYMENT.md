@@ -1,5 +1,8 @@
 # Deployment
 
+Run the commands in this guide on the Linux lab server, not on the development
+device. For the service map and scan flow, see [Architecture](ARCHITECTURE.md).
+
 ## Prerequisites
 
 - Docker Engine with Compose v2
@@ -24,16 +27,19 @@ Existing lab installations store Gitea tables in `secureguard`, so
 `GITEA_DB_NAME=secureguard` is the compatibility default. A new installation may
 use a separate database only after creating it and migrating Gitea deliberately.
 
-For temporary Gemini remediation:
+For a configured OpenAI-compatible remediation endpoint, set the matching
+`MODEL_n`, `API_KEY_n`, and `API_URL_n` values in `.env`. For example:
 
 ```dotenv
-MODEL_1=gemini-3.6-flash
+MODEL_1=<supported-model-id>
 API_KEY_1=<secret>
-API_URL_1=https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+API_URL_1=<provider-chat-completions-url>
 ```
 
 Source files selected for remediation are sent to the configured model provider.
-Disable AI remediation when repository data must not leave the lab.
+Leave **all** `API_KEY_n` values empty if repository data must not leave the
+lab; replace the example placeholder values too. In that case, the AI worker
+skips proposal generation.
 
 ## Start and verify
 
@@ -63,6 +69,14 @@ this server:
 docker compose --profile ci up -d jenkins
 docker compose --profile monitoring up -d
 ```
+
+`docker compose --profile monitoring up -d` starts the base services as well
+as monitoring services. Grafana is published on port 3002. The Wazuh proxy
+listens on port 8002 inside the Compose network; it is not published to the
+host. Grafana uses `http://sg-wazuh-proxy:8002`, so the proxy must listen on
+the container network interface. The current lab Wazuh manager uses a
+self-signed API certificate; any change that enables certificate verification
+requires a trusted CA configuration before deployment.
 
 The `migrate` service applies numbered SQL files from `ai-engine/migrations/`
 before the API, worker, and CVE service start. It also upgrades existing
@@ -97,6 +111,13 @@ volume (the path returned by `docker volume inspect`). Scanner containers use
 this path to mount the Jenkins workspace. Start Jenkins with the `ci` profile
 after setting it.
 
+The job's webhook token in the Jenkinsfile is `secureguard-webhook-token`.
+Give the job access to `gitea-cred` and configure the Gitea webhook to call
+the Jenkins Generic Webhook Trigger endpoint. A push to a branch outside
+`main`, `develop`, or `master` does not match the pipeline trigger. To
+validate an AI PR branch, explicitly run a scan against that branch on the
+server; a preceding main-branch build does not cover it.
+
 OSV-Scanner is pinned to `v2.4.0`. It scans supported manifests and lockfiles,
 writes `osv.sarif`, and uploads that report to the orchestrator.
 
@@ -109,3 +130,4 @@ writes `osv.sarif`, and uploads that report to the orchestrator.
 - Docker socket access grants host-equivalent privileges. It remains limited to
   services that launch scanner containers.
 - AI-created branches are not force-pushed and must be reviewed before merging.
+- See [AI pull request review](AI_PR_REVIEW.md) for the PR validation sequence.

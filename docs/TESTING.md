@@ -1,6 +1,23 @@
 # Testing
 
-Run these checks on the local server after pulling the GitHub branch.
+Run these checks on the Linux lab server after pulling the GitHub branch. Do
+not run the application, builds, or tests on the development device.
+
+## Pull the development branch on the server
+
+Before pulling, check for server-only edits so they are not overwritten:
+
+```bash
+cd ~/secureguard
+git status --short
+git branch --show-current
+git fetch origin
+git pull --ff-only origin main
+```
+
+If the server branch is not `main`, replace `main` with the intended branch.
+Stop if `git status --short` shows unexpected edits or the fast-forward pull
+fails; reconcile the server checkout before proceeding.
 
 ## Static checks
 
@@ -64,9 +81,26 @@ GROUP BY 1,2,3 ORDER BY 1,3;
 
 OSV rows should use `scanner='osv'`, `finding_class='sca'`, and exact advisory IDs.
 
-## Gemini smoke test
+## AI pull request validation
+
+Jenkins scans `main`, `develop`, or `master` on push. Its completed build
+does not test an AI branch opened afterward. For a PR, record its exact head
+commit and run the applicable static checks, build, and service checks above
+against that branch on the lab server. Confirm `git rev-parse HEAD` matches
+the PR head before testing. Avoid replacing the running deployment checkout
+with an unreviewed AI branch; use a separate checkout or worktree on the
+server for branch validation.
+
+When a patch changes a service contract, check the real client as well as the
+service health endpoint. In particular, a Wazuh proxy patch must remain
+reachable from Grafana through the Compose network and must work with the
+Wazuh manager's certificate. Compare the original finding with a new scan
+of the PR branch. See [AI pull request review](AI_PR_REVIEW.md).
+
+## Configured model smoke test
 
 Recreate containers after changing `.env`, because a restart does not reload the
 environment. Confirm only non-secret values with `printenv MODEL_1` and make a
-small chat-completions request. Both ordinary OpenAI-shaped objects and Gemini's
-one-element array responses are supported.
+small chat-completions request from the server if model calls are enabled.
+Both ordinary OpenAI-shaped objects and Gemini's one-element array responses
+are supported.
