@@ -77,8 +77,11 @@ exceptions with owner and review date.
 Rotate historical or exposed credentials, including the Grafana password
 requested earlier. Follow [webhook token rotation](WEBHOOK_TOKEN_ROTATION.md)
 for the shared Jenkins trigger. Review access to old Git history and Jenkins
-logs. Restrict published management ports with server firewall rules or a
-trusted-network bind; verify the dashboard and Grafana remain reachable from
-intended clients and that APIs require the intended authentication. Review
-Docker socket mounts and privileged monitoring services before production
+logs. Rotate the NVD API key used by the 26 September acceptance run: its
+command argument appeared in a server process inspection before the pipeline
+switched to a temporary properties file. Restrict published management ports
+with server firewall rules or a trusted-network bind. Verify the dashboard
+and Grafana remain reachable from intended clients and that APIs require the
+intended authentication. Review Docker socket mounts and privileged monitoring
+services before production
 exposure.

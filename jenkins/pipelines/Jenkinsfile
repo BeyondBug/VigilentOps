@@ -52,10 +52,15 @@ pipeline {
             steps {
                 script {
                     if (!env.TARGET_REPO?.trim()) error('REPO_URL is required')
+                    if (!(env.TARGET_REPO ==~ /^http:\/\/sg-gitea:3000\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\.git$/)) {
+                        error('Webhook repository URL must be a Gitea clone URL on sg-gitea:3000')
+                    }
                     if (!env.JENKINS_HOME_HOST?.trim()) error('JENKINS_HOME_HOST is required')
                     if (!env.REPO_FULLNAME?.trim()) env.REPO_FULLNAME = env.TARGET_REPO.tokenize('/').last().replace('.git', '')
                     echo "SecureGuard Scan #${BUILD_NUMBER} | ${REPO_FULLNAME} | ${COMMIT_SHA.take(8)}"
-                    sh "mkdir -p ${REPORTS_DIR}"
+                    sh """mkdir -p ${REPORTS_DIR}
+                        rm -f ${REPORTS_DIR}/*.sarif ${REPORTS_DIR}/*.json ${REPORTS_DIR}/image-built.marker ${REPORTS_DIR}/.nvd.properties
+                    """
 
                     // Compute HOST paths for Docker child containers
                     // WORKSPACE = /var/jenkins_home/workspace/secureguard-shadowpatch
@@ -302,9 +307,14 @@ pipeline {
                     steps {
                         sh """
                             set +x
+                            set -eu
                             echo "Running Dep-Check via HOST path: ${env.HOST_SOURCE}"
                             if [ -n "\${NVD_API_KEY:-}" ]; then
-                                set -- --nvdApiKey "\$NVD_API_KEY"
+                                umask 077
+                                NVD_PROPS="${REPORTS_DIR}/.nvd.properties"
+                                trap 'rm -f "\$NVD_PROPS"' EXIT
+                                printf 'nvd.api.key=%s\\n' "\$NVD_API_KEY" > "\$NVD_PROPS"
+                                set -- --propertyfile /reports/.nvd.properties
                             else
                                 set --
                             fi

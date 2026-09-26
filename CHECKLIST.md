@@ -35,6 +35,7 @@ Status snapshot: 26 September 2026. This is a self-hosted **lab reference implem
 - [x] Prepare Dockle SARIF ingestion so image-configuration findings can reach the dashboard and AI PR conversation; verify the report and mapping on the server.
 - [x] Prepare Jenkins to register the checked out target commit and reject a webhook commit mismatch before creating the scan record; verify this behavior on the server.
 - [ ] Verify the report contract on the server: missing/invalid required output and non-200/201 upload must fail the build. Confirm optional scanner behavior on repositories without applicable files.
+- [ ] Verify the next Jenkins run starts with clean generated reports, reads the NVD key through a protected temporary properties file, removes that file, and rejects an untrusted clone URL before checkout.
 - [ ] Verify each expected scanner report is parsed and represented correctly in the orchestrator, including severity, advisory ID, affected file/package, and finding class.
 
 ### 3. Verify all target repositories
@@ -72,6 +73,7 @@ Status snapshot: 26 September 2026. This is a self-hosted **lab reference implem
 - [x] Prepare a [backup, recovery, ownership, and maintenance runbook](docs/OPERATIONS.md); its live checks and owner assignments remain open below.
 - [x] On 26 September, create private PostgreSQL and Gitea/Jenkins/Grafana volume backups and restore the database/archives into disposable containers or volumes; row and entry counts matched. See [server evidence](docs/ACCEPTANCE_2026-09-26.md).
 - [ ] Replace the requested Grafana password before production use: that value appeared in prior repository history. Rotate any other historical secrets and review access to old Jenkins logs.
+- [ ] Rotate the NVD API key after the 26 September run; the old pipeline placed it in process arguments visible to server operators.
 - [x] Disable webhook payload and contributed-variable printing in the shared Jenkinsfile.
 - [ ] Replace the hardcoded Jenkins webhook token with a private credential, update all Gitea hooks, and verify that Jenkins accepts only trusted Gitea repository URLs before production exposure.
 - [ ] Restrict published management ports to trusted networks; require appropriate authentication for dashboards, APIs, and management interfaces. Review Docker socket access and service privileges.
