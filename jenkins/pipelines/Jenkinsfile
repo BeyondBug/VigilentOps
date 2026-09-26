@@ -330,6 +330,7 @@ pipeline {
                                 NVD_PROPS="${REPORTS_DIR}/.nvd.properties"
                                 trap 'rm -f "\$NVD_PROPS"' EXIT
                                 printf 'nvd.api.key=%s\\n' "\$NVD_API_KEY" > "\$NVD_PROPS"
+                                chown 1000:1000 "\$NVD_PROPS"
                                 set -- --propertyfile /reports/.nvd.properties
                             else
                                 set --

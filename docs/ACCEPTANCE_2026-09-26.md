@@ -72,4 +72,19 @@ new commit is deployed. Keep the private coverage and triage files under
   this run. Commit `4eba162789c53b95ad7483fefdcbef62b3a7c9dc` is now on
   GitHub, Gitea, and the server; it removes the key from process arguments,
   clears old report files, and restricts clone URLs. Its queued Jenkins run
-  has not yet verified those changes.
+  later ran as build **#313**. It failed because the protected key file was
+  owned by Jenkins UID 0 while Dependency-Check runs as UID 1000, so the
+  scanner could not read the mode-0600 file. A follow-up change assigns the
+  file to UID 1000 before starting that container.
+- Jenkins **#312** finished `FAILURE` and scan **#238** is terminal `failed`.
+  Dependency-Check reached analysis and attempted to write SARIF, but CISA DNS
+  and NPM Audit lookup errors contributed to an exit 14 report failure. Its
+  report was not accepted. Build **#313** and scan **#239** also failed on the
+  key-file permission error; no complete report set was uploaded.
+- Commit `3cdfb6fcf1a339a550d5736ef34df854b75cd8c3` reached GitHub,
+  Gitea, and the server. Jenkins **#314**, scan **#240**, started the new
+  Trivy database prewarm stage. A separate server cache fill from Trivy's
+  official Docker Hub registry reached 64% of the 117 MiB database before the
+  default five-minute timeout stopped it. The Jenkins stage uses a longer
+  timeout and was downloading when this section was written. Completion and
+  both Trivy SARIF reports remain to be verified.

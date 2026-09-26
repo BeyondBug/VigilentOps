@@ -155,7 +155,8 @@ before expecting that stage to pass.
 If the private server `.env` has a valid `NVD_API_KEY`, Compose passes it to
 Jenkins for Dependency-Check. A key helps with NVD API limits; it does not
 repair DNS or blocked outbound HTTPS. The Jenkins stage writes a temporary
-mode-0600 properties file, mounts it for Dependency-Check, and removes it at
+mode-0600 properties file owned by the Dependency-Check container user,
+mounts it for Dependency-Check, and removes it at
 stage exit. This keeps the key out of command arguments and console output.
 Grype now keeps its vulnerability database in the persistent `grype-cache`
 volume and bounds its update waits. The first cache fill still needs access

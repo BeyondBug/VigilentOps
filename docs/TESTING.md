@@ -111,6 +111,10 @@ that both Trivy dependency and image reports are present when an image builds.
 The 26 September #312 run could not download the Trivy DB from the default
 mirror, so its two Trivy reports were missing; the next pipeline revision uses
 a persistent cache and alternate official registries.
+Build #313 found a protected key-file ownership mismatch: Jenkins writes as
+UID 0 and Dependency-Check reads as UID 1000. Verify that the next run can
+read the temporary mode-0600 file, then that the file is removed after the
+stage and its value is absent from process arguments and console output.
 
 Snyk is optional. If `SNYK_TOKEN` is configured in the server's private
 `.env`, recreate Jenkins and verify a nonempty `snyk.sarif` plus HTTP 200
