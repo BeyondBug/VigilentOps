@@ -106,6 +106,11 @@ the CISA feed had a DNS error. Grype also waited on an Anchore data connection.
 Confirm fresh data downloads or a valid persistent cache before expecting the
 full report contract to pass. Check that the NVD key is configured without
 printing it, and confirm Grype's new `grype-cache` volume is populated.
+Check that `Update Trivy Database` finishes before the parallel scanners and
+that both Trivy dependency and image reports are present when an image builds.
+The 26 September #312 run could not download the Trivy DB from the default
+mirror, so its two Trivy reports were missing; the next pipeline revision uses
+a persistent cache and alternate official registries.
 
 Snyk is optional. If `SNYK_TOKEN` is configured in the server's private
 `.env`, recreate Jenkins and verify a nonempty `snyk.sarif` plus HTTP 200

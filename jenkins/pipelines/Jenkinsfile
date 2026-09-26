@@ -132,6 +132,21 @@ pipeline {
             }
         }
 
+        stage('Update Trivy Database') {
+            steps {
+                sh """
+                    docker run --rm \
+                      -v trivy-cache:/root/.cache/trivy \
+                      aquasec/trivy:latest image \
+                        --download-db-only \
+                        --timeout 25m \
+                        --db-repository docker.io/aquasec/trivy-db \
+                        --db-repository public.ecr.aws/aquasecurity/trivy-db \
+                        --db-repository ghcr.io/aquasecurity/trivy-db
+                """
+            }
+        }
+
         stage('Security Scan') {
             parallel {
 
@@ -213,6 +228,7 @@ pipeline {
                               -v ${env.HOST_REPORTS}:/reports \
                               -v trivy-cache:/root/.cache/trivy \
                               aquasec/trivy:latest fs \
+                                --skip-db-update \
                                 --format sarif \
                                 --output /reports/trivy-deps.sarif \
                                 --exit-code 0 \
@@ -287,7 +303,7 @@ pipeline {
                                 if docker build -t sg-target-scan:${BUILD_NUMBER} "\$DIR"; then
                                     touch ${REPORTS_DIR}/image-built.marker
                                     docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports goodwithtech/dockle:latest -f sarif -o /reports/dockle.sarif sg-target-scan:${BUILD_NUMBER} || true
-                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports aquasec/trivy:latest image --format sarif --output /reports/trivy-image.sarif sg-target-scan:${BUILD_NUMBER} || true
+                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports -v trivy-cache:/root/.cache/trivy aquasec/trivy:latest image --skip-db-update --cache-backend memory --format sarif --output /reports/trivy-image.sarif sg-target-scan:${BUILD_NUMBER} || true
                                 else
                                     echo "WARNING: target image build failed; image scanners skipped"
                                 fi

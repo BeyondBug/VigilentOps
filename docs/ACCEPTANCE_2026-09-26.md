@@ -54,3 +54,22 @@ Raw findings and credentials remain on the server.
 Continue with [the server acceptance record](SERVER_ACCEPTANCE.md) after the
 new commit is deployed. Keep the private coverage and triage files under
 `reports/` on the server; do not commit raw finding descriptions.
+
+## Follow-up run in progress
+
+- Commit `9e08ae36883073ea972ace09970c92787e347fe6` is on GitHub,
+  Gitea, and the server. Gitea push triggered Jenkins **#312** and
+  orchestrator scan **#238**. Dependency-Check began the first NVD download,
+  reaching at least 20,000 of about 398,000 records. This is progress, not a
+  valid Dependency-Check report or completed scan.
+- Grype, Dockle, OSV, Semgrep, Bandit, Gitleaks, Checkov, and SBOM files were
+  visible in the Jenkins workspace. Trivy dependency and image reports were
+  missing because the database download from the default registry timed out.
+  Jenkins #312 was still running when this section was written, so its final
+  result and uploaded findings remain unverified.
+- A Jenkins process inspection revealed that the previous `--nvdApiKey`
+  argument exposed the key to server operators. Rotate that NVD key after
+  this run. Commit `4eba162789c53b95ad7483fefdcbef62b3a7c9dc` is now on
+  GitHub, Gitea, and the server; it removes the key from process arguments,
+  clears old report files, and restricts clone URLs. Its queued Jenkins run
+  has not yet verified those changes.

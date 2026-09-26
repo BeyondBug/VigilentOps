@@ -160,6 +160,11 @@ stage exit. This keeps the key out of command arguments and console output.
 Grype now keeps its vulnerability database in the persistent `grype-cache`
 volume and bounds its update waits. The first cache fill still needs access
 to Anchore's database service.
+Jenkins updates Trivy's persistent `trivy-cache` once before the parallel
+scanners start, trying the official Docker Hub, ECR, and GHCR database
+locations in that order ([Trivy DB documentation](https://trivy.dev/docs/dev/configuration/db/)).
+Both Trivy stages read that cache; a failed update
+stops the scan instead of producing a report from missing data.
 
 The shared Jenkins job accepts clone URLs only from `http://sg-gitea:3000`
 with a single owner and repository path. Each run removes generated reports

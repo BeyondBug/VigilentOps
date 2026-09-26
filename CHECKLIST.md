@@ -30,6 +30,7 @@ Status snapshot: 26 September 2026. This is a self-hosted **lab reference implem
 ### 2. Make scanner results trustworthy
 
 - [ ] Verify Dependency-Check SARIF and upload on the server. Jenkins #310 failed because NVD/CISA data was unreachable; the next run must confirm a populated cache, valid report, and upload.
+- [ ] Verify a complete Trivy database update and both dependency and image SARIF reports. Jenkins #312 could not download the database from its default mirror; the follow-up pipeline tries official alternate registries with a persistent cache.
 - [x] Decide Snyk scope for the lab: optional and disabled; the server's `SNYK_TOKEN` is empty. If enabled later, configure a valid private token, recreate Jenkins, and verify its report without disclosure.
 - [x] Prepare Jenkins report validation and upload failure handling. The required report contract and optional scanners are documented in [docs/TESTING.md](docs/TESTING.md); image scanning now follows a successful image build.
 - [x] Prepare Dockle SARIF ingestion so image-configuration findings can reach the dashboard and AI PR conversation; verify the report and mapping on the server.
