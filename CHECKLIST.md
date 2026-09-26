@@ -1,6 +1,15 @@
 # Project completion checklist
 
-Status snapshot: 26 September 2026. This is a self-hosted **lab reference implementation**, not a production release. Update the evidence and checkboxes after each server run. Run builds, tests, and live checks on the lab server, following [docs/TESTING.md](docs/TESTING.md). Today's interim server results are in [docs/ACCEPTANCE_2026-09-26.md](docs/ACCEPTANCE_2026-09-26.md).
+Status snapshot: 26 September 2026. This is a self-hosted **lab reference implementation**, not a production release. Update the evidence and checkboxes after each server run. Run builds, tests, and live checks on the lab server, following [docs/TESTING.md](docs/TESTING.md). Today's server results and limitations are in [docs/ACCEPTANCE_2026-09-26.md](docs/ACCEPTANCE_2026-09-26.md).
+
+## End-of-day handoff and next actions
+
+- At handoff, GitHub `main`, Gitea `main`, and the Kali checkout matched at `b5766bf0b027e8e6a844c00342126487a44e4f13`. This documentation update will create a later commit; verify all three hashes again before release.
+- Jenkins **#315** on scan **#241** was still running. Its Trivy database update passed and fresh SARIF contained 24 dependency findings and 3,473 image findings; Dockle SARIF contained 5 findings. Dependency-Check had downloaded 30,000 of about 398,000 NVD records. Report validation, upload, scan completion, and AI PR creation were **not yet verified**. Do not count this as a passing scan.
+- The server's outbound NVD, CISA, and container-registry transfers have stalled or timed out repeatedly. The operator is working on server network reliability. First finish/inspect #315, then retry a complete scan only after the feeds are reachable. Keep required scanners fail-closed.
+- **Next in order:** record #315's terminal result and the Dependency-Check error or valid SARIF; confirm all required reports upload and scan #241 reaches a terminal state; run and review one new AI PR with every scan finding in its conversation; then rescan all 13 current Gitea repositories and triage their fresh findings.
+- The 50 older open AI PRs have no numbered finding comments. The user chose the detailed whole-scan conversation format for **future PRs only**; leave those older conversations unchanged. They still require ordinary review before any merge.
+- Do not run builds or tests on the laptop. Make code changes here, push GitHub, update the Kali checkout, push Gitea from Kali, and test there. Keep credentials and raw findings off Git.
 
 ## Working and verified
 
@@ -13,6 +22,7 @@ Status snapshot: 26 September 2026. This is a self-hosted **lab reference implem
 - [x] The API key exposed in an older Jenkins log was rotated; build #308's full log did not contain the new key.
 - [x] All 13 current Gitea repositories have a Jenkins webhook configured. This does **not** mean all 13 have been rescanned with the current pipeline.
 - [x] On 26 September, the server built the changed services and Jenkins image, passed all 29 Python tests, and returned HTTP 200 for orchestrator, CVE, dashboard, and Jenkins endpoints at commit `fd458f4`.
+- [x] At commit `b5766bf`, GitHub `main`, Gitea `main`, and the server checkout matched. The final documentation commit still needs the same check.
 
 ## Required before calling the lab complete
 
@@ -30,13 +40,14 @@ Status snapshot: 26 September 2026. This is a self-hosted **lab reference implem
 ### 2. Make scanner results trustworthy
 
 - [ ] Verify Dependency-Check SARIF and upload on the server. Jenkins #310 failed because NVD/CISA data was unreachable; the next run must confirm a populated cache, valid report, and upload.
-- [ ] Verify a complete Trivy database update and both dependency and image SARIF reports. Jenkins #312 could not download the database from its default mirror; the follow-up pipeline tries official alternate registries with a persistent cache.
+- [x] Jenkins #315 completed the persistent Trivy DB update and produced valid SARIF 2.1.0 for dependencies (24 results) and the built image (3,473 results). Dockle produced valid SARIF with 5 results. Upload and stored-field checks remain open below.
 - [x] Decide Snyk scope for the lab: optional and disabled; the server's `SNYK_TOKEN` is empty. If enabled later, configure a valid private token, recreate Jenkins, and verify its report without disclosure.
 - [x] Prepare Jenkins report validation and upload failure handling. The required report contract and optional scanners are documented in [docs/TESTING.md](docs/TESTING.md); image scanning now follows a successful image build.
 - [x] Prepare Dockle SARIF ingestion so image-configuration findings can reach the dashboard and AI PR conversation; verify the report and mapping on the server.
 - [x] Prepare Jenkins to register the checked out target commit and reject a webhook commit mismatch before creating the scan record; verify this behavior on the server.
 - [ ] Verify the report contract on the server: missing/invalid required output and non-200/201 upload must fail the build. Confirm optional scanner behavior on repositories without applicable files.
-- [ ] Verify the next Jenkins run starts with clean generated reports, reads the NVD key through a protected temporary properties file, removes that file, and rejects an untrusted clone URL before checkout.
+- [x] Verify #315 starts with clean generated reports and the NVD key file is owned by scanner UID 1000 with mode 0600 while Dependency-Check runs. No stale Trivy/Dependency-Check report was present at scan start.
+- [ ] Verify the NVD key file is removed after the stage and an untrusted clone URL is rejected before checkout. Rotate the exposed NVD key after this run.
 - [ ] Verify each expected scanner report is parsed and represented correctly in the orchestrator, including severity, advisory ID, affected file/package, and finding class.
 
 ### 3. Verify all target repositories
@@ -52,6 +63,8 @@ Status snapshot: 26 September 2026. This is a self-hosted **lab reference implem
 ### 4. Validate AI remediation safely
 
 - [x] Prepare bounded 429/temporary-error handling, a single-worker lab default, exact scan-commit checks, better finding context, and model-output gates. See [AI rate limits and patch quality](docs/AI_RATE_LIMITS_AND_QUALITY.md).
+- [x] The 29 server Python tests included simulated 429 deferral, invalid model-output fallback, finding-comment splitting, credential redaction, and partial comment-post failure.
+- [x] Audit existing AI PR conversations: 50 older open PRs have no numbered finding comments. The user chose to apply the complete conversation requirement to future PRs only.
 - [ ] On the server, verify a controlled 429/deferred task and invalid-output fallback; confirm final failures leave findings open and show a clear diagnostic.
 - [ ] Select a real open Python SAST finding and verify that the worker creates a `WIP:` Gitea PR against the correct repository and base commit, without exposing secrets.
 - [ ] On a server-created PR, verify its conversation contains every numbered finding part for **all** scanner tools in that scan, with counts matching the database. Confirm secret snippets are absent and comment failures report a partial result.

@@ -1,8 +1,9 @@
 # Server acceptance progress — 26 September 2026
 
-This record captures the Kali server run against `fd458f4ff26ebdb04758b23f1f21cfa7250f7852`.
-It is **not** a completed lab acceptance. The next Jenkins run must use the
-later commit that adds NVD key forwarding and a persistent Grype cache.
+This record captures the Kali server checks from commit
+`fd458f4ff26ebdb04758b23f1f21cfa7250f7852` through
+`b5766bf0b027e8e6a844c00342126487a44e4f13`.
+It is **not** a completed lab acceptance.
 Raw findings and credentials remain on the server.
 
 ## Verified on the server
@@ -51,8 +52,8 @@ Raw findings and credentials remain on the server.
   extraction drills passed; an isolated **application startup** from all
   restored volumes remains to be proven before claiming full recovery.
 
-Continue with [the server acceptance record](SERVER_ACCEPTANCE.md) after the
-new commit is deployed. Keep the private coverage and triage files under
+Continue with [the server acceptance record](SERVER_ACCEPTANCE.md) after a
+complete scan. Keep the private coverage and triage files under
 `reports/` on the server; do not commit raw finding descriptions.
 
 ## Follow-up run in progress
@@ -88,3 +89,35 @@ new commit is deployed. Keep the private coverage and triage files under
   default five-minute timeout stopped it. The Jenkins stage uses a longer
   timeout and was downloading when this section was written. Completion and
   both Trivy SARIF reports remain to be verified.
+
+## Handoff at 14:20 IST
+
+- Jenkins **#314** ended `FAILURE` when the Trivy database update timed out;
+  scan **#240** is terminal `failed`. Its longer database timeout did not
+  overcome the server's intermittent outbound transfer.
+- Commit `b5766bf0b027e8e6a844c00342126487a44e4f13` is on GitHub `main`,
+  Gitea `main`, and the Kali checkout. Jenkins **#315** created scan **#241**.
+  At handoff #315 was still running in Dependency-Check. Its Trivy DB update
+  passed, and fresh SARIF 2.1.0 reports contained **24 Trivy dependency**,
+  **3,473 Trivy image**, and **5 Dockle** results. Other scanner files were
+  present, but no report set had passed upload or database verification.
+- The temporary NVD properties file was owned by UID/GID `1000:1000` with
+  mode `0600`, matching the Dependency-Check container's UID. The scanner had
+  reached **30,000 of about 398,000 NVD records**. Verify file removal after
+  the stage and keep the NVD key out of logs and process arguments. The key
+  exposed by the earlier argument-based pipeline needs rotation.
+- The 29 Python tests run on the server included simulated 429 deferral,
+  invalid model-output fallback, complete finding-comment rendering, and
+  partial publication handling. This is code-level evidence, not proof of a
+  live AI PR. Five model configurations were present in the worker; their
+  credentials were not displayed.
+- A read-only Gitea audit found **50 older open AI PRs**, all without numbered
+  finding comments. For example, `BeyondBug/Portfolio` PR #311 has zero
+  comments while scan #211 has 27 stored findings. The user chose the detailed
+  whole-scan conversation requirement for **future PRs only**, so no comments
+  were added to these older PRs.
+- The server operator is working on outbound network reliability. First
+  capture #315's terminal result. Then verify Dependency-Check SARIF, report
+  uploads, database counts, dashboard views, and a new AI PR on a fresh scan.
+  The 13-repository scan inventory, finding triage, PR-head review, full
+  recovery startup, and production hardening remain open in the checklist.

@@ -3,6 +3,8 @@
 VigilentOps (called SecureGuard in several service names) is a self-hosted security scanning lab. Gitea stores the target repository, Jenkins runs scanners, a FastAPI service stores findings in PostgreSQL, and a Celery worker can propose Python fixes as **draft pull requests**. People must review and test those proposals before merging them.
 
 This is a lab reference implementation. Several management ports are published by Docker Compose; restrict access to a trusted network. AI-generated code is a proposal, not a verified remediation.
+For the current completion status, known blockers, and next actions, see the
+[project checklist](CHECKLIST.md) and [latest server acceptance record](docs/ACCEPTANCE_2026-09-26.md).
 
 ## How it works
 
