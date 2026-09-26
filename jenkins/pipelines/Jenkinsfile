@@ -301,12 +301,19 @@ pipeline {
                 stage('Dep-Check SCA') {
                     steps {
                         sh """
+                            set +x
                             echo "Running Dep-Check via HOST path: ${env.HOST_SOURCE}"
+                            if [ -n "\${NVD_API_KEY:-}" ]; then
+                                set -- --nvdApiKey "\$NVD_API_KEY"
+                            else
+                                set --
+                            fi
                             docker run --rm \
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
                               -v depcheck-cache:/usr/share/dependency-check/data \
                               owasp/dependency-check:latest \
+                                "\$@" \
                                 --scan /src \
                                 --format SARIF \
                                 --out /reports/dep-check.sarif
@@ -333,6 +340,11 @@ pipeline {
                             docker run --rm \
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
+                              -v grype-cache:/grype-db \
+                              -e GRYPE_DB_CACHE_DIR=/grype-db \
+                              -e GRYPE_CHECK_FOR_APP_UPDATE=false \
+                              -e GRYPE_DB_UPDATE_AVAILABLE_TIMEOUT=20s \
+                              -e GRYPE_DB_UPDATE_DOWNLOAD_TIMEOUT=3m \
                               anchore/grype:latest \
                                 dir:/src \
                                 -o sarif > ${REPORTS_DIR}/grype.sarif || true

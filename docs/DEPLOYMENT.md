@@ -152,6 +152,12 @@ take substantially longer than later scans. The Jenkins stage now allows the
 update and fails if it cannot produce a SARIF report. Ensure the server can
 reach the [required remote data sources](https://dependency-check.github.io/DependencyCheck/data/index.html)
 before expecting that stage to pass.
+If the private server `.env` has a valid `NVD_API_KEY`, Compose passes it to
+Jenkins for Dependency-Check. A key helps with NVD API limits; it does not
+repair DNS or blocked outbound HTTPS. The key is omitted from Jenkins logs.
+Grype now keeps its vulnerability database in the persistent `grype-cache`
+volume and bounds its update waits. The first cache fill still needs access
+to Anchore's database service.
 
 Snyk is optional. Set `SNYK_TOKEN` in the server's private `.env` and recreate
 the Jenkins container to enable it; an unset token skips the stage. Keep the

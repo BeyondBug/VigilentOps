@@ -210,6 +210,7 @@ services:
     environment:
       - SG_API_KEY=${SG_API_KEY}
       - SNYK_TOKEN=${SNYK_TOKEN:-}
+      - NVD_API_KEY=${NVD_API_KEY:-}
       - JENKINS_HOME_HOST=${JENKINS_HOME_HOST:-}
     networks:
       sg-net:

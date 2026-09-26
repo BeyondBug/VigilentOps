@@ -1,6 +1,6 @@
 # Project completion checklist
 
-Status snapshot: 25 September 2026. This is a self-hosted **lab reference implementation**, not a production release. Update the evidence and checkboxes after each server run. Run builds, tests, and live checks on the lab server, following [docs/TESTING.md](docs/TESTING.md).
+Status snapshot: 26 September 2026. This is a self-hosted **lab reference implementation**, not a production release. Update the evidence and checkboxes after each server run. Run builds, tests, and live checks on the lab server, following [docs/TESTING.md](docs/TESTING.md). Today's interim server results are in [docs/ACCEPTANCE_2026-09-26.md](docs/ACCEPTANCE_2026-09-26.md).
 
 ## Working and verified
 
@@ -12,13 +12,15 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 - [x] Grafana `admin` login was verified on the server after the requested password change. Keep credentials out of this file.
 - [x] The API key exposed in an older Jenkins log was rotated; build #308's full log did not contain the new key.
 - [x] All 13 current Gitea repositories have a Jenkins webhook configured. This does **not** mean all 13 have been rescanned with the current pipeline.
+- [x] On 26 September, the server built the changed services and Jenkins image, passed all 29 Python tests, and returned HTTP 200 for orchestrator, CVE, dashboard, and Jenkins endpoints at commit `fd458f4`.
 
 ## Required before calling the lab complete
 
 ### 1. Resolve and account for security findings
 
 - [x] Prepare `scripts/export_scan_triage.py` to export private findings and suggested review groups on the server.
-- [ ] Run that export for the latest complete scan and manually group records by advisory, package, version, image, and affected path. The API does not store package/version/image as separate fields, so the suggested groups are not a unique vulnerability count.
+- [x] Run the private export for latest complete scan #235: 3,351 records and 2,570 suggested review groups on the server.
+- [ ] Manually group those records by advisory, package, version, image, and affected path. The API does not store package/version/image as separate fields, so the suggested groups are not a unique vulnerability count. Repeat on a fresh complete scan before release.
 - [ ] Triage all open high findings, prioritizing reachable runtime dependencies and deployed container images. Scan #235 recorded **239 high**, **1,979 medium**, and **1,133 low** open records; 223 high records came from Trivy image scanning, and 8 each from Grype and Trivy dependency scanning.
 - [ ] Upgrade, replace, or remove affected direct and transitive dependencies and base images where supported. Rebuild and rescan on the server. Record any finding that cannot be fixed, its impact, mitigation, owner, and review date.
 - [ ] Review the 21 open Python SAST records from Bandit. Confirm each actual issue is fixed or documented with evidence; do not treat an AI proposal as a fix until its PR branch is reviewed and tested.
@@ -27,8 +29,8 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 
 ### 2. Make scanner results trustworthy
 
-- [ ] Verify the prepared OWASP Dependency-Check change on the server: Jenkins #308 printed `dep-check no output`. The updated stage allows NVD data updates and fails on a missing SARIF report; tomorrow's server run must confirm a valid report and upload.
-- [ ] Snyk is optional in the documented lab scope. If enabled, configure a valid `SNYK_TOKEN` in the server's private `.env`, recreate Jenkins, and verify a Snyk report without token disclosure. Jenkins #308 skipped it because the token was unset.
+- [ ] Verify Dependency-Check SARIF and upload on the server. Jenkins #310 failed because NVD/CISA data was unreachable; the next run must confirm a populated cache, valid report, and upload.
+- [x] Decide Snyk scope for the lab: optional and disabled; the server's `SNYK_TOKEN` is empty. If enabled later, configure a valid private token, recreate Jenkins, and verify its report without disclosure.
 - [x] Prepare Jenkins report validation and upload failure handling. The required report contract and optional scanners are documented in [docs/TESTING.md](docs/TESTING.md); image scanning now follows a successful image build.
 - [x] Prepare Dockle SARIF ingestion so image-configuration findings can reach the dashboard and AI PR conversation; verify the report and mapping on the server.
 - [x] Prepare Jenkins to register the checked out target commit and reject a webhook commit mismatch before creating the scan record; verify this behavior on the server.
@@ -38,7 +40,8 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 ### 3. Verify all target repositories
 
 - [x] Prepare `scripts/audit_scan_coverage.py` for a read-only Gitea/webhook/scan inventory on the server.
-- [ ] Inventory the 13 current Gitea repositories and confirm each webhook delivers a push event to Jenkins on an accepted branch (`main`, `develop`, or `master`).
+- [x] Inventory 13 current Gitea repositories; each has an active push webhook (26 September audit).
+- [ ] Confirm each webhook actually delivers a push event to Jenkins on an accepted branch (`main`, `develop`, or `master`).
 - [ ] Run a fresh scan of **each** intended target with the current shared Jenkinsfile and rules. Record repo, branch, commit, Jenkins build, scan ID, result, and date. The current pipeline has only been confirmed on `VigilentOps`.
 - [ ] Investigate old latest scan states: `Netflix-zuul` and `sietlms-moodle-` show `failed`; `Portfolio` and `browser-use` show `running`. Reconcile stale runs and verify new scans reach a terminal state.
 - [ ] Reconcile the scan inventory with Gitea: scan history includes `ShadowPatch`, while the current Gitea list includes `SIET-Hackathon`. Confirm which repositories are in scope.
@@ -57,15 +60,17 @@ Status snapshot: 25 September 2026. This is a self-hosted **lab reference implem
 ### 5. Final lab acceptance run
 
 - [ ] Pull the exact release commit onto the lab server; record GitHub and Gitea commit hashes and confirm they match.
+- [x] Verify interim commit `fd458f4` matched GitHub/Gitea and server checkout on 26 September. The final release commit must be checked again after scanner fixes.
 - [x] Prepare a redacted [server acceptance record](docs/SERVER_ACCEPTANCE.md) and a coordinated [webhook token rotation procedure](docs/WEBHOOK_TOKEN_ROTATION.md).
 - [ ] Run Compose validation, service builds, the Python suite, migrations, and health checks on the **server** using [docs/TESTING.md](docs/TESTING.md).
 - [ ] Perform one end-to-end Gitea push → Jenkins → reports → database → dashboard check, and one reviewed AI PR branch check. Record build IDs, scan IDs, and the result in this checklist or a dated report.
-- [ ] Verify Grafana dashboards and Wazuh/CVE integrations through their actual clients, not only service health endpoints.
+- [x] Verify Grafana login/provisioning and actual Wazuh, CVE, and Prometheus panel queries via `/api/ds/query` on 26 September; each returned HTTP 200 with data frames and no datasource error.
 - [ ] Update [README.md](README.md), [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) to match the final deployed behavior. Mark the lab complete only when the required items above are checked with evidence.
 
 ## Additional gates before production exposure
 
 - [x] Prepare a [backup, recovery, ownership, and maintenance runbook](docs/OPERATIONS.md); its live checks and owner assignments remain open below.
+- [x] On 26 September, create private PostgreSQL and Gitea/Jenkins/Grafana volume backups and restore the database/archives into disposable containers or volumes; row and entry counts matched. See [server evidence](docs/ACCEPTANCE_2026-09-26.md).
 - [ ] Replace the requested Grafana password before production use: that value appeared in prior repository history. Rotate any other historical secrets and review access to old Jenkins logs.
 - [x] Disable webhook payload and contributed-variable printing in the shared Jenkinsfile.
 - [ ] Replace the hardcoded Jenkins webhook token with a private credential, update all Gitea hooks, and verify that Jenkins accepts only trusted Gitea repository URLs before production exposure.

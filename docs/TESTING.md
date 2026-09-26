@@ -101,6 +101,11 @@ the `Dep-Check SCA` stage writes a nonempty `dep-check.sarif` and that
 volume needs its first NVD download, which can take longer than a later scan.
 If data download fails or the report is missing, the stage should fail; inspect
 the Dependency-Check error rather than treating a green pipeline as proof.
+For this server, Jenkins #310 failed because NVD data could not be updated and
+the CISA feed had a DNS error. Grype also waited on an Anchore data connection.
+Confirm fresh data downloads or a valid persistent cache before expecting the
+full report contract to pass. Check that the NVD key is configured without
+printing it, and confirm Grype's new `grype-cache` volume is populated.
 
 Snyk is optional. If `SNYK_TOKEN` is configured in the server's private
 `.env`, recreate Jenkins and verify a nonempty `snyk.sarif` plus HTTP 200
