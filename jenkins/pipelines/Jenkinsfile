@@ -342,6 +342,9 @@ pipeline {
                                 esac
                                 set -- "\$@" --nvdDatafeed "\$NVD_DATAFEED_URL"
                             fi
+                            # The scanner runs as UID 1000; Jenkins creates the
+                            # report directory as root in the mounted workspace.
+                            chown 1000:1000 ${REPORTS_DIR}
                             DOCKER_DNS_ARGS=""
                             if [ -n "\${SCANNER_DNS:-}" ]; then
                                 case "\$SCANNER_DNS" in

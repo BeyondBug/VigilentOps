@@ -48,6 +48,12 @@ and scanner logs remain off Git.
   29 September 2026 Last-Modified header. An optional datafeed URL is being
   prepared to avoid repeated first-load REST API failures; verify the mirror
   is fresh enough before release.
+- Jenkins #320 / scan #246 used the official mirror and downloaded the yearly
+  feeds in about two minutes. It completed NVD database maintenance and the
+  analysis, then failed with exit code 12 while generating SARIF. The Jenkins
+  workspace report directory was created by root while Dependency-Check runs
+  as UID 1000; a directory ownership fix is prepared for the next run. No
+  required report set was uploaded from #320.
 - The NVD and CISA endpoints responded during this run, but prior transfers
   stalled. Continue monitoring the full download before drawing a network
   reliability conclusion.
