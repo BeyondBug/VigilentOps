@@ -253,7 +253,12 @@ pipeline {
                               -v ${env.HOST_REPORTS}:/reports \
                               bridgecrew/checkov:latest \
                                 -d /src \
-                                -o sarif > ${REPORTS_DIR}/checkov.sarif || true
+                                -o sarif \
+                                --output-file-path /reports 2>&1 | tail -5 || true
+
+                            if [ -s ${REPORTS_DIR}/results_sarif.sarif ]; then
+                                mv ${REPORTS_DIR}/results_sarif.sarif ${REPORTS_DIR}/checkov.sarif
+                            fi
 
                             ls -lh ${REPORTS_DIR}/checkov.sarif 2>/dev/null \
                               && echo "Checkov OK — \$(wc -c < ${REPORTS_DIR}/checkov.sarif) bytes" \

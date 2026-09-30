@@ -54,6 +54,13 @@ and scanner logs remain off Git.
   workspace report directory was created by root while Dependency-Check runs
   as UID 1000; a directory ownership fix is prepared for the next run. No
   required report set was uploaded from #320.
+- Jenkins #321 / scan #247 generated a 170,250-byte Dependency-Check SARIF
+  report. `Validate Reports` correctly failed because `checkov.sarif` was not
+  JSON: the Checkov stage had redirected console text to that filename.
+  A disposable Checkov run on Kali wrote valid SARIF 2.1.0 through
+  `--output-file-path /reports` as `results_sarif.sarif`. The pipeline is being
+  changed to use that native report. Scan #247 ended `failed`; uploads were
+  skipped.
 - The NVD and CISA endpoints responded during this run, but prior transfers
   stalled. Continue monitoring the full download before drawing a network
   reliability conclusion.
