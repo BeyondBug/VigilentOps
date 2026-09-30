@@ -2,9 +2,13 @@
 
 VigilentOps (called SecureGuard in several service names) is a self-hosted security scanning lab. Gitea stores the target repository, Jenkins runs scanners, a FastAPI service stores findings in PostgreSQL, and a Celery worker can propose Python fixes as **draft pull requests**. People must review and test those proposals before merging them.
 
-This is a lab reference implementation. Several management ports are published by Docker Compose; restrict access to a trusted network. AI-generated code is a proposal, not a verified remediation.
+This is a lab reference implementation. Docker Compose publishes one HTTPS
+gateway on port 3000; Gitea, the findings dashboard, Jenkins, Grafana and
+Prometheus use routes through it. See [Gateway setup](docs/GATEWAY.md) for
+TLS, login, service paths and migration. AI-generated code needs review and
+validation before it can be accepted as remediation.
 For the current completion status, known blockers, and next actions, see the
-[project checklist](CHECKLIST.md) and [latest server acceptance record](docs/ACCEPTANCE_2026-09-26.md).
+[project checklist](CHECKLIST.md) and [latest server acceptance record](docs/ACCEPTANCE_2026-09-30.md).
 
 ## How it works
 
@@ -41,13 +45,19 @@ See [Architecture](docs/ARCHITECTURE.md) for the service map, repository layout,
 | `dashboard/` | React UI served by Nginx; `/api` proxies to the orchestrator |
 | `monitoring/` | Prometheus, Grafana, Falco, Wazuh, Loki, and Promtail configuration |
 | `wazuh-proxy/` | Internal Wazuh API proxy used by Grafana |
+| `proxy/` | HTTPS gateway; the only published application port |
 | `scripts/` | Host setup script |
 | `tests/` | Python tests for parsing, API import, and remediation safeguards |
 | `docs/` | Deployment, architecture, validation, and review guides |
 
 ## Run on the lab server
 
-Use a Linux host with Docker Engine and Compose v2. Configuration and startup steps are in [Deployment](docs/DEPLOYMENT.md). Copy `.env.example` to `.env`, replace placeholders, and keep `.env` out of Git. The base stack starts with `docker compose up -d --build`; Jenkins and monitoring use the `ci` and `monitoring` profiles.
+Use a Linux host with Docker Engine and Compose v2. Configuration and startup
+steps are in [Deployment](docs/DEPLOYMENT.md). Copy `.env.example` to `.env`,
+replace placeholders, and prepare the private TLS and gateway login using
+`python3 scripts/configure_gateway.py --public-url https://SERVER-IP:3000`.
+The base stack starts with `docker compose up -d --build`; Jenkins and
+monitoring use the `ci` and `monitoring` profiles.
 
 This project's working workflow is to edit and push from the development checkout, pull the branch on the lab server, and run builds and tests **on the lab server**. See [Testing](docs/TESTING.md) for server commands. Changes tested only on `main` do not validate an AI PR branch.
 

@@ -57,12 +57,18 @@ After building, confirm migrations completed and the API routes load:
 docker compose up -d
 docker compose ps
 docker compose logs --tail=100 migrate orchestrator cve-intel
-curl -fsS http://localhost:8000/health
-curl -fsS http://localhost:8001/health
+docker compose exec -T orchestrator python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health').status)"
+docker compose exec -T cve-intel python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8001/health').status)"
 ```
 
 The dashboard uses `dashboard/package-lock.json` and `npm ci` for reproducible
 dependency installation.
+
+Prepare gateway TLS/login before startup. After moving the lab to HTTPS port
+3000, verify login, assets, Grafana data and Gitea/Jenkins webhooks through
+the new paths and confirm old ports are closed. The server audit/export
+scripts read the private gateway credentials and trust the private lab CA;
+see [Gateway checks](GATEWAY.md).
 
 ## OSV smoke test
 

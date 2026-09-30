@@ -6,13 +6,11 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlparse
-from urllib.request import Request, urlopen
+from gateway_client import fetch_json
 
 
-def _request(url: str, token: str = ""):
-    headers = {"Authorization": f"token {token}"} if token else {}
-    with urlopen(Request(url, headers=headers), timeout=20) as response:
-        return json.load(response)
+def _request(url: str, token: str = "", env_path=Path(".env")):
+    return fetch_json(url, token, env_path, timeout=20)
 
 
 def _env_value(path: Path, name: str) -> str:
@@ -45,11 +43,12 @@ def _age(created: str | None) -> str:
         return "unknown"
 
 
-def audit(gitea_url: str, orchestrator_url: str, token: str) -> str:
+def audit(gitea_url: str, orchestrator_url: str, token: str, env_path=None) -> str:
+    request = _request if env_path is None else lambda url, token="": _request(url, token, env_path)
     repos = []
     page = 1
     while True:
-        batch = _request(f"{gitea_url}/api/v1/user/repos?limit=100&page={page}", token)
+        batch = request(f"{gitea_url}/api/v1/user/repos?limit=100&page={page}", token)
         if not isinstance(batch, list):
             raise ValueError("Gitea repository response was not a list")
         repos.extend(batch)
@@ -57,7 +56,7 @@ def audit(gitea_url: str, orchestrator_url: str, token: str) -> str:
             break
         page += 1
 
-    scans = _request(f"{orchestrator_url}/api/scans?limit=500&summary_only=true")
+    scans = request(f"{orchestrator_url}/api/scans?limit=500&summary_only=true")
     if not isinstance(scans, list):
         raise ValueError("Orchestrator scans response was not a list")
     latest = {}
@@ -81,7 +80,7 @@ def audit(gitea_url: str, orchestrator_url: str, token: str) -> str:
         full_name = str(repo.get("full_name") or "")
         current.add(full_name)
         owner, name = full_name.split("/", 1)
-        hooks = _request(
+        hooks = request(
             f"{gitea_url}/api/v1/repos/{quote(owner)}/{quote(name)}/hooks?limit=100",
             token,
         )
@@ -114,12 +113,12 @@ def audit(gitea_url: str, orchestrator_url: str, token: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env", type=Path, default=Path(".env"))
-    parser.add_argument("--gitea", default="http://127.0.0.1:3000")
-    parser.add_argument("--orchestrator", default="http://127.0.0.1:8000")
+    parser.add_argument("--gitea", default="https://localhost:3000")
+    parser.add_argument("--orchestrator", default="https://localhost:3000/dashboard")
     parser.add_argument("--output", type=Path, default=Path("reports/coverage-snapshot.md"))
     args = parser.parse_args()
     token = _env_value(args.env, "GITEA_TOKEN")
-    report = audit(args.gitea.rstrip("/"), args.orchestrator.rstrip("/"), token)
+    report = audit(args.gitea.rstrip("/"), args.orchestrator.rstrip("/"), token, args.env)
     os.umask(0o077)
     args.output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     args.output.write_text(report, encoding="utf-8")

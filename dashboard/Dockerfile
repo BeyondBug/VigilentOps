@@ -7,6 +7,8 @@ COPY package.json package-lock.json ./
 RUN npm ci --legacy-peer-deps
 
 COPY . .
+ARG PUBLIC_URL=/dashboard
+ENV PUBLIC_URL=${PUBLIC_URL}
 ENV GENERATE_SOURCEMAP=false
 RUN npm run build
 

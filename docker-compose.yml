@@ -19,6 +19,33 @@ volumes:
 
 services:
 
+  # The only published application port. Optional upstreams resolve at runtime.
+  gateway:
+    image: nginx:1.28-alpine
+    container_name: sg-gateway
+    ports:
+      - "${GATEWAY_BIND_ADDRESS:-0.0.0.0}:3000:3000"
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./secrets/gateway/fullchain.pem:/etc/nginx/tls/fullchain.pem:ro
+      - ./secrets/gateway/server-key.pem:/etc/nginx/tls/server-key.pem:ro
+      - ./secrets/gateway/htpasswd:/etc/nginx/auth/htpasswd:ro
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_RAW
+    depends_on:
+      - gitea
+      - dashboard
+    networks:
+      - sg-net
+    restart: unless-stopped
+
   # ── Gitea (self-hosted Git) ──────────────────────────────
   gitea:
     image: gitea/gitea:1.27.3
@@ -32,9 +59,9 @@ services:
       - GITEA__database__USER=${POSTGRES_USER}
       - GITEA__database__PASSWD=${POSTGRES_PASSWORD}
       - GITEA__webhook__ALLOWED_HOST_LIST=172.18.0.100
-    ports:
-      - "3000:3000"
-      - "2222:22"
+      - GITEA__server__ROOT_URL=${PUBLIC_URL:-https://localhost:3000}/
+      - GITEA__server__LOCAL_ROOT_URL=http://sg-gitea:3000/
+      - GITEA__server__DISABLE_SSH=true
     volumes:
       - gitea_data:/data
     depends_on:
@@ -112,8 +139,6 @@ services:
     build: ./ai-engine
     container_name: sg-orchestrator
     env_file: ${ENV_FILE:-.env}
-    ports:
-      - "8000:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -160,8 +185,6 @@ services:
     build: ./cve-intel
     container_name: sg-cve-intel
     env_file: ${ENV_FILE:-.env}
-    ports:
-      - "8001:8001"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -202,9 +225,6 @@ services:
       dockerfile: Dockerfile
     container_name: sg-jenkins
     user: root
-    ports:
-      - "8081:8080"
-      - "50000:50000"
     volumes:
       - jenkins_data:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
@@ -216,6 +236,8 @@ services:
       - NVD_DATAFEED_URL=${NVD_DATAFEED_URL:-}
       - SCANNER_DNS=${SCANNER_DNS:-}
       - JENKINS_HOME_HOST=${JENKINS_HOME_HOST:-}
+      - JENKINS_OPTS=--prefix=/jenkins
+      - GITEA_PUBLIC_URL=${PUBLIC_URL:-https://localhost:3000}
     networks:
       sg-net:
         ipv4_address: 172.18.0.100
@@ -226,8 +248,6 @@ services:
   dashboard:
     build: ./dashboard
     container_name: sg-dashboard
-    ports:
-      - "3001:3000"
     env_file: ${ENV_FILE:-.env}
     depends_on:
       orchestrator:
@@ -243,10 +263,9 @@ services:
     image: prom/prometheus:v3.8.0
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--web.enable-lifecycle"
+      - "--web.external-url=${PUBLIC_URL:-https://localhost:3000}/prometheus/"
+      - "--web.route-prefix=/"
     container_name: sg-prometheus
-    ports:
-      - "9090:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     depends_on:
@@ -260,8 +279,6 @@ services:
   sg-pushgateway:
     image: prom/pushgateway:v1.11.3
     container_name: sg-pushgateway
-    ports:
-      - "9091:9091"
     networks:
       - sg-net
     restart: unless-stopped
@@ -270,11 +287,11 @@ services:
   grafana:
     image: grafana/grafana:13.2.2
     container_name: sg-grafana
-    ports:
-      - "3002:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_SERVER_ROOT_URL=${PUBLIC_URL:-https://localhost:3000}/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
       # Install Infinity datasource plugin on every startup
       - GF_PLUGINS_PREINSTALL=yesoreyeram-infinity-datasource
       # Allow the plugin to make outbound requests to internal services
@@ -323,8 +340,6 @@ services:
     container_name: sg-postgres-exporter
     environment:
       - DATA_SOURCE_NAME=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@sg-postgres:5432/${POSTGRES_DB}?sslmode=disable
-    ports:
-      - "9187:9187"
     depends_on:
       - postgres
     networks:
@@ -338,8 +353,6 @@ services:
     container_name: sg-redis-exporter
     environment:
       - REDIS_ADDR=redis://sg-redis:6379
-    ports:
-      - "9121:9121"
     depends_on:
       - redis
     networks:
@@ -364,8 +377,6 @@ services:
       - /sys:/sys:ro
       - /var/lib/docker:/var/lib/docker:ro
       - /cgroup:/cgroup:ro
-    ports:
-      - "8082:8080"
     networks:
       - sg-net
     restart: unless-stopped
@@ -375,8 +386,6 @@ services:
   falco-exporter:
     image: falcosecurity/falco-exporter:0.8.7
     container_name: sg-falco-exporter
-    ports:
-      - "9376:9376"
     volumes:
       - falco-socket:/var/run/falco:ro
     depends_on:
@@ -391,10 +400,6 @@ services:
     image: wazuh/wazuh-manager:4.7.3
     container_name: sg-wazuh
     entrypoint: ["/bin/sh", "-c", "mkdir -p /var/ossec/logs/archives /var/ossec/logs/firewall && chown wazuh:wazuh /var/ossec/logs/archives /var/ossec/logs/firewall && exec /init"]
-    ports:
-      - "1514:1514/udp"
-      - "1515:1515"
-      - "55000:55000"
     environment:
       - WAZUH_MANAGER_IP=0.0.0.0
     volumes:
@@ -412,8 +417,6 @@ services:
   loki:
     image: grafana/loki:2.9.0
     container_name: sg-loki
-    ports:
-      - "3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
     networks:
       - sg-net

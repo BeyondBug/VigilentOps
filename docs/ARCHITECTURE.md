@@ -6,6 +6,7 @@ This guide describes the code currently in this repository. `VigilentOps` is the
 
 | Compose service | Code or configuration | Responsibility |
 | --- | --- | --- |
+| `gateway` | `proxy/nginx.conf` | HTTPS on port 3000; browser routes and dashboard/Prometheus authentication |
 | `gitea` | `docker-compose.yml` | Git hosting and pull requests |
 | `postgres`, `redis`, `migrate` | `ai-engine/migrations/`, `ai-engine/migrate.py` | Persistent records, Celery queue, ordered schema migration |
 | `orchestrator` | `ai-engine/main.py`, `report_parsers.py`, `db.py` | Scan API, report ingestion, findings, metrics, notifications |
@@ -17,6 +18,12 @@ This guide describes the code currently in this repository. `VigilentOps` is the
 | `prometheus`, `grafana`, `falco`, `wazuh`, `loki`, `promtail`, exporters, `wazuh-proxy` (`monitoring` profile) | `monitoring/`, `wazuh-proxy/` | Metrics, logs, runtime events, Wazuh API access |
 
 The Compose network is `sg-net`. The orchestrator, CVE service, dashboard, Gitea, and pushgateway are in the base stack. Jenkins, monitoring, and the Gitea Actions runner require their respective profiles. PostgreSQL, Redis, and Grafana data use named volumes. The `migrate` service runs before the application services and records applied SQL files in `schema_migrations`.
+
+Only the gateway publishes a host port. Browser requests use HTTPS 3000:
+Gitea at `/`, findings at `/dashboard/`, Jenkins at `/jenkins/`, Grafana at
+`/grafana/`, and Prometheus at `/prometheus/`. Internal APIs, exporters,
+agent listeners, and databases remain on the Docker network. See
+[Gateway setup](GATEWAY.md) for authentication, TLS and migration details.
 
 ## Scan and remediation data flow
 

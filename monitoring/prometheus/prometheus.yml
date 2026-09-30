@@ -49,7 +49,7 @@ scrape_configs:
   - job_name: 'jenkins'
     static_configs:
       - targets: ['sg-jenkins:8080']
-    metrics_path: /prometheus
+    metrics_path: /jenkins/prometheus
     relabel_configs:
       - target_label: service
         replacement: jenkins

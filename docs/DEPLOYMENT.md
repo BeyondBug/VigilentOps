@@ -7,7 +7,7 @@ device. For the service map and scan flow, see [Architecture](ARCHITECTURE.md).
 
 - Docker Engine with Compose v2
 - A Linux host capable of running Falco and Wazuh
-- Git and curl
+- Git, curl, Python 3 and OpenSSL
 - A Gitea personal access token for the remediation bot
 
 ## Configure
@@ -46,17 +46,26 @@ increasing it or trusting a proposed patch.
 
 ## Start and verify
 
+Prepare the HTTPS gateway on Kali before starting Compose:
+
+```bash
+python3 scripts/configure_gateway.py --public-url https://SERVER-IP:3000
+```
+
+Existing installations must also migrate Jenkins URLs and Gitea hooks using
+[Gateway setup](GATEWAY.md).
+
 ```bash
 docker compose config -q
 docker compose up -d --build
 docker compose ps
-curl -fsS http://localhost:8000/health
-curl -fsS http://localhost:8001/health
+docker compose exec -T orchestrator python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health').status)"
+docker compose exec -T cve-intel python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8001/health').status)"
 ```
 
-Open the dashboard at `http://<lab-host>:3001`. Its Nginx server proxies API
-requests over the internal Compose network, so remote browsers do not need to
-reach `localhost:8000` or `localhost:8001`.
+Open the dashboard at `https://<lab-host>:3000/dashboard/` using the private
+gateway login. Browser API requests share that HTTPS origin; their upstream
+services remain on the internal Compose network.
 
 The optional Gitea Actions runner is disabled by default because it requires a
 registration token and access to the Docker socket. Start it only when needed:
@@ -107,7 +116,9 @@ errors. Check `docker exec sg-wazuh /var/ossec/bin/wazuh-control status`,
 `/_proxy_health` route after a redeploy.
 
 `docker compose --profile monitoring up -d` starts the base services as well
-as monitoring services. Grafana is published on port 3002. The Wazuh proxy
+as monitoring services. Grafana is available through HTTPS 3000 at `/grafana/`.
+Prepare gateway TLS and authentication before starting the stack, following
+[Gateway setup](GATEWAY.md); only the gateway publishes a host port. The Wazuh proxy
 listens on port 8002 inside the Compose network; it is not published to the
 host. Grafana uses `http://sg-wazuh-proxy:8002`, so the proxy must listen on
 the container network interface.
@@ -224,7 +235,8 @@ arguments; in that case the image scans are skipped and the console warns.
 - The old one-off Grafana and Wazuh panel scripts were removed. Grafana now
   provisions `monitoring/grafana/dashboards/secureguard-main.json`, and
   Promtail ships Wazuh alerts to Loki.
-- Restrict exposed ports 3000, 8000, 8001, 8081, 9090, and 3002 with a firewall.
+- Restrict the HTTPS gateway on port 3000 to intended clients. Other Compose
+  services have no published ports. Host SSH is managed separately.
 - The Wazuh proxy is internal-only; access it through an authenticated frontend
   or a temporary SSH tunnel when troubleshooting.
 - Docker socket access grants host-equivalent privileges. It remains limited to

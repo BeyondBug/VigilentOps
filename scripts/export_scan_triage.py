@@ -6,7 +6,7 @@ import json
 import os
 from collections import Counter, defaultdict
 from pathlib import Path
-from urllib.request import urlopen
+from gateway_client import fetch_json
 
 
 FINDING_FIELDS = (
@@ -94,13 +94,13 @@ def export(scan: dict, directory: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("scan_id", type=int)
-    parser.add_argument("--api", default="http://127.0.0.1:8000")
+    parser.add_argument("--api", default="https://localhost:3000/dashboard")
+    parser.add_argument("--env", type=Path, default=Path(".env"))
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     os.umask(0o077)
     output = args.output or Path("reports") / "triage" / f"scan-{args.scan_id}"
-    with urlopen(f"{args.api.rstrip('/')}/api/scans/{args.scan_id}", timeout=30) as response:
-        scan = json.load(response)
+    scan = fetch_json(f"{args.api.rstrip('/')}/api/scans/{args.scan_id}", env_path=args.env)
     if scan.get("id") != args.scan_id:
         raise ValueError("Scan API returned a different scan ID")
     export(scan, output)

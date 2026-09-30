@@ -13,4 +13,5 @@ reports/
 runner_data/.runner
 *.log
 monitoring/wazuh/certs/
+secrets/
 .DS_Store

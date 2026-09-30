@@ -32,7 +32,6 @@ pipeline {
     }
 
     environment {
-        TARGET_REPO   = "${(env.REPO_URL ?: '').replace('localhost:3000', 'sg-gitea:3000').replace('http://gitea:3000', 'http://sg-gitea:3000')}"
         TARGET_BRANCH = "${env.BRANCH_REF ? env.BRANCH_REF.replace('refs/heads/', '') : 'main'}"
         COMMIT_SHA    = "${env.COMMIT_SHA ?: 'HEAD'}"
         REPO_FULLNAME = "${env.REPO_NAME ?: ''}"
@@ -51,7 +50,16 @@ pipeline {
         stage('Prepare') {
             steps {
                 script {
-                    if (!env.TARGET_REPO?.trim()) error('REPO_URL is required')
+                    def requestedRepo = (env.REPO_URL ?: '').trim()
+                    if (!requestedRepo) error('REPO_URL is required')
+                    // Match a full configured origin before replacing it. A
+                    // public hostname or HTTPS URL must not become an SSRF path.
+                    def allowedOrigins = ['http://sg-gitea:3000', 'http://gitea:3000',
+                                          'http://localhost:3000',
+                                          (env.GITEA_PUBLIC_URL ?: '').replaceAll('/+$', '')]
+                    def origin = allowedOrigins.find { it && requestedRepo.startsWith(it + '/') }
+                    if (!origin) error('Webhook repository origin is not configured for Gitea')
+                    env.TARGET_REPO = 'http://sg-gitea:3000' + requestedRepo.substring(origin.length())
                     if (!(env.TARGET_REPO ==~ /^http:\/\/sg-gitea:3000\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\.git$/)) {
                         error('Webhook repository URL must be a Gitea clone URL on sg-gitea:3000')
                     }
