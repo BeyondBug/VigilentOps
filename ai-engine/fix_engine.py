@@ -11,6 +11,8 @@ import shutil
 import subprocess
 import logging
 import random
+import re
+import sys
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse, unquote
@@ -19,7 +21,7 @@ from typing import Optional
 from collections import defaultdict
 
 from llm_response import extract_llm_content
-from fix_validation import parses_ok
+from fix_validation import parses_ok, preserves_python_interface, validates_security_change
 from fix_prompts import build_primary_prompt
 from pr_findings import build_finding_comments
 
@@ -101,12 +103,20 @@ def get_scan_findings(scan_run_id: int) -> list[dict]:
             cur.execute("""
                 SELECT id, scanner, finding_class, severity, rule_id, cve_id,
                        cwe_id, cvss_score, title, description, file_path,
-                       line_start, line_end, fix_status
+                       line_start, line_end, fix_status, package,
+                       installed_version, fixed_version, image
                 FROM findings
                 WHERE scan_run_id = %s
                 ORDER BY scanner, id
             """, (scan_run_id,))
             return [dict(row) for row in cur.fetchall()]
+
+
+def get_scan_reports(scan_run_id: int) -> list[dict]:
+    with get_db() as connection:
+        with connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+            cursor.execute('SELECT tool, finding_count, coverage FROM scan_reports WHERE scan_run_id = %s ORDER BY tool', (scan_run_id,))
+            return [dict(row) for row in cursor.fetchall()]
 
 
 def mark_pr_opened(scan_run_id: int, pr_url: str,
@@ -123,6 +133,8 @@ def mark_pr_opened(scan_run_id: int, pr_url: str,
                     pr_confidence = NULL
                 WHERE scan_run_id = %s
                   AND fix_status = 'open'
+                  AND finding_class = 'sast'
+                  AND severity IN ('CRITICAL', 'HIGH', 'MEDIUM')
                   AND file_path = ANY(%s)
             """, (pr_url, scan_run_id, fixed_paths))
             cur.execute("""
@@ -225,6 +237,7 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
         return "", ""
 
     deferred = []
+    validation_feedback = ""
     for i, m_conf in enumerate(MODELS):
         m = m_conf["model"]
         k = m_conf["key"]
@@ -236,13 +249,21 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
 
         log.info(f"Trying model {i+1}/{len(MODELS)}: {m}")
         try:
-            content = call_llm(prompt, m, u, k, max_tokens)
+            content = call_llm(prompt + validation_feedback, m, u, k, max_tokens)
         except RateLimitDeferred as exc:
             deferred.append(exc.retry_after)
             log.warning("Model %s rate limited; trying next configured model", m)
             continue
         if content and content.strip() != file_content.strip() and parses_ok(file_path, content) and len(content.splitlines()) >= len(file_content.splitlines()) * 0.7:
-            return content, m
+            if file_path.endswith('.py') and not preserves_python_interface(file_content, content):
+                validation_feedback = "\nPREVIOUS CANDIDATE REJECTED: preserve existing classes, functions, method names and argument names.\n"
+                log.warning("Model %s changed an existing Python interface", m)
+                continue
+            valid, reason = validates_security_change(file_content, content, findings)
+            if valid:
+                return content, m
+            log.warning("Model %s candidate rejected: %s", m, reason)
+            validation_feedback = "\nPREVIOUS CANDIDATE REJECTED: " + reason + "\nAddress the original cause without suppressing checks.\n"
         if content:
             log.warning("Model %s returned unchanged, invalid, or overly shortened code", m)
         if i < len(MODELS) - 1:
@@ -300,25 +321,52 @@ def apply_file_fix(repo_path: str, file_path: str,
 
 # ── Git operations ────────────────────────────────────────────
 
-def clone_repo(repo_url: str, branch: str = "main", commit_sha: str = "") -> Optional[str]:
+def canonical_repo_url(repo_url: str) -> str:
     parsed = urlparse(repo_url)
     allowed_hosts = {
         h.strip() for h in os.getenv(
             "GITEA_ALLOWED_HOSTS", "sg-gitea,gitea,localhost"
         ).split(",") if h.strip()
     }
-    if parsed.scheme not in ("http", "https") or parsed.hostname not in allowed_hosts:
-        log.error("Clone rejected: repository host is not allowlisted")
+    try:
+        valid_port = parsed.port == 3000
+    except ValueError:
+        valid_port = False
+    parts = parsed.path.strip('/').removesuffix('.git').split('/')
+    if (parsed.scheme not in ('http', 'https') or parsed.hostname not in allowed_hosts
+            or not valid_port or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or len(parts) != 2 or any(part in {'.', '..'} for part in parts)
+            or not re.fullmatch(r'/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git', parsed.path)):
+        raise ValueError('Repository URL is outside the configured Gitea clone origin/path')
+    # All Git traffic stays within the canonical private Docker Gitea service.
+    return 'http://sg-gitea:3000' + parsed.path
+
+
+def authenticated_git(arguments: list[str], **kwargs):
+    """Use ephemeral askpass credentials, never a token in Git argv or remotes."""
+    with tempfile.TemporaryDirectory(prefix='sg_git_auth_') as directory:
+        helper = Path(directory) / 'askpass.py'
+        helper.write_text('#!' + sys.executable + '\n'
+                          'import os,sys\n'
+                          'prompt = sys.argv[1].lower()\n'
+                          'print("secureguard" if "username" in prompt else os.environ["SG_GIT_TOKEN"])\n')
+        helper.chmod(0o700)
+        environment = {**os.environ, 'GIT_ASKPASS': str(helper), 'GIT_TERMINAL_PROMPT': '0',
+                       'SG_GIT_TOKEN': GITEA_TOKEN, 'GIT_CONFIG_GLOBAL': '/dev/null'}
+        return subprocess.run(['git', '-c', 'credential.helper=', '-c', 'http.followRedirects=false', *arguments],
+                              env=environment, **kwargs)
+
+
+def clone_repo(repo_url: str, branch: str = "main", commit_sha: str = "") -> Optional[str]:
+    try:
+        repo_url = canonical_repo_url(repo_url)
+    except ValueError as error:
+        log.error('Clone rejected: %s', error)
         return None
-    if parsed.username or parsed.password:
-        log.error("Clone rejected: repository URL contains credentials")
-        return None
-    repo_url = repo_url.replace("localhost:3000", "gitea:3000")
     tmpdir   = tempfile.mkdtemp(prefix="sg_fix_")
     try:
-        authed = repo_url.replace("http://", f"http://secureguard:{GITEA_TOKEN}@")
-        subprocess.run(
-            ["git", "clone", "--depth=20", "-b", branch, authed, tmpdir],
+        authenticated_git(
+            ["clone", "--depth=20", "-b", branch, repo_url, tmpdir],
             check=True, capture_output=True, timeout=60
         )
         actual_commit = subprocess.run(
@@ -334,8 +382,8 @@ def clone_repo(repo_url: str, branch: str = "main", commit_sha: str = "") -> Opt
         subprocess.run(["git", "config", "user.name", "SecureGuard Bot"],
                        cwd=tmpdir, capture_output=True)
         return tmpdir
-    except subprocess.CalledProcessError as e:
-        detail = e.stderr.decode(errors="replace")[:200] if e.stderr else str(e)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+        detail = type(e).__name__
         log.error("Clone failed: %s", detail.replace(GITEA_TOKEN, "***") if GITEA_TOKEN else detail)
         shutil.rmtree(tmpdir, ignore_errors=True)
         return None
@@ -360,24 +408,20 @@ def commit_and_push(tmpdir: str, repo_url: str,
         subprocess.run(["git", "commit", "-m", msg],
                        cwd=tmpdir, check=True, capture_output=True)
 
-        authed = (repo_url
-                  .replace("localhost:3000", "gitea:3000")
-                  .replace("http://", f"http://secureguard:{GITEA_TOKEN}@"))
-        subprocess.run(
-            ["git", "push", authed, f"HEAD:{branch_name}"],
+        authenticated_git(
+            ["push", canonical_repo_url(repo_url), f"HEAD:{branch_name}"],
             cwd=tmpdir, check=True, capture_output=True, timeout=30
         )
         log.info(f"Pushed: {branch_name}")
         return True
-    except subprocess.CalledProcessError as e:
-        err = e.stderr.decode()[:300] if e.stderr else str(e)
-        log.error(f"Push failed: {err.replace(GITEA_TOKEN, '***') if GITEA_TOKEN else err}")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError, ValueError) as e:
+        log.error('Push failed: %s', type(e).__name__)
         return False
 
 
 def open_pr(repo_url: str, branch_name: str, scan_run_id: int,
              fixed_files: list[dict], model_used: str,
-             finding_comments: list[str]) -> tuple[Optional[str], bool]:
+             finding_comments: list[str], base_branch: str = "main") -> tuple[Optional[str], bool]:
     parts     = repo_url.rstrip("/").removesuffix(".git").split("/")
     owner     = parts[-2] if len(parts) >= 2 else "BeyondBug"
     repo_name = parts[-1] if parts else "ShadowPatch"
@@ -425,7 +469,7 @@ by this proposal.
             headers={"Authorization": f"token {GITEA_TOKEN}",
                      "Content-Type":  "application/json"},
             json={"title": title, "body": body,
-                  "head": branch_name, "base": "main"},
+                  "head": branch_name, "base": base_branch},
             timeout=15,
         )
         if r.status_code in (200, 201):
@@ -458,13 +502,13 @@ by this proposal.
                         break
                 except Exception as exc:
                     log.error("Finding comment %s/%s failed: %s",
-                              index, len(finding_comments), exc)
+                              index, len(finding_comments), type(exc).__name__)
                     comments_complete = False
                     break
             return pr_url, comments_complete
-        log.error(f"PR failed {r.status_code}: {r.text[:300]}")
+        log.error("PR creation failed with HTTP %s", r.status_code)
     except Exception as e:
-        log.error(f"PR error: {e}")
+        log.error("PR creation error: %s", type(e).__name__)
     return None, False
 
 
@@ -595,7 +639,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
             for finding_id in item["finding_ids"]
         }
         finding_comments = build_finding_comments(
-            scan_run_id, scan_findings, proposed_ids
+            scan_run_id, scan_findings, proposed_ids, get_scan_reports(scan_run_id)
         )
 
         # Commit and push
@@ -610,12 +654,14 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
         pr_url, comments_complete = open_pr(
             repo_url, branch_name, scan_run_id,
             fixed_files, model_used, finding_comments,
+            base_branch=branch_ref,
         )
         if pr_url:
-            mark_pr_opened(
-                scan_run_id, pr_url,
-                [path for item in fixed_files for path in item["source_paths"]],
-            )
+            if comments_complete:
+                mark_pr_opened(
+                    scan_run_id, pr_url,
+                    [path for item in fixed_files for path in item["source_paths"]],
+                )
             return {
                 "status":          "complete" if comments_complete else "partial",
                 "fixes_attempted": len(candidate_files),

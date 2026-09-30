@@ -10,16 +10,19 @@ calls stay on that Docker network. Host SSH is separate from the Compose stack.
 | `/dashboard/` | Findings dashboard | Gateway username/password |
 | `/dashboard/api/` | Scan API | Gateway login; writes also require `X-API-Key` |
 | `/dashboard/cve-intel/` | CVE read API | Gateway login |
-| `/jenkins/` | Jenkins | Gateway username/password; Jenkins permissions also apply when configured |
+| `/jenkins/` | Jenkins | Gateway login forwarded to the matching native Jenkins account and permissions |
 | `/grafana/` | Grafana, including Live WebSockets | Grafana login/permissions |
 | `/prometheus/` | Prometheus UI and query API | Gateway username/password |
 
 Databases, Redis, Loki, Pushgateway, cAdvisor, exporters, and Wazuh's API
 have no host port bindings. Grafana still reaches its data sources internally.
 The public Jenkins webhook endpoint is blocked; Gitea delivers directly over
-`sg-net` using its existing private trigger token. Jenkins gateway credentials
-are stripped before forwarding requests. Configure Jenkins's own users and
-role permissions before admitting other users to this administrative lab.
+`sg-net` using a private Jenkins credential-backed trigger token. Jenkins
+receives the gateway Basic credential and applies its native permission matrix.
+Preparation creates the matching administrator and a separate limited metrics
+account; anonymous native access and signup are disabled, and CSRF is enabled.
+These new controls require deployment and verification; the prior accepted
+deployment stripped that header and retained an unsecured native Jenkins realm.
 Gitea SSH port 2222 and Jenkins inbound agent port 50000 are removed; use
 repository HTTPS and Jenkins WebSocket agents when needed. Wazuh agent
 enrollment/event ports also stay internal. External Wazuh agents require a
@@ -31,6 +34,7 @@ Replace credential placeholders in `.env`, then run from the checkout:
 
 ```bash
 python3 scripts/configure_gateway.py --public-url https://SERVER-IP:3000
+python3 scripts/prepare_jenkins_security.py
 docker compose --profile ci --profile monitoring up -d --build
 ```
 
@@ -39,6 +43,10 @@ address plus `localhost` in its SAN, and a separate gateway login. It stores
 `PUBLIC_URL`, `PROXY_AUTH_USER`, and `PROXY_AUTH_PASSWORD` in the private `.env`.
 Private keys and the password hash remain in ignored `secrets/gateway/`.
 Only the server certificate/key and password hash are mounted into Nginx.
+Jenkins preparation stores private bootstrap values under ignored
+`secrets/jenkins/`. Run it again after a gateway login change, then recreate
+Jenkins and Prometheus so both account and metrics credentials remain aligned.
+The current lab username is `BeyondBug`; passwords are not documented here.
 
 To view the dashboard/Jenkins/Prometheus gateway login **in your private server shell**:
 
@@ -59,6 +67,12 @@ Gitea, Jenkins, Grafana, and Prometheus to load updated public URLs. Use a
 stable DNS name when one is available.
 
 ## Migrate an existing lab
+
+For the current gateway installation's native Jenkins security update, follow
+[Next server session](NEXT_SERVER_SESSION.md) and
+[Webhook token rotation](WEBHOOK_TOKEN_ROTATION.md). Prepare credentials before
+Compose; initialize the updated trigger before changing the hooks. The
+following steps describe the earlier HTTP-to-HTTPS migration.
 
 Back up `.env`, Compose/proxy configuration, Gitea `app.ini`, Jenkins job and
 location configuration, and the database before cutover. Preserve existing

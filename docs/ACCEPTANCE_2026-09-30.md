@@ -179,3 +179,29 @@ SSH and external Wazuh agent transports are no longer published. Their
 replacement/access requirements are described in [Gateway setup](GATEWAY.md).
 The existing Falco limitation and five failed target repository scans remain
 listed in the checklist.
+
+## Latest handoff: server unavailable, code preparation continues
+
+Kali and Gitea received `7bcfd0c`. At that commit Compose validation and
+33 Python tests passed on Kali. The scanner changes distinguish OSV's
+no-supported-package result, increase bounded Trivy timeouts and exclude only
+Moodle's malformed/encrypted ZIP fixtures from Dependency-Check. These changes
+still require fresh accepted scans for the five failed repositories. An
+interrupted rerun command may have queued some deliveries; outcomes were not
+confirmed before connectivity became unavailable.
+
+Falco inspection found the engine explicitly configured as `nodriver`.
+BTF was present on the Kali host. The modern eBPF configuration was applied
+and the container started, but stable operation/event capture was not verified.
+The earlier unsupported-driver explanation must not be treated as established
+by this inspection.
+
+Further code is prepared for native Jenkins accounts/permissions/CSRF,
+credential-backed hooks and authenticated metrics; scanner artifact metadata,
+report receipts and completion gates; Bandit/interface candidate checks,
+Git credential handling and PR-head review scans; private triage checks,
+controlled AI retry/fallback checks and backup/isolated restore automation.
+Documentation and the checklist describe these changes. They have **not** been
+built, tested or deployed. No local builds/tests were run. The project remains
+incomplete until [Next server session](NEXT_SERVER_SESSION.md) and the required
+[checklist](../CHECKLIST.md) gates have recorded evidence on the release commit.

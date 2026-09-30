@@ -55,6 +55,10 @@ def _finding_entry(finding: dict, proposed_ids: set[int]) -> str:
         f"- **CWE:** {_one_line(finding.get('cwe_id'))}\n"
         f"- **CVSS:** {_one_line(finding.get('cvss_score'))}\n"
         f"- **Location:** {_location(finding)}\n"
+        f"- **Package:** {_one_line(finding.get('package'))}\n"
+        f"- **Installed version:** {_one_line(finding.get('installed_version'))}\n"
+        f"- **Reported fixed version:** {_one_line(finding.get('fixed_version'))}\n"
+        f"- **Image:** {_one_line(finding.get('image'))}\n"
         f"- **Stored status:** {_one_line(finding.get('fix_status'))}\n"
         f"- **AI proposal:** {proposal}; security and runtime behavior are unverified.\n\n"
         f"**Scanner description**\n\n{description_block}\n\n"
@@ -62,7 +66,7 @@ def _finding_entry(finding: dict, proposed_ids: set[int]) -> str:
 
 
 def build_finding_comments(
-    scan_run_id: int, findings: list[dict], proposed_ids: set[int]
+    scan_run_id: int, findings: list[dict], proposed_ids: set[int], reports: list[dict] | None = None
 ) -> list[str]:
     """Include every stored finding, split into bounded Gitea comments."""
     by_scanner: dict[str, list[dict]] = defaultdict(list)
@@ -94,6 +98,12 @@ def build_finding_comments(
         "snippets and descriptions likely to contain credentials are excluded to avoid copying "
         "credentials into pull request comments.\n"
     )
+    if reports:
+        summary += '\n**Accepted scanner report coverage**\n\n'
+        for report in reports:
+            status = 'NOT APPLICABLE; supported package sources absent' if report.get('coverage') == 'not_applicable' else 'analyzed'
+            summary += f"- {_one_line(report.get('tool'))}: {report.get('finding_count', 0)} records; {status}.\n"
+        summary += '\nA zero-result report or unsupported ecosystem is not proof of a vulnerability-free repository.\n'
 
     parts = [summary]
     current = ""

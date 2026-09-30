@@ -50,6 +50,7 @@ Prepare the HTTPS gateway on Kali before starting Compose:
 
 ```bash
 python3 scripts/configure_gateway.py --public-url https://SERVER-IP:3000
+python3 scripts/prepare_jenkins_security.py
 ```
 
 Existing installations must also migrate Jenkins URLs and Gitea hooks using
@@ -156,12 +157,16 @@ volume (the path returned by `docker volume inspect`). Scanner containers use
 this path to mount the Jenkins workspace. Start Jenkins with the `ci` profile
 after setting it.
 
-The job's webhook token in the Jenkinsfile is `secureguard-webhook-token`.
-Give the job access to `gitea-cred` and configure the Gitea webhook to call
-the Jenkins Generic Webhook Trigger endpoint. A push to a branch outside
-`main`, `develop`, or `master` does not match the pipeline trigger. To
-validate an AI PR branch, explicitly run a scan against that branch on the
-server; a preceding main-branch build does not cover it.
+The job uses Secret text credential ID `gitea-webhook-token`. Server preparation
+generates it privately; Jenkins bootstrap enables a private realm, an
+administrator permission and a separate read/metrics account, plus CSRF.
+Gateway Basic authentication is forwarded to the matching native administrator.
+The public trigger path remains blocked; Gitea hooks call the internal prefixed
+endpoint. Follow [Next server session](NEXT_SERVER_SESSION.md) for existing
+installations: first apply the new trigger through one pipeline run, then
+update hooks. An accepted-branch push uses `main`, `develop` or `master`.
+Administrator-only `REVIEW_AI_PR` parameters allow an exact AI PR-head scan
+without starting another AI task; a base-branch build does not cover that head.
 The pipeline now checks the cloned target's commit against the webhook commit
 before registering a scan. A branch that moves before checkout must be
 triggered again. For production exposure, follow the coordinated

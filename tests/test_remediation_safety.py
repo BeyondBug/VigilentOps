@@ -14,10 +14,56 @@ ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(ROOT, "ai-engine"))
 
 import fix_engine
+from fix_validation import preserves_python_interface, validates_security_change
 from pr_findings import build_finding_comments
 
 
 class RemediationSafetyTests(unittest.TestCase):
+    def test_clone_rejects_untrusted_origin_port_and_path_before_git(self):
+        with patch.object(fix_engine.subprocess, 'run') as git:
+            for url in ('http://attacker.example:3000/owner/repo.git',
+                        'http://sg-gitea:8000/owner/repo.git',
+                        'http://token@sg-gitea:3000/owner/repo.git',
+                        'http://sg-gitea:3000/../repo.git',
+                        'http://sg-gitea:3000/owner/repo.git?redirect=evil'):
+                self.assertIsNone(fix_engine.clone_repo(url))
+        git.assert_not_called()
+
+    def test_authenticated_git_uses_private_askpass_without_token_in_argv(self):
+        with patch.object(fix_engine, 'GITEA_TOKEN', 'fixture-sensitive-token'), patch.object(fix_engine.subprocess, 'run') as command:
+            fix_engine.authenticated_git(['clone', 'http://sg-gitea:3000/owner/repo.git', '/tmp/fixture'])
+        self.assertNotIn('fixture-sensitive-token', ' '.join(command.call_args.args[0]))
+        self.assertEqual(command.call_args.kwargs['env']['SG_GIT_TOKEN'], 'fixture-sensitive-token')
+        self.assertFalse(Path(command.call_args.kwargs['env']['GIT_ASKPASS']).exists())
+
+    def test_bandit_rejects_ineffective_fix_and_suppression(self):
+        original = 'import subprocess\ndef execute(command):\n    return subprocess.call(command, shell=True)\n'
+        findings = [{"scanner": "bandit", "rule_id": "B602"}]
+        for proposed in (original.replace('command', 'cmd'), original.replace('shell=True)', 'shell=True)  # nosec')):
+            valid, reason = validates_security_change(original, proposed, findings)
+            self.assertFalse(valid)
+            self.assertIn("B602", reason)
+
+    def test_bandit_accepts_removed_rule_but_rejects_new_high_issue(self):
+        original = 'import subprocess\ndef execute(command):\n    return subprocess.call(command, shell=True)\n'
+        proposed = original.replace('shell=True', 'shell=False')
+        findings = [{"scanner": "bandit", "rule_id": "B602"}]
+        self.assertTrue(validates_security_change(original, proposed, findings)[0])
+        self.assertFalse(validates_security_change(original, proposed + '\nvalue = eval(user_input)\n', findings)[0])
+
+    def test_candidate_cannot_remove_or_rename_python_interface(self):
+        original = 'def fetch(url, *, timeout=10):\n    return url\n'
+        self.assertTrue(preserves_python_interface(original, original.replace('return url', 'return str(url)')))
+        self.assertFalse(preserves_python_interface(original, original.replace('fetch(url', 'fetch(target')))
+        self.assertFalse(preserves_python_interface(original, 'pass\n'))
+
+    def test_pr_uses_scanned_base_branch(self):
+        with patch.object(fix_engine.httpx, "post") as request:
+            request.return_value.status_code = 201
+            request.return_value.json.return_value = {"html_url": "http://gitea/pr/1"}
+            fix_engine.open_pr("http://gitea/owner/repo.git", "fix-branch", 1, [], "model", [], base_branch="master")
+        self.assertEqual(request.call_args.kwargs["json"]["base"], "master")
+
     def test_rate_limit_honors_retry_after_without_busy_retry(self):
         response = httpx.Response(
             429, headers={"Retry-After": "120"},
@@ -81,6 +127,7 @@ class RemediationSafetyTests(unittest.TestCase):
                 {"id": 1, "scanner": "bandit", "finding_class": "sast",
                  "severity": "HIGH", "title": "Issue", "file_path": "app.py"},
             ]),
+            patch.object(fix_engine, 'get_scan_reports', return_value=[]),
             patch.object(fix_engine, "clone_repo", return_value=repo),
             patch.object(fix_engine, "try_with_fallback", return_value=("print('fixed')\n", "model")) as model,
             patch.object(fix_engine, "commit_and_push", return_value=True),
@@ -153,6 +200,10 @@ class RemediationSafetyTests(unittest.TestCase):
         self.assertTrue(all(len(comment.encode()) < 25_000 for comment in comments))
         for index in range(1, 81):
             self.assertEqual(conversation.count(f"#### Finding #{index} —"), 1)
+
+    def test_conversation_includes_report_coverage_even_for_zero_findings(self):
+        comments = build_finding_comments(9, [], set(), [{'tool': 'osv', 'finding_count': 0, 'coverage': 'not_applicable'}])
+        self.assertIn('osv: 0 records; NOT APPLICABLE', '\n'.join(comments))
 
     def test_pr_posts_findings_to_its_conversation(self):
         created = {"html_url": "http://gitea/owner/repo/pulls/4", "number": 4}

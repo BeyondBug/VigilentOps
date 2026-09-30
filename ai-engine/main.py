@@ -13,8 +13,8 @@ from prometheus_client import Counter, Gauge, Histogram
 
 log = logging.getLogger("orchestrator")
 from sqlalchemy import text
-from db import get_db_session, ScanRun, Finding
-from report_parsers import parse_sarif, parse_bandit, determine_finding_class, validate_report_shape
+from db import get_db_session, ScanRun, Finding, ScanReport
+from report_parsers import parse_sarif, parse_bandit, determine_finding_class, validate_report_shape, REQUIRED_TOOLS, SUPPORTED_TOOLS
 
 # ── App setup ────────────────────────────────────────────────
 app = FastAPI(title="SecureGuard Orchestrator", version="2.0.0")
@@ -132,6 +132,10 @@ def save_findings_to_db(db, scan_run_id: int, findings: list[dict]):
             line_end       = f.get("line_end"),
             vulnerable_code= f.get("vulnerable_code", "")[:5000],
             finding_class  = f.get("finding_class", determine_finding_class(f.get("scanner", "unknown"))),
+            package        = f.get("package"),
+            installed_version = f.get("installed_version"),
+            fixed_version  = f.get("fixed_version"),
+            image          = f.get("image"),
         ))
         findings_total.labels(
             severity=sev,
@@ -149,6 +153,13 @@ def save_findings_to_db(db, scan_run_id: int, findings: list[dict]):
 
 
 # ── API endpoints ─────────────────────────────────────────────
+
+def required_tools(value):
+    if (not isinstance(value, list) or any(not isinstance(tool, str) for tool in value)
+            or not REQUIRED_TOOLS <= set(value) or not set(value) <= SUPPORTED_TOOLS):
+        raise HTTPException(status_code=422, detail='Invalid required scanner report set')
+    return sorted(set(value))
+
 
 @app.post("/webhook/gitea")
 async def gitea_webhook(request: Request):
@@ -177,6 +188,9 @@ async def create_scan(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail='Scan payload must be an object')
+    expected = required_tools(body.get('required_reports', sorted(REQUIRED_TOOLS)))
     repo_url   = body.get("repo_url", "")
     commit_sha = body.get("commit_sha", "HEAD")
     branch     = body.get("branch", "main")
@@ -192,6 +206,8 @@ async def create_scan(request: Request):
                 triggered_by = "jenkins",
                 status       = "running",
                 started_at   = datetime.utcnow(),
+                required_reports = expected,
+                pipeline_commit = body.get('pipeline_commit'),
             )
             db.add(scan)
             db.flush()          # flush to get the auto-generated id
@@ -243,6 +259,7 @@ async def get_scan(scan_id: str):
             # Also fetch findings
             findings = db.query(Finding).filter_by(scan_run_id=int(scan_id)).all()
             scan_dict["findings"] = [f.to_dict() for f in findings]
+            scan_dict['reports'] = [report.to_dict() for report in db.query(ScanReport).filter_by(scan_run_id=int(scan_id)).all()]
             return scan_dict
     except HTTPException:
         raise
@@ -259,15 +276,29 @@ async def update_scan(scan_id: str, request: Request):
         if not isinstance(body, dict):
             raise HTTPException(status_code=422, detail="Invalid scan update")
         status = body.get("status")
-        if not isinstance(status, str) or status not in {"complete", "failed"}:
+        if status is not None and (not isinstance(status, str) or status not in {"complete", "failed"}):
             raise HTTPException(status_code=422, detail="Invalid scan status")
+        expected = required_tools(body['required_reports']) if 'required_reports' in body else None
+        if status is None and expected is None:
+            raise HTTPException(status_code=422, detail='No scan update supplied')
         with get_db_session() as db:
-            scan = db.query(ScanRun).filter_by(id=int(scan_id)).first()
+            scan = db.query(ScanRun).filter_by(id=int(scan_id)).with_for_update().first()
             if scan:
-                if scan.finished_at is None:
+                if expected is not None:
+                    if scan.finished_at is not None and set(expected) != set(scan.required_reports or []):
+                        raise HTTPException(status_code=409, detail='Finalized report contract cannot be changed')
+                    if not set(scan.required_reports or []) <= set(expected):
+                        raise HTTPException(status_code=422, detail='Required reports cannot be removed')
+                    scan.required_reports = expected
+                if status == 'complete':
+                    received = {report.tool for report in db.query(ScanReport).filter_by(scan_run_id=scan.id).all()}
+                    missing = set(scan.required_reports or REQUIRED_TOOLS) - received
+                    if missing:
+                        raise HTTPException(status_code=409, detail='Missing scanner reports: ' + ', '.join(sorted(missing)))
+                if status is not None and scan.finished_at is None:
                     scan.finished_at = datetime.utcnow()
                     scans_active.dec()
-                if status == "failed" or scan.status not in {"pr_opened", "ai_fixed"}:
+                if status is not None and (status == "failed" or scan.status not in {"pr_opened", "ai_fixed"}):
                     scan.status = status
             else:
                 raise HTTPException(status_code=404, detail="Scan not found")
@@ -311,10 +342,21 @@ async def upload_report(scan_id: int, tool: str, request: Request):
 
     try:
         with get_db_session() as db:
-            if not db.query(ScanRun).filter_by(id=scan_id).first():
+            scan = db.query(ScanRun).filter_by(id=scan_id).with_for_update().first()
+            if not scan:
                 raise HTTPException(status_code=404, detail="Scan not found")
-            if findings:
+            digest = hashlib.sha256(raw).hexdigest()
+            existing = db.query(ScanReport).filter_by(scan_run_id=scan_id, tool=tool).first()
+            if existing and existing.sha256 != digest:
+                raise HTTPException(status_code=409, detail='A different report for this tool is already stored; create a new scan')
+            if not existing and scan.finished_at is not None:
+                raise HTTPException(status_code=409, detail='Scan is already finalized')
+            if findings and not existing:
                 save_findings_to_db(db, int(scan_id), findings)
+            if not existing:
+                not_applicable = tool == 'osv' and any(run.get('properties', {}).get('coverage') == 'not_applicable' for run in data.get('runs', []))
+                db.add(ScanReport(scan_run_id=scan_id, tool=tool, sha256=digest,
+                                  finding_count=len(findings), coverage='not_applicable' if not_applicable else 'analyzed'))
     except HTTPException:
         raise
     except Exception:

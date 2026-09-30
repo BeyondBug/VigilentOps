@@ -229,6 +229,8 @@ services:
       - jenkins_data:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
       - ./jenkins/pipelines:/var/jenkins_home/pipelines
+      - ./jenkins/init.groovy.d/zz-secureguard-security.groovy:/var/jenkins_home/init.groovy.d/zz-secureguard-security.groovy:ro
+      - ./secrets/jenkins:/run/secureguard-jenkins:ro
     environment:
       - SG_API_KEY=${SG_API_KEY}
       - SNYK_TOKEN=${SNYK_TOKEN:-}
@@ -268,6 +270,7 @@ services:
     container_name: sg-prometheus
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./secrets/jenkins/metrics-password:/etc/prometheus/jenkins-metrics-password:ro
     depends_on:
       - sg-pushgateway
     networks:

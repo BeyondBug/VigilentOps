@@ -92,3 +92,32 @@ and Grafana remain reachable from intended clients and that APIs require the
 intended authentication. Review Docker socket mounts and privileged monitoring
 services before production
 exposure.
+
+## Prepared backup and isolated restore automation
+
+Run on Kali from the checkout with the full lab containers present:
+
+```bash
+python3 scripts/backup_lab.py
+python3 scripts/restore_lab_backup.py /absolute/path/to/the/printed/backup
+```
+
+The backup command refuses known running/queued Jenkins work or active,
+reserved/deferred Celery tasks. It stops persistent writers, dumps PostgreSQL,
+archives Gitea/Jenkins/Grafana/Prometheus/Wazuh/Loki/Redis volumes and private configuration,
+records checksums, image IDs and table counts, then restarts the prior running
+writers. Expect a maintenance interruption; verify service health afterward.
+It requires the CI/monitoring containers to exist and is not a partial-stack
+backup command. It requires Gitea and findings to share the configured database;
+separate databases require an explicit additional backup procedure. New
+directories are private and existing snapshots are never
+overwritten. Preserve the recorded PostgreSQL and archive image IDs locally.
+
+The restore command creates unique disposable volumes and a database with no
+network or published ports. It restores the dump, compares public table counts
+and restores/compares each archived volume. It cleans up only its own named
+resources. It does not change live volumes. Check private configuration
+recovery separately; full restored service login/client validation remains
+required. The new scripts are prepared but unverified until the next server
+session. Existing historical backups use different manifests; do not run this
+restore command against them without an explicit conversion/review.

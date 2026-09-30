@@ -201,3 +201,37 @@ environment. Confirm only non-secret values with `printenv MODEL_1` and make a
 small chat-completions request from the server if model calls are enabled.
 Both ordinary OpenAI-shaped objects and Gemini's one-element array responses
 are supported.
+
+## Next deployment gates
+
+Follow [Next server session](NEXT_SERVER_SESSION.md) for the ordered backup,
+Jenkins bootstrap, migrations, trigger/hook migration and acceptance run.
+Prepare private Jenkins files before recreating CI/monitoring. Rebuild images
+so the new Bandit validation dependency is available. New migrations add
+artifact fields and accepted report receipts without backfilling historical
+coverage.
+
+The expanded suite includes API tests for malformed uploads, incomplete
+completion, idempotent retries, conflicting reports and complete contracts,
+plus candidate validation and private Jenkins preparation. Run it on Kali;
+the older 33-test result does not cover these additions. Confirm representative
+native reports retain critical severity, advisory ID and available package/
+version/image metadata. Verify a missing conditional Bandit/image report cannot
+be bypassed through the completion endpoint.
+
+For AI PR-head acceptance, use the administrator parameters `REVIEW_AI_PR`,
+`REVIEW_REPO_URL`, `REVIEW_BRANCH=secureguard/scan-N-fixes` and exact
+`REVIEW_COMMIT_SHA`. That mode must not queue another AI proposal. Check the
+recorded target SHA and shared pipeline SHA, then review runtime clients.
+Run the controlled retry/fallback fixture on the server and verify failures
+leave findings open; follow [AI quality](AI_RATE_LIMITS_AND_QUALITY.md).
+
+Inspect Falco logs after the modern eBPF change. Require a persistent running
+sensor and a controlled event visible through its exporter/Grafana, not merely
+a zero-valued dashboard panel. The previous inspected engine was `nodriver`;
+its inactive state did not prove a kernel-driver incompatibility. See
+[Falco kernel sources](https://falco.org/docs/concepts/event-sources/kernel/).
+
+After all target scans, run coverage with `--pipeline-commit` and
+`--require-complete`. After manual triage, run `check_triage.py`. Neither tool
+substitutes for delivered hooks, patch review or verified exception evidence.

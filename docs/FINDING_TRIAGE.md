@@ -49,3 +49,27 @@ Optional scanner coverage must be stated in the release record.
 
 These gates describe completion of the **lab**. Production exposure also
 requires the additional controls in [CHECKLIST.md](../CHECKLIST.md).
+
+## Structured exports and completeness check
+
+New scans preserve available package, installed/fixed version and image fields.
+The exporter includes those fields in private CSVs and suggested group keys;
+older rows stay blank. Scanner formats can omit metadata, so verify the raw
+report and deployment context rather than treating blank fields as unaffected.
+
+Fill `owner`, `disposition` and evidence in `review-groups.csv`. Fixed groups
+require `tested_commit` (full SHA), `verification_scan_id` and `evidence`;
+accepted groups also require `impact`, `mitigation` and a current `review_date`.
+Duplicates use `duplicate_of` with evidence linking a reviewed primary group.
+Open medium/low groups need a `planned_fix` or backlog reference.
+
+Run on Kali after manual review:
+
+```bash
+python3 scripts/check_triage.py reports/triage/final
+```
+
+It checks that every exported finding appears exactly once, owners/evidence
+are present and high/critical/secret/unknown records are dispositioned.
+It never updates findings, approves an exception or proves the evidence valid.
+Keep both CSVs private and preserve the original export for audit.

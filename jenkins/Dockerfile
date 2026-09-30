@@ -16,3 +16,7 @@ RUN apt-get update -qq && \
     rm -rf /var/lib/apt/lists/*
 
 USER jenkins
+
+RUN jenkins-plugin-cli --plugins matrix-auth:3.3 workflow-aggregator git \
+    credentials-binding generic-webhook-trigger pipeline-utility-steps \
+    ws-cleanup prometheus

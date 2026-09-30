@@ -50,6 +50,9 @@ scrape_configs:
     static_configs:
       - targets: ['sg-jenkins:8080']
     metrics_path: /jenkins/prometheus
+    basic_auth:
+      username: sg-metrics
+      password_file: /etc/prometheus/jenkins-metrics-password
     relabel_configs:
       - target_label: service
         replacement: jenkins

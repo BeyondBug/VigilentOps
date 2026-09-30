@@ -55,9 +55,9 @@ Report upload validates Bandit JSON, SARIF 2.1.0, or Syft SPDX according to the 
 
 ## AI proposal boundary
 
-The current SQL filter in `ai-engine/fix_engine.py` selects findings with `finding_class='sast'`, severity `MEDIUM`, `HIGH`, or `CRITICAL`, `fix_status='open'`, and a `.py` file path. It does not generate dependency upgrades or fixes for every scanner finding. The worker clones an allowed Gitea host, resolves each file path, calls configured models in fallback order, checks generated content, and writes changed files to `secureguard/scan-<id>-fixes`. It then creates a `WIP:` PR against `main`.
+The current SQL filter in `ai-engine/fix_engine.py` selects findings with `finding_class='sast'`, severity `MEDIUM`, `HIGH`, or `CRITICAL`, `fix_status='open'`, and a `.py` file path. It does not generate dependency upgrades or fixes for every scanner finding. The worker validates the Gitea origin/path, uses temporary Git askpass credentials, resolves each file path, calls configured models in fallback order, and writes accepted candidates to `secureguard/scan-<id>-fixes`. It creates a `WIP:` PR against the scanned branch.
 
-The file validation checks syntax and some structural limits. It cannot prove that the code fixes the finding, preserves service behavior, or passes integration tests. After opening a PR, the worker posts a numbered set of comments containing all stored findings for that scan, grouped by scanner; only findings linked to changed files are marked as having a proposed change. Raw code snippets and descriptions likely to contain credentials are omitted. The PR body states how many comment parts to expect. A comment failure leaves the task result `partial`, and reviewers should not treat an incomplete conversation as a finished report. `pr_opened` in the database means a proposal exists for a changed file; it is not a resolved finding. Follow [AI pull request review](AI_PR_REVIEW.md) before changing PR status or merging.
+Validation checks syntax, structural limits and retention of Python class/function argument interfaces. For Bandit rules it rescans original/candidate text with suppression comments ignored, requires original rules to reproduce and disappear, and rejects increased medium/high results. This does not prove runtime behavior or integration correctness. After opening a PR, the worker posts numbered comments containing all stored findings, grouped by scanner, with report coverage and available artifact metadata. Secret-bearing details are omitted. Incomplete comment publication returns `partial` and leaves findings open. Only eligible SAST findings linked to changed files are marked `pr_opened` after complete publication; that status denotes a proposal, never a resolved issue. Follow [AI pull request review](AI_PR_REVIEW.md).
 
 The worker verifies the target checkout matches the scan commit before proposing changes. It handles provider rate limits with bounded retries and a deferred Celery task, then tries configured fallback models. It rejects unchanged, syntactically invalid, or heavily shortened model output. See [AI rate limits and patch quality](AI_RATE_LIMITS_AND_QUALITY.md) for operations and limits.
 
@@ -74,3 +74,20 @@ The worker verifies the target checkout matches the scan commit before proposing
 - CVE matching: `cve-intel/poller.py` and `nvd_parser.py`.
 - Dashboard pages and API calls: `dashboard/src/pages/` and `dashboard/src/api.js`.
 - Monitoring provisioning: `monitoring/` and the corresponding services in `docker-compose.yml`.
+
+## Report and artifact records
+
+Migrations 002/003 add optional finding package/version/image fields, the
+required tool set and shared pipeline commit on each scan, and `scan_reports`
+receipts keyed by scan/tool. Receipts include SHA-256, result count and coverage.
+The API locks the scan during upload, accepts identical retries without
+creating duplicate findings, rejects conflicting reports and refuses completion
+when required receipts are missing. Zero findings and OSV `not_applicable`
+remain distinct. Historical scans have no retroactive receipts or inferred
+artifact metadata. A complete scan does not mean its vulnerabilities are fixed.
+
+The canonical shared Jenkinsfile supports administrator PR-head review mode;
+ordinary hooks still accept only main/develop/master. The legacy alternate
+Groovy pipeline fails with a migration instruction. Prepared native Jenkins
+security uses private bootstrap settings and separate admin/metrics permissions;
+see [Next server session](NEXT_SERVER_SESSION.md) for deployment order.

@@ -1,7 +1,7 @@
 import os
 import json
 from contextlib import contextmanager
-from sqlalchemy import create_engine, Column, Integer, Float, Text, DateTime
+from sqlalchemy import create_engine, Column, Integer, Float, Text, DateTime, JSON
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -34,6 +34,8 @@ class ScanRun(Base):
     high_count     = Column(Integer, default=0)
     medium_count   = Column(Integer, default=0)
     low_count      = Column(Integer, default=0)
+    required_reports = Column(JSON)
+    pipeline_commit = Column(Text)
 
     def to_dict(self):
         return {
@@ -51,6 +53,8 @@ class ScanRun(Base):
             "created_at":     self.started_at.isoformat() if self.started_at else None,
             "finished_at":    self.finished_at.isoformat() if self.finished_at else None,
             "findings":       [],   # findings fetched separately if needed
+            "required_reports": self.required_reports or [],
+            "pipeline_commit": self.pipeline_commit,
         }
 
     def _extract_repo_name(self):
@@ -78,6 +82,10 @@ class Finding(Base):
     line_end       = Column(Integer)
     vulnerable_code= Column(Text)
     finding_class   = Column(Text)
+    package         = Column(Text)
+    installed_version = Column(Text)
+    fixed_version   = Column(Text)
+    image           = Column(Text)
     fix_status     = Column(Text, default="open")
     ai_fix_code    = Column(Text)
     pr_url         = Column(Text)
@@ -97,6 +105,10 @@ class Finding(Base):
             "file_path":   self.file_path,
             "line_start":  self.line_start,
             "finding_class": self.finding_class,
+            "package": self.package,
+            "installed_version": self.installed_version,
+            "fixed_version": self.fixed_version,
+            "image": self.image,
             "fix_status":  self.fix_status,
             "pr_url":      self.pr_url,
             "pr_confidence": self.pr_confidence,
@@ -105,6 +117,20 @@ class Finding(Base):
 
 # Keep ScanResult as alias for backwards compat with old imports
 ScanResult = ScanRun
+
+
+class ScanReport(Base):
+    __tablename__ = 'scan_reports'
+    scan_run_id = Column(Integer, primary_key=True)
+    tool = Column(Text, primary_key=True)
+    sha256 = Column(Text, nullable=False)
+    finding_count = Column(Integer, nullable=False)
+    coverage = Column(Text, nullable=False)
+    received_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {'tool': self.tool, 'sha256': self.sha256,
+                'finding_count': self.finding_count, 'coverage': self.coverage}
 
 
 @contextmanager

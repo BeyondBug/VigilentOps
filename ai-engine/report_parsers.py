@@ -4,19 +4,28 @@ import re
 
 
 CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}")
+SUPPORTED_TOOLS = {'semgrep', 'bandit', 'gitleaks', 'trivy', 'trivy-deps', 'trivy-image',
+                   'grype', 'osv', 'dep-check', 'checkov', 'snyk', 'dockle', 'syft-sbom'}
+REQUIRED_TOOLS = {'semgrep', 'gitleaks', 'trivy-deps', 'grype', 'osv', 'dep-check', 'syft-sbom'}
 
 
 def validate_report_shape(data, tool: str) -> None:
     """Reject uploads that would otherwise be acknowledged without parsing."""
+    if tool not in SUPPORTED_TOOLS:
+        raise ValueError('Unsupported scanner tool')
     if not isinstance(data, dict):
         raise ValueError("report must be a JSON object")
     if tool == "bandit":
-        if not isinstance(data.get("results"), list):
+        if not isinstance(data.get("results"), list) or any(not isinstance(item, dict) for item in data['results']):
             raise ValueError("Bandit report needs a results list")
+        if data.get('errors'):
+            raise ValueError('Bandit could not analyze every selected file')
+        return
     elif tool == "syft-sbom":
-        if not str(data.get("spdxVersion", "")).startswith("SPDX-"):
+        if not str(data.get("spdxVersion", "")).startswith("SPDX-") or not isinstance(data.get('packages'), list):
             raise ValueError("Syft report needs an SPDX version")
-    elif data.get("version") != "2.1.0" or not isinstance(data.get("runs"), list):
+        return
+    elif data.get("version") != "2.1.0" or not isinstance(data.get("runs"), list) or not data["runs"]:
         raise ValueError("scanner report must be SARIF 2.1.0")
     elif any(
         not isinstance(run, dict) or
@@ -25,10 +34,21 @@ def validate_report_shape(data, tool: str) -> None:
         for run in data["runs"]
     ):
         raise ValueError("SARIF runs and results must be valid lists")
+    for run in data.get('runs', []):
+        invocations = run.get('invocations', [])
+        if not isinstance(invocations, list) or any(not isinstance(item, dict) or item.get('executionSuccessful') is False for item in invocations):
+            raise ValueError('Scanner invocation failed or is malformed')
+        properties = run.get('properties', {})
+        if not isinstance(properties, dict):
+            raise ValueError('SARIF run properties must be an object')
+        if properties.get('coverage') == 'not_applicable' and (tool != 'osv' or run['results']
+                or not any(item.get('exitCode') == 128 for item in invocations)):
+            raise ValueError('Not-applicable coverage requires the OSV no-packages result')
 
 def _extract_cve(rule_id: str, rule: dict, result: dict):
-    if rule_id.startswith("CVE-"):
-        return rule_id
+    direct = CVE_RE.search(rule_id)
+    if direct:
+        return direct.group(0)
     blob = " ".join([
         rule.get("fullDescription", {}).get("text", ""),
         rule.get("shortDescription", {}).get("text", ""),
@@ -39,6 +59,41 @@ def _extract_cve(rule_id: str, rule: dict, result: dict):
         return m.group(0)
     return rule_id if rule_id.startswith("GHSA-") else None
 
+
+def _score(value):
+    try:
+        score = float(value)
+        return score if 0 <= score <= 10 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _label(text, name):
+    match = re.search(r'^' + re.escape(name) + r':[ \t]*([^\r\n]*)', text, re.MULTILINE)
+    return match.group(1).strip() if match else None
+
+
+def _metadata(rule, result, run):
+    properties = {**rule.get('properties', {}), **result.get('properties', {})}
+    message = result.get('message', {}).get('text', '')
+    help_text = rule.get('help', {}).get('text', '')
+    text = message + '\n' + help_text
+    score = _score(properties.get('cvss_score', properties.get('security-severity')))
+    severity = str(properties.get('severity') or _label(text, 'Severity') or '').upper()
+    if severity not in {'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'UNKNOWN'}:
+        severity = ('CRITICAL' if score >= 9 else 'HIGH' if score >= 7 else 'MEDIUM' if score >= 4 else 'LOW') if score is not None else None
+    package = properties.get('package') or properties.get('packageName') or _label(text, 'Package')
+    installed = properties.get('installed_version') or properties.get('installedVersion') or _label(text, 'Installed Version') or _label(text, 'Version')
+    fixed = properties.get('fixed_version') or properties.get('fixedVersion') or _label(text, 'Fixed Version') or _label(text, 'Fix Version')
+    return {
+        'severity': severity or {'error': 'HIGH', 'warning': 'MEDIUM', 'note': 'LOW', 'none': 'INFO'}.get(result.get('level', 'warning'), 'MEDIUM'),
+        'cvss_score': score,
+        'package': str(package)[:500] if package else None,
+        'installed_version': str(installed)[:500] if installed else None,
+        'fixed_version': str(fixed)[:500] if fixed else None,
+        'image': str(run.get('properties', {}).get('imageName') or properties.get('image') or '')[:1000] or None,
+    }
+
 def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
     """Parse SARIF 2.1.0 format into finding dicts."""
     findings = []
@@ -48,16 +103,15 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
             for r in run.get("tool", {}).get("driver", {}).get("rules", [])
         }
         for result in run.get("results", []):
-            sev_map = {"error": "HIGH", "warning": "MEDIUM", "note": "LOW", "none": "INFO"}
-            level   = result.get("level", "warning")
-            sev     = result.get("properties", {}).get("severity",
-                        sev_map.get(level, "MEDIUM")).upper()
-
             locs   = result.get("locations", [{}])
             loc    = locs[0].get("physicalLocation", {}) if locs else {}
             region = loc.get("region", {})
             rule_id = result.get("ruleId", "")
             rule    = rules.get(rule_id, {})
+            metadata = _metadata(rule, result, run)
+            finding_class = determine_finding_class(tool)
+            if tool.startswith('trivy') and rule.get('name') == 'Secret':
+                finding_class = 'secret'
 
             findings.append({
                 "scanner":        tool,
@@ -65,19 +119,17 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
                 "cve_id":         (result.get("properties", {}).get("cve_id")
                                    or _extract_cve(rule_id, rule, result)),
                 "cwe_id":         result.get("properties", {}).get("cwe_id"),
-                "severity":       sev,
-                "cvss_score":     result.get("properties", {}).get("cvss_score"),
-                "title":          (rule.get("name") or
-                                   rule.get("shortDescription", {}).get("text") or
+                **metadata,
+                "title":          (rule.get("shortDescription", {}).get("text") or rule.get("name") or
                                    result.get("message", {}).get("text", rule_id) or
                                    rule_id)[:500],
-                "description":    (rule.get("fullDescription", {}).get("text") or
-                                   result.get("message", {}).get("text", ""))[:2000],
+                "description":    ('\n'.join(filter(None, [result.get("message", {}).get("text", ""),
+                                   rule.get("fullDescription", {}).get("text", "")]))[:2000],
                 "file_path":      loc.get("artifactLocation", {}).get("uri", ""),
                 "line_start":     region.get("startLine"),
                 "line_end":       region.get("endLine"),
                 "vulnerable_code": result.get("properties", {}).get("snippet", "")[:5000],
-                "finding_class": determine_finding_class(tool),
+                "finding_class": finding_class,
             })
     return findings
 

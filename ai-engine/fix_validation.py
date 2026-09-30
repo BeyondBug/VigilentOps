@@ -4,6 +4,11 @@ import ast
 import json as _json
 import logging
 import re
+import subprocess
+import sys
+import tempfile
+from collections import Counter
+from pathlib import Path
 
 log = logging.getLogger("ai-fix-v3")
 
@@ -28,3 +33,71 @@ def parses_ok(path: str, content: str) -> bool:
             return False
     return True
 
+
+def _bandit_results(content: str) -> list[dict]:
+    # Bandit parses source; it does not import or execute the target file.
+    with tempfile.TemporaryDirectory(prefix="sg_bandit_") as directory:
+        source = Path(directory) / "candidate.py"
+        source.write_text(content, encoding="utf-8")
+        result = subprocess.run(
+            [sys.executable, "-m", "bandit", "--ignore-nosec", "-q", "-f", "json", str(source)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode not in (0, 1):
+            raise ValueError("Bandit could not validate the candidate")
+        report = _json.loads(result.stdout)
+        if report.get("errors") or not isinstance(report.get("results"), list):
+            raise ValueError("Bandit returned an incomplete candidate report")
+        return report["results"]
+
+
+def validates_security_change(original: str, proposed: str, findings: list[dict]) -> tuple[bool, str]:
+    """Reject ineffective Bandit fixes and newly introduced medium/high rules."""
+    target_rules = {str(item.get("rule_id") or "") for item in findings
+                    if str(item.get("scanner") or "").lower() == "bandit"}
+    target_rules = {rule for rule in target_rules if re.fullmatch(r"B\d{3}", rule)}
+    if not target_rules:
+        return True, "Non-Bandit findings still require a reviewer and server rescan"
+    try:
+        before = _bandit_results(original)
+        after = _bandit_results(proposed)
+    except (ValueError, OSError, subprocess.TimeoutExpired, _json.JSONDecodeError):
+        return False, "Bandit validation unavailable; keep the finding open"
+    observed = {issue["test_id"] for issue in before}
+    if not target_rules <= observed:
+        return False, "Original Bandit rules were not reproduced; review scan context manually"
+    remaining = target_rules & {issue["test_id"] for issue in after}
+    if remaining:
+        return False, "Bandit still reports " + ", ".join(sorted(remaining))
+    def significant(issues):
+        return Counter((issue["test_id"], issue["issue_severity"]) for issue in issues
+                       if issue["issue_severity"] in {"MEDIUM", "HIGH"})
+    if significant(after) - significant(before):
+        return False, "Candidate introduces additional medium/high Bandit findings"
+    return True, "Targeted Bandit rules absent; runtime behavior remains unverified"
+
+
+def preserves_python_interface(original: str, proposed: str) -> bool:
+    def signatures(content):
+        found = {}
+        def collect(nodes, prefix=""):
+            for node in nodes:
+                if isinstance(node, ast.ClassDef):
+                    found[prefix + node.name] = ("class",)
+                    collect(node.body, prefix + node.name + ".")
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    arguments = node.args
+                    found[prefix + node.name] = (
+                        type(node).__name__, tuple(arg.arg for arg in arguments.posonlyargs),
+                        tuple(arg.arg for arg in arguments.args),
+                        tuple(arg.arg for arg in arguments.kwonlyargs),
+                        arguments.vararg.arg if arguments.vararg else None,
+                        arguments.kwarg.arg if arguments.kwarg else None,
+                    )
+        collect(ast.parse(content).body)
+        return found
+    try:
+        before, after = signatures(original), signatures(proposed)
+        return all(after.get(name) == signature for name, signature in before.items())
+    except SyntaxError:
+        return False

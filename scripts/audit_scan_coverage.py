@@ -43,7 +43,7 @@ def _age(created: str | None) -> str:
         return "unknown"
 
 
-def audit(gitea_url: str, orchestrator_url: str, token: str, env_path=None) -> str:
+def audit(gitea_url: str, orchestrator_url: str, token: str, env_path=None, pipeline_commit='') -> str:
     request = _request if env_path is None else lambda url, token="": _request(url, token, env_path)
     repos = []
     page = 1
@@ -60,8 +60,12 @@ def audit(gitea_url: str, orchestrator_url: str, token: str, env_path=None) -> s
     if not isinstance(scans, list):
         raise ValueError("Orchestrator scans response was not a list")
     latest = {}
+    by_branch = {}
     for scan in scans:
         key = _repo_key(scan)
+        branch_key = (key, scan.get('branch'))
+        if branch_key not in by_branch or int(scan.get('id') or 0) > int(by_branch[branch_key].get('id') or 0):
+            by_branch[branch_key] = scan
         if key and (key not in latest or int(scan.get("id") or 0) > int(latest[key].get("id") or 0)):
             latest[key] = scan
 
@@ -72,8 +76,8 @@ def audit(gitea_url: str, orchestrator_url: str, token: str, env_path=None) -> s
         f"Gitea repositories: {len(repos)}",
         f"Scan records returned: {len(scans)} (API limit 500)",
         "",
-        "| Repository | Push webhook | Latest scan | Status | Age |",
-        "|---|---|---:|---|---:|",
+        "| Repository | Push webhook | Latest scan | Status | Age | Scanned commit | Branch head | Pipeline commit | Current coverage |",
+        "|---|---|---:|---|---:|---|---|---|---|",
     ]
     current = set()
     for repo in sorted(repos, key=lambda item: item.get("full_name") or ""):
@@ -91,11 +95,24 @@ def audit(gitea_url: str, orchestrator_url: str, token: str, env_path=None) -> s
             if hook.get("active") and "push" in (hook.get("events") or [])
         ]
         scan = latest.get(full_name, {})
+        branch = repo.get('default_branch')
+        if branch:
+            scan = by_branch.get((full_name, branch), {})
+        head = ''
+        if branch:
+            branch_data = request(f'{gitea_url}/api/v1/repos/{quote(owner)}/{quote(name)}/branches/{quote(branch, safe="")}', token)
+            head = branch_data.get('commit', {}).get('id', '')
+        scanned = str(scan.get('commit_sha') or '')
+        pipeline = str(scan.get('pipeline_commit') or '')
+        covered = bool(push_hooks and head and scanned == head and scan.get('branch') == branch
+                       and scan.get('status') in {'complete', 'pr_opened'}
+                       and (not pipeline_commit or pipeline == pipeline_commit))
         name_cell = full_name.replace("|", "\\|")
         status = str(scan.get("status") or "NO SCAN").replace("|", "\\|")
         lines.append(
             f"| {name_cell} | {'yes' if push_hooks else 'NO'} | "
-            f"{scan.get('id') or '—'} | {status} | {_age(scan.get('created_at'))} |"
+            f"{scan.get('id') or '—'} | {status} | {_age(scan.get('created_at'))} | "
+            f"{scanned[:12] or '—'} | {head[:12] or '—'} | {pipeline[:12] or 'unrecorded'} | {'PASS' if covered else 'PENDING'} |"
         )
 
     older = sorted(set(latest) - current)
@@ -116,14 +133,16 @@ def main() -> int:
     parser.add_argument("--gitea", default="https://localhost:3000")
     parser.add_argument("--orchestrator", default="https://localhost:3000/dashboard")
     parser.add_argument("--output", type=Path, default=Path("reports/coverage-snapshot.md"))
+    parser.add_argument('--pipeline-commit', default='', help='Require this shared pipeline commit for current coverage')
+    parser.add_argument('--require-complete', action='store_true', help='Exit nonzero when any current target needs verification')
     args = parser.parse_args()
     token = _env_value(args.env, "GITEA_TOKEN")
-    report = audit(args.gitea.rstrip("/"), args.orchestrator.rstrip("/"), token, args.env)
+    report = audit(args.gitea.rstrip("/"), args.orchestrator.rstrip("/"), token, args.env, args.pipeline_commit)
     os.umask(0o077)
     args.output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     args.output.write_text(report, encoding="utf-8")
     print(f"Coverage report: {args.output}")
-    return 0
+    return 1 if args.require_complete and '| PENDING |' in report else 0
 
 
 if __name__ == "__main__":

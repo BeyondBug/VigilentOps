@@ -43,6 +43,11 @@ class ScanTriageTests(unittest.TestCase):
             ("CVE-2026-1234", "image"),
         )
 
+    def test_same_advisory_in_different_artifacts_has_separate_review_groups(self):
+        first = {'cve_id': 'CVE-2026-1234', 'file_path': 'image', 'package': 'one', 'installed_version': '1.0'}
+        second = {**first, 'package': 'two'}
+        self.assertNotEqual(review_key(first), review_key(second))
+
 
 if __name__ == "__main__":
     unittest.main()

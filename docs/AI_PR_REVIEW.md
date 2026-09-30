@@ -14,3 +14,15 @@ The AI worker opens `WIP:` Gitea pull requests as proposals. It may change a who
 ## Current review example
 
 PR #15 from scan #229 illustrates why the branch needs its own review. Its proposed Wazuh proxy loopback bind would prevent Grafana from reaching the proxy over Docker networking. Enabling certificate verification without a trusted CA fails against the lab's self-signed Wazuh certificate. Other proposed changes leave some hardcoded credentials and insecure HTTP behavior. Jenkins #302 ran on the base branch before that PR existed, so its success does not validate PR #15. Review these facts against the current PR state before taking action; this example is a snapshot, not a release status.
+
+## Prepared review mode and current rejection
+
+The shared pipeline now accepts administrator-only `REVIEW_AI_PR` parameters
+for the exact PR head. See [Next server session](NEXT_SERVER_SESSION.md).
+Normal hooks do not accept AI branch names, and review mode skips another AI
+task. Candidate interface/Bandit checks improve proposals but do not replace
+this review sequence.
+
+On 30 September, PR #18's B107/B310 findings survived the targeted rescan.
+Do not merge that unchanged proposal. Correct or reject it explicitly and
+verify a new real candidate against its head, including real service clients.

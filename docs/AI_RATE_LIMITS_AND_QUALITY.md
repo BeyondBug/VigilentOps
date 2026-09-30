@@ -60,3 +60,27 @@ a valid fallback response. Then review one real PR head and its fresh scan.
 Record the worker task ID, scan ID, model used, PR head, and decision in the
 [server acceptance record](SERVER_ACCEPTANCE.md). Do not run these checks on
 the development laptop.
+
+## Additional candidate gates prepared on 30 September
+
+Candidates must retain existing Python class/function argument interfaces.
+For eligible Bandit findings the worker parses both original and proposed text
+using pinned Bandit 1.9.4 with `--ignore-nosec`. Original target rules must
+reproduce, all target rules must disappear, and medium/high rule counts must
+not increase. Missing validation rejects the candidate. A rejected candidate
+provides a short diagnostic to the next configured model. Source is parsed,
+not imported or executed; runtime behavior still needs server/client review.
+Non-Bandit proposals retain manual review/rescan requirements.
+
+Repository origins and paths are validated before Git; temporary askpass keeps
+tokens out of command arguments/remotes. PRs target the scanned base branch.
+Incomplete whole-scan conversation publication leaves findings open. Accepted
+proposals still mean `pr_opened`, not `fixed`.
+
+Rebuild the application images before using these gates. Run the expanded
+Python suite and the controlled `scripts/check_ai_failure_modes.py` fixture on
+Kali as described in [Next server session](NEXT_SERVER_SESSION.md). The fixture
+uses real Celery/Redis scheduling on a unique queue with a local fake provider;
+it checks deferred 429 exhaustion and invalid-output fallback without database
+changes or PR publication. It does not establish real-provider or real-patch
+acceptance. These new checks have not yet run.

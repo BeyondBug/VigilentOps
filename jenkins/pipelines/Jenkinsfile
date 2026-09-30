@@ -12,6 +12,13 @@ pipeline {
         disableConcurrentBuilds()
     }
 
+    parameters {
+        booleanParam(name: 'REVIEW_AI_PR', defaultValue: false, description: 'Administrator-requested scan of an AI PR head; no new AI task is queued')
+        string(name: 'REVIEW_REPO_URL', defaultValue: '', description: 'Configured Gitea clone URL')
+        string(name: 'REVIEW_BRANCH', defaultValue: '', description: 'secureguard/scan-N-fixes PR branch')
+        string(name: 'REVIEW_COMMIT_SHA', defaultValue: '', description: 'Exact 40-character PR head commit')
+    }
+
     triggers {
         GenericTrigger(
             genericVariables: [
@@ -21,20 +28,19 @@ pipeline {
                 [key: 'PUSHER',     value: '$.pusher.login'],
                 [key: 'REPO_NAME',  value: '$.repository.name'],
             ],
-            token:           'secureguard-webhook-token',
+            tokenCredentialId: 'gitea-webhook-token',
             causeString:     'Triggered by $PUSHER pushing to $BRANCH_REF',
             printContributedVariables: false,
             printPostContent: false,
             silentResponse:  false,
             regexpFilterText:       '$BRANCH_REF',
-            regexpFilterExpression: 'refs/heads/(main|develop|master)'
+            regexpFilterExpression: '^refs/heads/(main|develop|master)$'
         )
     }
 
     environment {
-        TARGET_BRANCH = "${env.BRANCH_REF ? env.BRANCH_REF.replace('refs/heads/', '') : 'main'}"
-        COMMIT_SHA    = "${env.COMMIT_SHA ?: 'HEAD'}"
-        REPO_FULLNAME = "${env.REPO_NAME ?: ''}"
+        TARGET_BRANCH = "${params.REVIEW_AI_PR ? params.REVIEW_BRANCH : (env.BRANCH_REF ? env.BRANCH_REF.replace('refs/heads/', '') : 'main')}"
+        COMMIT_SHA    = "${params.REVIEW_AI_PR ? params.REVIEW_COMMIT_SHA : (env.COMMIT_SHA ?: 'HEAD')}"
 
         // Jenkins container path (what Jenkins itself sees)
         REPORTS_DIR   = "${WORKSPACE}/reports"
@@ -50,8 +56,19 @@ pipeline {
         stage('Prepare') {
             steps {
                 script {
-                    def requestedRepo = (env.REPO_URL ?: '').trim()
+                    def requestedRepo = (params.REVIEW_AI_PR ? params.REVIEW_REPO_URL : (env.REPO_URL ?: '')).trim()
                     if (!requestedRepo) error('REPO_URL is required')
+                    def reviewBranch = params.REVIEW_AI_PR && (env.TARGET_BRANCH ==~ /^secureguard\/scan-[0-9]+-fixes$/)
+                    if (!(env.TARGET_BRANCH in ['main', 'develop', 'master']) && !reviewBranch) {
+                        error('Webhook branch is not accepted for scanning')
+                    }
+                    if (params.REVIEW_AI_PR && !reviewBranch) error('AI review requires an explicit SecureGuard PR branch')
+                    if (params.REVIEW_AI_PR && !(env.COMMIT_SHA ==~ /^[0-9a-fA-F]{40}$/)) {
+                        error('AI review requires the exact PR head commit')
+                    }
+                    if (env.COMMIT_SHA != 'HEAD' && !(env.COMMIT_SHA ==~ /^[0-9a-fA-F]{40}$/)) {
+                        error('Webhook commit must be a full Git SHA')
+                    }
                     // Match a full configured origin before replacing it. A
                     // public hostname or HTTPS URL must not become an SSRF path.
                     def allowedOrigins = ['http://sg-gitea:3000', 'http://gitea:3000',
@@ -64,7 +81,11 @@ pipeline {
                         error('Webhook repository URL must be a Gitea clone URL on sg-gitea:3000')
                     }
                     if (!env.JENKINS_HOME_HOST?.trim()) error('JENKINS_HOME_HOST is required')
-                    if (!env.REPO_FULLNAME?.trim()) env.REPO_FULLNAME = env.TARGET_REPO.tokenize('/').last().replace('.git', '')
+                    def components = env.TARGET_REPO.substring('http://sg-gitea:3000/'.length()).tokenize('/')
+                    if (components[0] in ['.', '..'] || components[1].replaceAll(/\.git$/, '') in ['', '.', '..']) {
+                        error('Webhook repository path is invalid')
+                    }
+                    env.REPO_FULLNAME = components[1].replaceAll(/\.git$/, '')
                     echo "SecureGuard Scan #${BUILD_NUMBER} | ${REPO_FULLNAME} | ${COMMIT_SHA.take(8)}"
                     sh """mkdir -p ${REPORTS_DIR}
                         rm -f ${REPORTS_DIR}/*.sarif ${REPORTS_DIR}/*.json ${REPORTS_DIR}/image-built.marker ${REPORTS_DIR}/.nvd.properties
@@ -115,9 +136,18 @@ pipeline {
                         error("Webhook commit ${env.COMMIT_SHA} does not match checked out commit ${checkedOutCommit}")
                     }
                     env.COMMIT_SHA = checkedOutCommit
+                    env.HAS_PYTHON = sh(script: "find ${SOURCE_DIR} -name '*.py' -print -quit",
+                                        returnStdout: true).trim() ? "true" : "false"
+                    def requiredReports = ['semgrep', 'gitleaks', 'trivy-deps', 'grype', 'osv', 'dep-check', 'syft-sbom']
+                    if (env.HAS_PYTHON == 'true') requiredReports.add('bandit')
+                    if (env.SNYK_TOKEN?.trim()) requiredReports.add('snyk')
+                    env.REQUIRED_REPORTS = groovy.json.JsonOutput.toJson(requiredReports)
+                    def pipelineCommit = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
                     def body = groovy.json.JsonOutput.toJson([
-                        repo_url: env.TARGET_REPO, commit_sha: env.COMMIT_SHA,
+                        repo_url: env.TARGET_REPO, commit_sha: checkedOutCommit,
                         branch: env.TARGET_BRANCH, repo_name: env.REPO_FULLNAME,
+                        required_reports: requiredReports,
+                        pipeline_commit: pipelineCommit,
                     ])
                     writeFile file: 'scan-payload.json', text: body
                     def resp = sh(script: '''set +x
@@ -133,8 +163,6 @@ pipeline {
                     env.SCAN_RUN_ID = scan.id.toString()
                     echo "Scan run ID: ${env.SCAN_RUN_ID} | commit: ${env.COMMIT_SHA}"
 
-                    env.HAS_PYTHON = sh(script: "find ${SOURCE_DIR} -name '*.py' | head -1",
-                                        returnStdout: true).trim() ? "true" : "false"
                     env.HAS_REQS   = sh(script: "find ${SOURCE_DIR} -name 'requirements*.txt' | head -1",
                                         returnStdout: true).trim() ? "true" : "false"
                     echo "Python:${env.HAS_PYTHON} | Requirements:${env.HAS_REQS}"
@@ -469,6 +497,16 @@ pipeline {
                     def pythonFlag = env.HAS_PYTHON == 'true' ? '--python' : ''
                     def snykFlag = env.SNYK_TOKEN?.trim() ? '--snyk' : ''
                     sh "docker run --rm -v ${env.HOST_REPORTS}:/reports:ro -v ${env.HOST_VALIDATOR}:/validator.py:ro python:3.12-slim python /validator.py /reports ${pythonFlag} ${snykFlag}"
+                    def requiredReports = readJSON(text: env.REQUIRED_REPORTS)
+                    if (fileExists("${REPORTS_DIR}/image-built.marker")) {
+                        requiredReports.addAll(['dockle', 'trivy-image'])
+                    }
+                    writeFile file: 'report-contract.json', text: groovy.json.JsonOutput.toJson([required_reports: requiredReports])
+                    sh '''set +x
+                        curl -sf -X PATCH "$ORCHESTRATOR/api/scans/$SCAN_RUN_ID" \\
+                          -H "X-API-Key: $SG_API_KEY" -H 'Content-Type: application/json' \\
+                          --data-binary @report-contract.json
+                    '''
                 }
             }
         }
@@ -488,7 +526,7 @@ pipeline {
                         echo "  Uploading \$TOOL (\$SIZE bytes)..."
                         CODE=\$(curl -s -o /dev/null -w "%{http_code}" \
                           -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/reports/\$TOOL \
-                          -H 'X-API-Key: ${SG_API_KEY}' \
+                          -H "X-API-Key: \$SG_API_KEY" \
                           -H 'Content-Type: application/json' \
                           --data-binary @\$f) || CODE=000
                         echo "  -> HTTP \$CODE"
@@ -509,7 +547,7 @@ pipeline {
                     set +x
                     set -e
                     curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/enrich \
-                      -H 'X-API-Key: ${SG_API_KEY}' \
+                      -H "X-API-Key: \$SG_API_KEY" \
                       -H 'Content-Type: application/json' -d '{}' \
                       -o /tmp/enrich_resp.json
                     cat /tmp/enrich_resp.json
@@ -518,12 +556,13 @@ pipeline {
         }
 
         stage('AI Auto-Remediation') {
+            when { expression { return !params.REVIEW_AI_PR } }
             steps {
                 sh """
                     set +x
                     set -e
                     curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/fix \
-                      -H 'X-API-Key: ${SG_API_KEY}' \
+                      -H "X-API-Key: \$SG_API_KEY" \
                       -H 'Content-Type: application/json' \
                       -d '{}' \
                       -o /tmp/fix_resp.json
@@ -537,7 +576,7 @@ pipeline {
                 sh """
                     set +x
                     curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/notify \
-                      -H 'X-API-Key: ${SG_API_KEY}' \
+                      -H "X-API-Key: \$SG_API_KEY" \
                       -H 'Content-Type: application/json' \
                       -d '{"build_url":"${env.BUILD_URL}"}' || true
                     echo "Done — Scan #${env.SCAN_RUN_ID}"
@@ -550,23 +589,35 @@ pipeline {
     post {
         always {
             sh "ls -lh ${REPORTS_DIR}/ 2>/dev/null || true"
+            sh '''set +x
+                rm -f "$REPORTS_DIR/.nvd.properties"
+            '''
             sh "docker rmi sg-target-scan:${BUILD_NUMBER} 2>/dev/null || true"
             cleanWs()
         }
         success {
-            sh "set +x\ncurl --retry 3 -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"complete\"}'"
+            sh '''set +x
+                curl --retry 3 -sf -X PATCH "$ORCHESTRATOR/api/scans/$SCAN_RUN_ID" \\
+                  -H "X-API-Key: $SG_API_KEY" -H 'Content-Type: application/json' -d '{"status":"complete"}'
+            '''
         }
         failure {
             script {
                 if (env.SCAN_RUN_ID?.trim()) {
-                    sh "set +x\ncurl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"failed\"}' || true"
+                    sh '''set +x
+                        curl -sf -X PATCH "$ORCHESTRATOR/api/scans/$SCAN_RUN_ID" \\
+                          -H "X-API-Key: $SG_API_KEY" -H 'Content-Type: application/json' -d '{"status":"failed"}' || true
+                    '''
                 }
             }
         }
         aborted {
             script {
                 if (env.SCAN_RUN_ID?.trim()) {
-                    sh "set +x\ncurl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"failed\"}' || true"
+                    sh '''set +x
+                        curl -sf -X PATCH "$ORCHESTRATOR/api/scans/$SCAN_RUN_ID" \\
+                          -H "X-API-Key: $SG_API_KEY" -H 'Content-Type: application/json' -d '{"status":"failed"}' || true
+                    '''
                 }
             }
         }

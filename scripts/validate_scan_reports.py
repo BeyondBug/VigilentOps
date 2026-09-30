@@ -38,12 +38,16 @@ def _sarif(path: Path) -> int:
     runs = data.get("runs")
     if not isinstance(runs, list) or not runs:
         raise ValueError(f"{path.name}: SARIF runs must be a nonempty list")
-    if any(not isinstance(run, dict) or not isinstance(run.get("results", []), list)
+    if any(not isinstance(run, dict) or not isinstance(run.get("results"), list)
+           or any(not isinstance(result, dict) for result in run.get('results', []))
            for run in runs):
         raise ValueError(f"{path.name}: SARIF results must be lists")
     for run in runs:
-        for invocation in run.get("invocations", []):
-            if invocation.get("executionSuccessful") is False:
+        invocations = run.get('invocations', [])
+        if not isinstance(invocations, list):
+            raise ValueError(f'{path.name}: scanner invocations must be a list')
+        for invocation in invocations:
+            if not isinstance(invocation, dict) or invocation.get("executionSuccessful") is False:
                 raise ValueError(f"{path.name}: scanner invocation failed")
     return sum(len(run.get("results", [])) for run in runs)
 
@@ -98,12 +102,16 @@ def validate_reports(reports: Path, has_python: bool = False,
 
     if has_python:
         bandit = _load(reports / "bandit.json")
-        if not isinstance(bandit, dict) or not isinstance(bandit.get("results"), list):
+        if (not isinstance(bandit, dict) or not isinstance(bandit.get("results"), list)
+                or any(not isinstance(item, dict) for item in bandit['results'])):
             raise ValueError("bandit.json: expected a results list")
+        if bandit.get('errors'):
+            raise ValueError('bandit.json: selected files could not be analyzed')
         summary.append(f"bandit.json: {len(bandit['results'])} results")
 
     sbom = _load(reports / "syft-sbom.json")
-    if not isinstance(sbom, dict) or not str(sbom.get("spdxVersion", "")).startswith("SPDX-"):
+    if (not isinstance(sbom, dict) or not str(sbom.get("spdxVersion", "")).startswith("SPDX-")
+            or not isinstance(sbom.get('packages'), list)):
         raise ValueError("syft-sbom.json: expected an SPDX document")
     summary.append("syft-sbom.json: valid SPDX")
 

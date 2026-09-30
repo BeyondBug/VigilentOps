@@ -20,6 +20,39 @@ class ReportParserTests(unittest.TestCase):
     def test_valid_zero_finding_sarif_is_accepted(self):
         validate_report_shape({"version": "2.1.0", "runs": [{"results": []}]}, "osv")
 
+    def test_empty_runs_and_failed_invocation_are_rejected(self):
+        for runs in ([], [{"results": [], "invocations": [{"executionSuccessful": False}]}]):
+            with self.assertRaises(ValueError):
+                validate_report_shape({"version": "2.1.0", "runs": runs}, "osv")
+
+    def test_trivy_critical_package_and_image_metadata_are_preserved(self):
+        report = {"runs": [{"properties": {"imageName": "lab/image:123"},
+            "tool": {"driver": {"rules": [{"id": "CVE-2026-12345",
+                "name": "OsPackageVulnerability", "shortDescription": {"text": "Affected library"},
+                "properties": {"security-severity": "9.8"}}]}},
+            "results": [{"ruleId": "CVE-2026-12345", "level": "error",
+                "message": {"text": "Package: example\nInstalled Version: 1.0\nFixed Version: 1.1\nSeverity: CRITICAL"}}]}]}
+        finding = parse_sarif(report, "trivy-image")[0]
+        self.assertEqual(finding['severity'], 'CRITICAL')
+        self.assertEqual(finding['cvss_score'], 9.8)
+        self.assertEqual(finding['package'], 'example')
+        self.assertEqual(finding['installed_version'], '1.0')
+        self.assertEqual(finding['fixed_version'], '1.1')
+        self.assertEqual(finding['image'], 'lab/image:123')
+
+    def test_grype_advisory_suffix_is_not_a_cve_identifier(self):
+        report = {'runs': [{'tool': {'driver': {'rules': [{
+            'id': 'CVE-2026-12345-example', 'help': {'text': 'Package: example\nVersion: 1.0\nFix Version: 1.1\nSeverity: high'},
+        }]}}, 'results': [{'ruleId': 'CVE-2026-12345-example'}]}]}
+        finding = parse_sarif(report, 'grype')[0]
+        self.assertEqual(finding['cve_id'], 'CVE-2026-12345')
+        self.assertEqual(finding['installed_version'], '1.0')
+
+    def test_trivy_secrets_receive_secret_class_for_comment_redaction(self):
+        report = {'runs': [{'tool': {'driver': {'rules': [{'id': 'test-secret', 'name': 'Secret'}]}},
+                            'results': [{'ruleId': 'test-secret', 'level': 'error'}]}]}
+        self.assertEqual(parse_sarif(report, 'trivy-deps')[0]['finding_class'], 'secret')
+
     def test_sarif_preserves_cve_and_location(self):
         report = {"runs": [{
             "tool": {"driver": {"rules": [{"id": "CVE-2026-12345", "name": "Unsafe package"}]}},
