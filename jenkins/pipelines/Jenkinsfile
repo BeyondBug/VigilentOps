@@ -515,5 +515,12 @@ pipeline {
                 }
             }
         }
+        aborted {
+            script {
+                if (env.SCAN_RUN_ID?.trim()) {
+                    sh "set +x\ncurl -sf -X PATCH ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID} -H 'X-API-Key: ${SG_API_KEY}' -H 'Content-Type: application/json' -d '{\"status\":\"failed\"}' || true"
+                }
+            }
+        }
     }
 }
