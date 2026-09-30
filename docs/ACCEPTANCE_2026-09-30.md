@@ -35,8 +35,19 @@ and scanner logs remain off Git.
   config provided `8.8.8.8` and `1.1.1.1` to scanner containers. A disposable
   Dependency-Check container successfully resolved CISA through `10.20.16.1`.
   The configured NVD key also returned HTTP 200 on a one-record keyed request.
-  An optional per-container `SCANNER_DNS` setting is prepared for the next
-  scan; its full-run effectiveness remains unverified.
+  The optional per-container `SCANNER_DNS` setting was then applied. Its
+  full-run effectiveness remains unverified.
+- Jenkins #318 / scan #244 used Docker's previous resolver and was stopped
+  after repeated slow NVD API retries; both ended `failed`. Jenkins was
+  recreated with `SCANNER_DNS=10.20.16.1`. Build #319 used that resolver and
+  reached 10,000 of 399,518 NVD records after about five minutes. Its full
+  report contract was still unverified at this point.
+- The official Dependency-Check mirror's modified feed returned HTTP 200 and
+  transferred 3,173,579 bytes in about one second from Kali. Its 2026 feed
+  returned HTTP 200 on a HEAD request with a 29,238,925-byte length and a
+  29 September 2026 Last-Modified header. An optional datafeed URL is being
+  prepared to avoid repeated first-load REST API failures; verify the mirror
+  is fresh enough before release.
 - The NVD and CISA endpoints responded during this run, but prior transfers
   stalled. Continue monitoring the full download before drawing a network
   reliability conclusion.

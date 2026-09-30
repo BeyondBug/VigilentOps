@@ -335,6 +335,13 @@ pipeline {
                             else
                                 set --
                             fi
+                            if [ -n "\${NVD_DATAFEED_URL:-}" ]; then
+                                case "\$NVD_DATAFEED_URL" in
+                                    https://*|http://*) ;;
+                                    *) echo "ERROR: NVD_DATAFEED_URL must be an HTTP(S) URL"; exit 1 ;;
+                                esac
+                                set -- "\$@" --nvdDatafeed "\$NVD_DATAFEED_URL"
+                            fi
                             DOCKER_DNS_ARGS=""
                             if [ -n "\${SCANNER_DNS:-}" ]; then
                                 case "\$SCANNER_DNS" in

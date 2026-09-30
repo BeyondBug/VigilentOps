@@ -167,6 +167,15 @@ it empty when Docker's default resolver works. On the Kali lab host on
 configured with public resolvers; Jenkins #317 failed with DNS lookup errors.
 Verify the chosen resolver inside a disposable scanner container before using
 it for the next full scan.
+When the NVD REST API repeatedly fails during the first cache fill, an
+ODC-compatible datafeed can be set through `NVD_DATAFEED_URL` in the private
+server `.env`, followed by a Jenkins recreate. For example, Dependency-Check
+documents its own best-effort daily mirror as
+`https://dependency-check.github.io/DependencyCheck_Builder/nvd_cache/nvdcve-{0}.json.gz`.
+The feed downloader uses more bandwidth than the API, and the mirror can lag
+when its upstream NVD update fails. Check feed freshness and the completed
+SARIF report before accepting a scan. See the
+[official mirror documentation](https://dependency-check.github.io/DependencyCheck/data/mirrornvd.html).
 Grype now keeps its vulnerability database in the persistent `grype-cache`
 volume and bounds its update waits. The first cache fill still needs access
 to Anchore's database service.
