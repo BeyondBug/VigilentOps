@@ -131,3 +131,51 @@ against the exact release commit. See [the checklist](../CHECKLIST.md).
   API volume: configured authentication and the SCA endpoint both returned
   HTTP 200, and Promtail still read the growing alert file. The unsupported
   Falco kernel driver remains a separate runtime-sensor limitation.
+
+## HTTPS gateway acceptance
+
+The gateway implementation at `f76980f` and Jenkins route protection at
+`49ee067` were deployed from GitHub through the Kali checkout to Gitea.
+All builds and runtime checks were performed on Kali.
+
+| Check | Evidence | Result |
+| --- | --- | --- |
+| Published application ports | Docker inspection found only `sg-gateway`, `3000/tcp` mapped to host 3000 | Pass |
+| Removed service listeners | TCP connections to 2222, 3001, 3002, 3100, 8000, 8001, 8081, 8082, 9090, 9091, 9121, 9187, 9376, 1515, 50000 and 55000 failed | Pass; host SSH is separate |
+| TLS | HTTPS requests verified against the generated private lab CA, including the public server IP and localhost | Pass |
+| Password boundary | Anonymous dashboard, Prometheus and Jenkins management requests returned 401; the public Jenkins trigger endpoint returned 404 | Pass |
+| Findings UI and APIs | Authenticated dashboard HTML, its `/dashboard/static/` JavaScript asset, scan summary and CVE feed returned 200 | Pass |
+| API write guard | A gateway-authenticated scan creation without `X-API-Key` returned 401 | Pass |
+| Native services | Gitea login/root, authenticated Jenkins login/job API and Grafana login/health returned 200 | Pass |
+| Grafana panels | `/grafana/api/ds/query` returned HTTP 200 with 32 query results, all with data frames and no errors; CVE, Wazuh SCA and log panels included data | Pass |
+| Grafana Live | Authenticated WebSocket upgrade through the gateway returned HTTP 101 | Pass |
+| Prometheus | All eight scrape targets were up, including Jenkins at `/jenkins/prometheus` | Pass |
+| Metrics history | Prometheus retained its previous anonymous volume `314ee5e02045e8f6eb2dade8b3e7bc7aa46d8dbe94dbaa94cd522edf24d73246` | Pass |
+| Server tools and Git | HTTPS `git ls-remote`, coverage audit and scan #263 triage export succeeded; the export contained 3,743 records | Pass |
+| Gitea hooks | All 13 active push hooks use the prefixed internal Jenkins endpoint. A Gitea test delivery returned 204 and started Jenkins #340 | Pass |
+| Pipeline after migration | Jenkins #340 finished SUCCESS; scan #264 completed at `f76980f810e5ec2d297641cc4787ddba369d46eb` | Pass |
+| Real HTTPS Git push | Pushing `49ee067` from Kali to Gitea over HTTPS triggered Jenkins #341, which completed SUCCESS | Pass |
+| Old HTTP bookmark | Plain HTTP on port 3000 returned 308 to HTTPS on the same port | Pass |
+| Regression checks | Compose validation, Nginx syntax, the dashboard build and all 29 Python tests ran on Kali | Pass |
+
+The private pre-proxy backup at
+`~/secureguard-backups/pre-proxy-20260930-145430` contains the database dump,
+previous host configuration, Gitea configuration and webhook definitions,
+Jenkins job/location configuration, Wazuh API state and container metadata.
+Its checksums passed and the PostgreSQL dump was readable. The new gateway
+private keys, credentials and configuration were also archived separately at
+`~/secureguard-backups/gateway-20260930`. Neither backup was committed to Git.
+These backup integrity checks do not establish a complete restore drill.
+
+Inspection found Jenkins's stored realm/authorization strategy were
+`None`/`Unsecured`. The gateway now authenticates every public Jenkins route
+and strips that credential before forwarding it. Gitea invokes Jenkins on
+the internal Docker network; its public trigger route is blocked. Native
+Jenkins user accounts and permissions remain a production gate.
+
+Only application port 3000 is published by this Compose project. Host SSH,
+unrelated host services, and firewall policy are managed separately. Gitea
+SSH and external Wazuh agent transports are no longer published. Their
+replacement/access requirements are described in [Gateway setup](GATEWAY.md).
+The existing Falco limitation and five failed target repository scans remain
+listed in the checklist.

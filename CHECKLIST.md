@@ -4,6 +4,20 @@ Status snapshot: 30 September 2026. This is a self-hosted **lab reference implem
 
 ## End-of-day handoff and next actions
 
+- **30 September gateway update:** the application stack now publishes only
+  HTTPS port **3000**. Gitea is at `/`, findings at `/dashboard/`, Jenkins at
+  `/jenkins/`, Grafana at `/grafana/`, and Prometheus at `/prometheus/`.
+  Dashboard, Jenkins and Prometheus require the generated gateway login;
+  Grafana and Gitea retain their own accounts. Host SSH remains separate.
+  Kali verified closed old ports, all 32 Grafana query results, the Live
+  WebSocket, eight healthy targets, HTTPS Git access and authenticated audit
+  and triage exports. Jenkins #340 / scan #264 completed on `f76980f` through
+  the updated webhook; a real HTTPS Git push of the Jenkins authentication
+  fix `49ee067` also triggered successful Jenkins #341.
+  See [Gateway setup](docs/GATEWAY.md) for the CA, credentials and recovery.
+  The pre-change backup is `~/secureguard-backups/pre-proxy-20260930-145430`;
+  new gateway keys/configuration are privately backed up under
+  `~/secureguard-backups/gateway-20260930` on Kali.
 - **30 September monitoring update:** GitHub, Gitea, and Kali reached
   `a849b8e` before this documentation update. The private pre-change backup is
   `~/secureguard-backups/pre-grafana-20260930-115649` on Kali. It contains a
@@ -38,6 +52,9 @@ Status snapshot: 30 September 2026. This is a self-hosted **lab reference implem
 
 ## Working and verified
 
+- [x] Consolidate Compose port bindings behind the HTTPS gateway on 3000;
+  anonymous dashboard/Jenkins/Prometheus requests return 401, the public
+  Jenkins webhook returns 404, and internal Gitea delivery still works.
 - [x] Gitea push to `VigilentOps/main` triggers the shared Jenkins job.
 - [x] Shared Jenkins pipeline loads from `VigilentOps/main` and mounts the central Semgrep rules for target scans. Jenkins #308 confirmed the rules were used.
 - [x] Jenkins #308 completed and uploaded reports to orchestrator scan #235.
@@ -116,6 +133,10 @@ Status snapshot: 30 September 2026. This is a self-hosted **lab reference implem
 - [x] Disable webhook payload and contributed-variable printing in the shared Jenkinsfile.
 - [ ] Replace the hardcoded Jenkins webhook token with a private credential, update all Gitea hooks, and verify that Jenkins accepts only trusted Gitea repository URLs before production exposure.
 - [ ] Restrict published management ports to trusted networks; require appropriate authentication for dashboards, APIs, and management interfaces. Review Docker socket access and service privileges.
+- [ ] Configure Jenkins's own user accounts and role permissions before
+  multi-user or production exposure. Its stored security realm/strategy were
+  `None`/`Unsecured`; the new gateway now requires authentication for every
+  public Jenkins route. Review the trusted Docker network separately.
 - [ ] Back up and test restore of PostgreSQL and persistent Gitea/Jenkins/Grafana volumes. Document recovery steps and retention.
 - [ ] Pin and maintain scanner/container versions, define update cadence, and establish a monitored vulnerability exception process.
 - [ ] Define ownership, alert routing, and response procedures for failed scans, unavailable services, new high findings, and AI PR review.

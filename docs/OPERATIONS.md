@@ -7,6 +7,10 @@ those outcomes in [the server acceptance record](SERVER_ACCEPTANCE.md).
 ## Backup before deployment
 
 Keep backups outside the Git checkout and limit access to the server operator.
+Include the private `.env` and `secrets/gateway/` TLS/login files in an encrypted
+or access-restricted configuration backup. Only distribute the public
+`ca.pem`; never publish the CA/server private keys or password file. See
+[gateway recovery](GATEWAY.md) before changing public service URLs or ports.
 Record the Compose project name and actual volume names first:
 
 ```bash
