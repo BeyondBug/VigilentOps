@@ -236,3 +236,8 @@ fixture were added. None was run on the laptop. Live model entitlement/quota,
 fixture compatibility and one real PR-head remediation remain required.
 See [Model pool](MODEL_POOL.md). This does not extend automatic remediation
 beyond eligible Python SAST or establish project completion.
+
+A subsequent offline review tightened Python interface checks (argument
+optionality, decorators, class bases, annotations and conditional definitions)
+and replaced lossy decoding with strict UTF-8 handling. Prepared regressions
+have not run; runtime acceptance remains pending on Kali.

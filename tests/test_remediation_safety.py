@@ -63,6 +63,27 @@ class RemediationSafetyTests(unittest.TestCase):
         self.assertFalse(preserves_python_interface(original, original.replace('fetch(url', 'fetch(target')))
         self.assertFalse(preserves_python_interface(original, 'pass\n'))
 
+    def test_candidate_preserves_optionality_method_binding_types_and_class_contract(self):
+        original = ('class Client(Base):\n'
+                    '    @staticmethod\n'
+                    '    def fetch(url: str, timeout=10, *, verify=True) -> str:\n'
+                    '        return url\n')
+        for replacement in (original.replace('timeout=10', 'timeout'),
+                            original.replace('verify=True', 'verify'),
+                            original.replace('    @staticmethod\n', ''),
+                            original.replace('Client(Base)', 'Client'),
+                            original.replace('url: str', 'url: int'),
+                            original.replace('-> str', '-> int')):
+            self.assertFalse(preserves_python_interface(original, replacement))
+        self.assertTrue(preserves_python_interface(original, original.replace('timeout=10', 'timeout=20')))
+
+    def test_conditional_public_definitions_are_preserved_without_freezing_local_helpers(self):
+        original = 'if enabled:\n    def fetch(url, timeout=10):\n        return url\n'
+        self.assertFalse(preserves_python_interface(original, original.replace('timeout=10', 'timeout')))
+        original = 'def fetch(url):\n    def helper():\n        return url\n    return helper()\n'
+        proposed = 'def fetch(url):\n    return str(url)\n'
+        self.assertTrue(preserves_python_interface(original, proposed))
+
     def test_pr_uses_scanned_base_branch(self):
         with patch.object(fix_engine.httpx, "post") as request:
             request.return_value.status_code = 201
@@ -118,6 +139,19 @@ class RemediationSafetyTests(unittest.TestCase):
         self.assertEqual(result["status"], "skipped")
         findings.assert_not_called()
         clone.assert_not_called()
+
+    def test_non_utf8_source_is_not_lossily_rewritten_or_sent_to_a_model(self):
+        repo = tempfile.mkdtemp()
+        Path(repo, 'app.py').write_bytes(b'# coding: latin-1\nvalue = "\xff"\n')
+        with patch.object(fix_engine, 'MODELS', [{'model': 'fixture', 'key': 'test', 'url': 'http://unused'}]), \
+             patch.object(fix_engine, 'get_all_findings', return_value=[{'id': 1, 'file_path': 'app.py', 'branch': 'main'}]), \
+             patch.object(fix_engine, 'clone_repo', return_value=repo), \
+             patch.object(fix_engine, 'try_with_fallback') as model, \
+             patch.object(fix_engine, 'commit_and_push') as push:
+            result = fix_engine.run_ai_fix_engine(1, 'http://sg-gitea:3000/owner/repo.git', 'sha')
+        self.assertEqual(result['status'], 'no_proposal')
+        model.assert_not_called()
+        push.assert_not_called()
 
     def test_aliases_of_one_file_produce_one_change(self):
         repo = tempfile.mkdtemp()

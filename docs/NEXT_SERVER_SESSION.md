@@ -226,3 +226,8 @@ responses. Then create and review one real proposal, scan its exact head and
 exercise affected clients before recording an accepted fix. Synthetic fixture
 success alone does not meet that gate. Keep cooldown state at one worker;
 provider-wide quota handling across workers remains future work.
+
+Include interface regression cases for removed defaults, changed decorators,
+class bases/annotations and conditional definitions. Verify non-UTF-8 files
+are skipped with a diagnostic and unchanged finding status, not lossily
+rewritten. Legitimate fixes needing interface changes require manual review.

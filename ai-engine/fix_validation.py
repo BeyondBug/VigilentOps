@@ -80,20 +80,38 @@ def validates_security_change(original: str, proposed: str, findings: list[dict]
 def preserves_python_interface(original: str, proposed: str) -> bool:
     def signatures(content):
         found = {}
+        def structure(node):
+            return ast.dump(node, include_attributes=False) if node is not None else None
         def collect(nodes, prefix=""):
             for node in nodes:
                 if isinstance(node, ast.ClassDef):
-                    found[prefix + node.name] = ("class",)
+                    found.setdefault(prefix + node.name, []).append((
+                        "class", tuple(structure(base) for base in node.bases),
+                        tuple(structure(keyword) for keyword in node.keywords),
+                        tuple(structure(decorator) for decorator in node.decorator_list),
+                    ))
                     collect(node.body, prefix + node.name + ".")
                 elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     arguments = node.args
-                    found[prefix + node.name] = (
+                    found.setdefault(prefix + node.name, []).append((
                         type(node).__name__, tuple(arg.arg for arg in arguments.posonlyargs),
                         tuple(arg.arg for arg in arguments.args),
                         tuple(arg.arg for arg in arguments.kwonlyargs),
                         arguments.vararg.arg if arguments.vararg else None,
                         arguments.kwarg.arg if arguments.kwarg else None,
-                    )
+                        # Default values may need a security fix; optionality must remain.
+                        len(arguments.defaults), tuple(value is not None for value in arguments.kw_defaults),
+                        tuple(structure(arg.annotation) for arg in
+                              [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]),
+                        structure(arguments.vararg.annotation) if arguments.vararg else None,
+                        structure(arguments.kwarg.annotation) if arguments.kwarg else None,
+                        structure(node.returns),
+                        tuple(structure(decorator) for decorator in node.decorator_list),
+                    ))
+                else:
+                    # Public definitions may be inside module/class conditionals.
+                    # Function bodies are deliberately excluded above.
+                    collect(list(ast.iter_child_nodes(node)), prefix)
         collect(ast.parse(content).body)
         return found
     try:

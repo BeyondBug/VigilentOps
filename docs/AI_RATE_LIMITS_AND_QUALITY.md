@@ -94,3 +94,13 @@ filtered, refusal or tool-call responses. Cooldowns are process-local and
 reset on restart; keep the single-worker lab default. Configuration, limitations
 and the Kali-only synthetic compatibility check are in [Model pool](MODEL_POOL.md).
 These changes are prepared, not verified against live NVIDIA models.
+
+## Interface and source integrity follow-up
+
+The interface gate also retains optional/required argument shape, decorators,
+class bases, annotations and public definitions inside module/class conditions.
+Function-local helpers may change. Default values may change while optionality
+is preserved, because a security fix can require a different default; reviewers
+must still assess the behavior change. Non-UTF-8 source is skipped instead of
+silently dropping undecodable bytes. Those findings stay open for manual work.
+These follow-up checks were prepared without running tests on the laptop.

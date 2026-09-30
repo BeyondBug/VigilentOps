@@ -257,7 +257,7 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
             MODEL_COOLDOWNS.clear(m_conf)
         if content and content.strip() != file_content.strip() and parses_ok(file_path, content) and len(content.splitlines()) >= len(file_content.splitlines()) * 0.7:
             if file_path.endswith('.py') and not preserves_python_interface(file_content, content):
-                validation_feedback = "\nPREVIOUS CANDIDATE REJECTED: preserve existing classes, functions, method names and argument names.\n"
+                validation_feedback = "\nPREVIOUS CANDIDATE REJECTED: preserve existing classes, bases, decorators, function/method names, argument names, optional parameters and type annotations.\n"
                 log.warning("Model %s changed an existing Python interface", m)
                 continue
             valid, reason = validates_security_change(file_content, content, findings)
@@ -575,7 +575,11 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
             log.info("Processing %s — %s findings", file_path, len(findings))
             fpath = Path(tmpdir) / file_path
 
-            file_content = fpath.read_text(errors="ignore")
+            try:
+                file_content = fpath.read_text(encoding='utf-8')
+            except UnicodeDecodeError:
+                log.warning('Skipping %s: source is not valid UTF-8; findings remain open', file_path)
+                continue
             if not file_content.strip():
                 continue
             if len(file_content) > MAX_FILE_CHARS:

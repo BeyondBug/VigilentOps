@@ -77,6 +77,9 @@ Kali. Follow [Next server session](docs/NEXT_SERVER_SESSION.md).
 - [x] Add Python interface preservation and a Bandit before/after gate that
   ignores suppression comments and rejects remaining target rules or increased
   medium/high findings. Rejection feeds the next configured model.
+- [x] Tighten Python interface checks to retain parameter optionality,
+  decorators, class bases and annotations, including conditional definitions;
+  skip non-UTF-8 source without lossy rewriting. Server checks remain pending.
 - [x] Use the scanned base branch, restrict repository origins and keep Git
   tokens in temporary askpass/environment rather than command arguments.
 - [x] Keep findings open if whole-scan conversation publication is incomplete;
