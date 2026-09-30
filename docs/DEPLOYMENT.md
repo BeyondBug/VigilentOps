@@ -225,7 +225,7 @@ token out of Git and Jenkins console logs.
 
 The shared pipeline validates required scanner reports with
 `scripts/validate_scan_reports.py` before uploading them. Semgrep, Gitleaks,
-Trivy dependency, Grype, OSV, Dependency-Check, and Syft reports are always
+Trivy dependency, Grype, OSV, Dependency-Check, Syft, Hadolint and ShellCheck reports are always
 required; Bandit is required for Python targets. The target image build and
 its Dockle/Trivy scans run in one stage so the scans cannot start before the
 image exists. If the target image builds, both image SARIF reports are required.
@@ -233,6 +233,12 @@ Dockle container-configuration results are parsed as `iac` findings and appear
 in the dashboard and any AI PR finding conversation for that scan.
 Generic image building may fail for repositories that need custom build
 arguments; in that case the image scans are skipped and the console warns.
+
+Rebuild Jenkins before activating the new lint stage: its image now includes
+Python 3 for the SARIF adapter. Deploy the API and shared Jenkinsfile together
+while queues are idle; the expanded required-report contract rejects older
+report sets for new scans. See [Scanner coverage](SCANNERS.md) and
+[Next server session](NEXT_SERVER_SESSION.md).
 
 ## Security notes
 

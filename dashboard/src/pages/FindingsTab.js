@@ -12,7 +12,7 @@ export default function FindingsTab({ scans }) {
   );
 
   const tools = ["ALL", ...new Set(allFindings.map(f => f.tool || "unknown"))];
-  const sevs  = ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"];
+  const sevs  = ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"];
 
   const filtered = allFindings.filter(f => {
     const sev  = (f.severity || "").toUpperCase();

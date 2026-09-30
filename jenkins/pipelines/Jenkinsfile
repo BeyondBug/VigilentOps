@@ -99,6 +99,7 @@ pipeline {
                     env.HOST_REPORTS = "${JENKINS_HOME_HOST}/${wsRelative}/reports"
                     env.HOST_RULES   = "${JENKINS_HOME_HOST}/${wsRelative}/scanners/semgrep-rules"
                     env.HOST_VALIDATOR = "${JENKINS_HOME_HOST}/${wsRelative}/scripts/validate_scan_reports.py"
+                    env.HOST_LINT_POLICY = "${JENKINS_HOME_HOST}/${wsRelative}/scanners/static-analysis/hadolint.yaml"
                     env.DEPCHECK_FIXTURE_EXCLUDE = ''
                     if (env.TARGET_REPO == 'http://sg-gitea:3000/BeyondBug/sietlms-moodle-.git') {
                         // Deliberately malformed/encrypted archive test data,
@@ -124,6 +125,8 @@ pipeline {
                 }
 
                 dir('target') {
+                    // A restarted/aborted job can leave files from another repo.
+                    deleteDir()
                     git(url: env.TARGET_REPO, branch: "${TARGET_BRANCH}",
                         credentialsId: 'gitea-cred')
                 }
@@ -138,7 +141,7 @@ pipeline {
                     env.COMMIT_SHA = checkedOutCommit
                     env.HAS_PYTHON = sh(script: "find ${SOURCE_DIR} -name '*.py' -print -quit",
                                         returnStdout: true).trim() ? "true" : "false"
-                    def requiredReports = ['semgrep', 'gitleaks', 'trivy-deps', 'grype', 'osv', 'dep-check', 'syft-sbom']
+                    def requiredReports = ['semgrep', 'gitleaks', 'trivy-deps', 'grype', 'osv', 'dep-check', 'syft-sbom', 'hadolint', 'shellcheck']
                     if (env.HAS_PYTHON == 'true') requiredReports.add('bandit')
                     if (env.SNYK_TOKEN?.trim()) requiredReports.add('snyk')
                     env.REQUIRED_REPORTS = groovy.json.JsonOutput.toJson(requiredReports)
@@ -167,10 +170,19 @@ pipeline {
                                         returnStdout: true).trim() ? "true" : "false"
                     echo "Python:${env.HAS_PYTHON} | Requirements:${env.HAS_REQS}"
 
-                    // Verify host path is accessible by Docker
-                    def hostCheck = sh(script: "docker run --rm -v ${env.HOST_SOURCE}:/check alpine ls /check | wc -l",
-                                       returnStdout: true).trim()
-                    echo "Files visible to Docker via host path: ${hostCheck}"
+                    // Bind mounts must contain the same checkout, not an
+                    // empty directory silently created by Docker's -v option.
+                    def hostCommit = sh(script: '''set -eu
+                        IMAGE_ID=$(docker inspect --format '{{.Image}}' sg-jenkins)
+                        docker run --rm --network none --read-only --user 0 \\
+                          --mount "type=bind,source=$HOST_SOURCE,target=/check,readonly" \\
+                          --entrypoint git "$IMAGE_ID" -c safe.directory=/check -C /check rev-parse HEAD
+                    ''', returnStdout: true).trim()
+                    if (!hostCommit.equalsIgnoreCase(checkedOutCommit)) {
+                        error('Docker scanner mount does not match the checked out target commit')
+                    }
+                    echo "Docker mount verified at ${hostCommit.take(12)}"
+
                 }
             }
         }
@@ -192,6 +204,17 @@ pipeline {
 
         stage('Security Scan') {
             parallel {
+
+                stage('Dockerfile and Shell Lint') {
+                    options { timeout(time: 20, unit: 'MINUTES') }
+                    steps {
+                        sh '''set -eu
+                            python3 scripts/run_static_scans.py --source "$SOURCE_DIR" \\
+                              --host-source "$HOST_SOURCE" --host-policy "$HOST_LINT_POLICY" \\
+                              --reports "$REPORTS_DIR"
+                        '''
+                    }
+                }
 
                 stage('Semgrep SAST') {
                     steps {
@@ -604,6 +627,8 @@ pipeline {
             sh "ls -lh ${REPORTS_DIR}/ 2>/dev/null || true"
             sh '''set +x
                 rm -f "$REPORTS_DIR/.nvd.properties"
+                docker ps -aq --filter "label=secureguard.static-scan=true" \\
+                  --filter "label=secureguard.build=$BUILD_TAG" | xargs -r docker rm -f
             '''
             sh "docker rmi sg-target-scan:${BUILD_NUMBER} 2>/dev/null || true"
             cleanWs()

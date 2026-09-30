@@ -47,6 +47,8 @@ python3 scripts/prepare_jenkins_security.py
 docker compose --profile ci --profile monitoring config -q
 docker compose build --pull jenkins
 docker compose build dashboard migrate orchestrator celery-worker cve-intel wazuh-proxy
+docker pull hadolint/hadolint:v2.15.1-debian
+docker pull koalaman/shellcheck:v0.11.0
 ```
 
 Prepare the private files **before** recreating Jenkins or Prometheus. Do not
@@ -122,7 +124,12 @@ Prior failures: Moondream (Trivy image timeout after Java DB download),
 Netflix-Hystrix/Netflix-zuul/browser-use (OSV found no supported packages),
 and sietlms-moodle- (malformed/encrypted archive test fixtures). Code fixes
 are prepared; fresh successful scans are still required. OSV not applicable
-is explicit coverage information, not a clean dependency scan.
+is explicit coverage information, not a clean dependency scan. The new
+Hadolint/ShellCheck stage must produce required reports for every new scan,
+with explicit not-applicable receipts when files are absent. Verify real rule
+IDs, paths, severity and quality classification as described in
+[Testing](TESTING.md). Jenkins needs its rebuilt Python-enabled image.
+Old scan receipts do not establish coverage by the new tools.
 
 ```bash
 python3 scripts/audit_scan_coverage.py --pipeline-commit "$(git rev-parse HEAD)" \

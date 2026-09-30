@@ -91,3 +91,15 @@ ordinary hooks still accept only main/develop/master. The legacy alternate
 Groovy pipeline fails with a migration instruction. Prepared native Jenkins
 security uses private bootstrap settings and separate admin/metrics permissions;
 see [Next server session](NEXT_SERVER_SESSION.md) for deployment order.
+
+## Dockerfile and shell lint
+
+The shared pipeline discovers applicable files in its clean target checkout,
+then runs Hadolint and ShellCheck in isolated, read-only, network-disabled
+containers. The adapter converts their native JSON into SARIF and records the
+selected file count and scanner image. Both are required reports, even when
+file discovery returns zero. The API stores them as `quality` findings;
+whole-scan PR conversations include them, while automated remediation remains
+limited to eligible Python SAST findings. See [Scanner coverage](SCANNERS.md).
+Before scanners run, a read-only Docker bind probe verifies that the host
+mount's Git commit matches the Jenkins checkout. A mismatch fails the build.

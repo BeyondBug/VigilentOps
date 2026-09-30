@@ -32,7 +32,7 @@ export default function Overview({ scans }) {
   const PIE_COLORS = [T.accent, "#7c4dff", "#ff6d00", T.green, "#ff4081"];
 
   // Severity breakdown bar
-  const sevMap = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+  const sevMap = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0, UNKNOWN: 0 };
   scans.forEach(r => {
     (r.findings || []).forEach(f => {
       const s = (f.severity || "").toUpperCase();
@@ -50,8 +50,8 @@ export default function Overview({ scans }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
         <StatCard label="TOTAL SCANS"     value={totalScans}    icon="⬡" color={T.accent} sub="all time" />
         <StatCard label="TOTAL FINDINGS"  value={totalFindings} icon="⚠" color={T.text}  sub="across all scans" />
-        <StatCard label="CRITICAL"        value={totalCritical} icon="🔴" color={SEV_COLOR.CRITICAL} sub="CVSS ≥ 9.0" />
-        <StatCard label="HIGH"            value={totalHigh}     icon="🟠" color={SEV_COLOR.HIGH}     sub="CVSS 7.0–8.9" />
+        <StatCard label="CRITICAL"        value={totalCritical} icon="🔴" color={SEV_COLOR.CRITICAL} sub="scanner severity" />
+        <StatCard label="HIGH"            value={totalHigh}     icon="🟠" color={SEV_COLOR.HIGH}     sub="scanner severity" />
         <StatCard label="FINDINGS WITH PR" value={proposedFindings} icon="🤖" color={T.green} sub="review required" />
       </div>
 

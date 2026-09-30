@@ -34,6 +34,19 @@ class ReportContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "trivy-deps.sarif"):
             validate_reports(self.reports)
 
+    def test_lint_not_applicable_requires_zero_selected_files_and_successful_adapter(self):
+        path = self.reports / 'shellcheck.sarif'
+        body = {'version': '2.1.0', 'runs': [{'results': [],
+            'properties': {'coverage': 'not_applicable', 'scanned_file_count': 2},
+            'invocations': [{'executionSuccessful': True, 'exitCode': 0}]}]}
+        path.write_text(json.dumps(body))
+        with self.assertRaisesRegex(ValueError, 'not-applicable'):
+            validate_reports(self.reports)
+        body['runs'][0]['properties']['scanned_file_count'] = 0
+        path.write_text(json.dumps(body))
+        self.assertIn('shellcheck.sarif: NOT APPLICABLE (no applicable source files)',
+                      validate_reports(self.reports))
+
     def test_invalid_sarif_fails(self):
         (self.reports / "grype.sarif").write_text('{"runs": []}')
         with self.assertRaisesRegex(ValueError, "SARIF version"):

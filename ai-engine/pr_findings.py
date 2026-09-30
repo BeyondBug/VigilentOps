@@ -38,10 +38,12 @@ def _finding_entry(finding: dict, proposed_ids: set[int]) -> str:
     if (
         finding_class == "secret"
         or rule_id in {"B105", "B106", "B107"}
+        or (finding_class == 'quality' and
+            (rule_id == 'DL1000' or (rule_id.startswith('SC1') and len(rule_id) == 6)))
         or any(term in title.lower() for term in ("hardcoded password", "hard-coded password",
                                                    "hardcoded secret", "credential", "api key"))
     ):
-        description = "Redacted: this finding may contain a credential. Review the restricted scanner report."
+        description = "Redacted: this finding may contain a credential or source parser diagnostic. Review the restricted scanner report."
     description_lines = _text(description).splitlines() or ["—"]
     description_block = "\n".join(f"> {line}" for line in description_lines)
     proposal = "Proposed file change" if finding_id in proposed_ids else "No proposed change"
@@ -101,7 +103,7 @@ def build_finding_comments(
     if reports:
         summary += '\n**Accepted scanner report coverage**\n\n'
         for report in reports:
-            status = 'NOT APPLICABLE; supported package sources absent' if report.get('coverage') == 'not_applicable' else 'analyzed'
+            status = ('NOT APPLICABLE; ' + ('supported package sources absent' if report.get('tool') == 'osv' else 'applicable source files absent')) if report.get('coverage') == 'not_applicable' else 'analyzed'
             summary += f"- {_one_line(report.get('tool'))}: {report.get('finding_count', 0)} records; {status}.\n"
         summary += '\nA zero-result report or unsupported ecosystem is not proof of a vulnerability-free repository.\n'
 

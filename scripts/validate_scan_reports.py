@@ -17,6 +17,8 @@ REQUIRED_SARIF = (
     "grype.sarif",
     "osv.sarif",
     "dep-check.sarif",
+    "hadolint.sarif",
+    "shellcheck.sarif",
 )
 OPTIONAL_SARIF = ("checkov.sarif", "snyk.sarif", "trivy-image.sarif", "dockle.sarif")
 
@@ -49,6 +51,17 @@ def _sarif(path: Path) -> int:
         for invocation in invocations:
             if not isinstance(invocation, dict) or invocation.get("executionSuccessful") is False:
                 raise ValueError(f"{path.name}: scanner invocation failed")
+        properties = run.get('properties', {})
+        if not isinstance(properties, dict):
+            raise ValueError(f'{path.name}: run properties must be an object')
+        if properties.get('coverage') == 'not_applicable':
+            tool = path.stem
+            expected_exit = 128 if tool == 'osv' else 0
+            if (tool not in {'osv', 'hadolint', 'shellcheck'} or run['results']
+                    or not any(item.get('exitCode') == expected_exit and item.get('executionSuccessful') is True
+                               for item in invocations)
+                    or (tool != 'osv' and properties.get('scanned_file_count') != 0)):
+                raise ValueError(f'{path.name}: invalid not-applicable coverage')
     return sum(len(run.get("results", [])) for run in runs)
 
 
@@ -92,11 +105,12 @@ def validate_reports(reports: Path, has_python: bool = False,
     summary = []
     for filename in required_sarif:
         count = _sarif(reports / filename)
-        if filename == "osv.sarif" and any(
+        if filename in {'osv.sarif', 'hadolint.sarif', 'shellcheck.sarif'} and any(
             run.get("properties", {}).get("coverage") == "not_applicable"
             for run in _load(reports / filename)["runs"]
         ):
-            summary.append("osv.sarif: NOT APPLICABLE (no supported package sources)")
+            reason = 'no supported package sources' if filename == 'osv.sarif' else 'no applicable source files'
+            summary.append(f"{filename}: NOT APPLICABLE ({reason})")
         else:
             summary.append(f"{filename}: {count} results")
 

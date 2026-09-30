@@ -1,0 +1,3 @@
+# Shared lab policy; target-owned configuration cannot replace it.
+ignored: []
+failure-threshold: style

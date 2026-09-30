@@ -114,6 +114,16 @@ class ApiReportContractTests(unittest.TestCase):
         self.assertEqual(reports[0]['coverage'], 'not_applicable')
         self.assertEqual(self.upload('semgrep', body).status_code, 422)
 
+    def test_lint_no_file_receipts_preserve_not_applicable_coverage(self):
+        for tool in ('hadolint', 'shellcheck'):
+            body = {'version': '2.1.0', 'runs': [{'results': [],
+                'properties': {'coverage': 'not_applicable', 'scanned_file_count': 0},
+                'invocations': [{'executionSuccessful': True, 'exitCode': 0}]}]}
+            self.assertEqual(self.upload(tool, body).status_code, 200)
+        reports = self.client.get(f'/api/scans/{self.scan}').json()['reports']
+        self.assertEqual({row['tool'] for row in reports}, {'hadolint', 'shellcheck'})
+        self.assertTrue(all(row['coverage'] == 'not_applicable' and row['finding_count'] == 0 for row in reports))
+
     def test_repeated_upload_is_idempotent_and_conflicting_content_is_rejected(self):
         body = {'results': [{'test_id': 'B602', 'test_name': 'shell', 'issue_severity': 'HIGH', 'filename': '/src/app.py'}]}
         self.assertEqual(self.upload('bandit', body).status_code, 200)

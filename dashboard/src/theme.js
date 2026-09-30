@@ -35,6 +35,8 @@ export function sevBadge(sev) {
 export const TOOL_ICON = {
   semgrep:       "⬡",
   bandit:        "🐍",
+  hadolint:      "🐋",
+  shellcheck:    "🛠️",
   gitleaks:      "🔑",
   "trivy-deps":  "📦",
   "trivy-image": "🐋",
@@ -102,4 +104,3 @@ export const globalCSS = `
 `;
 
 // ── Subcomponents ─────────────────────────────────────────────────────────────
-

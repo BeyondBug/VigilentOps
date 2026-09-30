@@ -35,6 +35,11 @@ Kali. Follow [Next server session](docs/NEXT_SERVER_SESSION.md).
   merge it unchanged.** The user chose complete conversations for future PRs
   only; leave the 50 older conversations unchanged.
 
+- Latest offline additions: versioned Hadolint/ShellCheck adapters, required
+  report receipts and whole-scan finding integration; a clean target checkout
+  and host bind commit check; dynamic scanner chart and INFO/UNKNOWN filters.
+  These are code preparations only. See [Scanner coverage](docs/SCANNERS.md).
+
 ## 1. Scanner execution and trustworthy coverage
 
 - [x] Add explicit OSV exit-128 `not_applicable` coverage; reject other execution
@@ -48,6 +53,12 @@ Kali. Follow [Next server session](docs/NEXT_SERVER_SESSION.md).
   retain critical severity and advisory IDs from native scanner formats.
 - [x] Record the shared pipeline commit; prepare an audit against each default
   branch's current head. Retire the obsolete permissive alternate pipeline.
+- [x] Prepare Hadolint and ShellCheck, explicit no-file coverage, bounded
+  isolated scanner execution, quality finding mapping and server-only checks.
+- [x] Clean target checkouts before cloning and verify the Docker host mount
+  contains the exact checked out commit before scanning.
+- [ ] Verify new lint images, SARIF mapping, no-file receipts and cancellation
+  cleanup on Kali; recheck updated Grafana chart and INFO/UNKNOWN UI filters.
 - [ ] Deploy migrations 002/003 and rebuild/restart the changed services on Kali.
 - [ ] Verify malformed/missing reports and failed uploads fail the build/API;
   optional coverage is explicit; each native report maps correctly.

@@ -175,16 +175,21 @@ class RemediationSafetyTests(unittest.TestCase):
              "severity": "LOW", "rule_id": "B105", "title": "Hardcoded password",
              "description": "Possible hardcoded password: leaked-value",
              "file_path": "settings.py", "fix_status": "open"},
+            {"id": 14, "scanner": "hadolint", "finding_class": "quality",
+             "severity": "MEDIUM", "rule_id": "DL1000", "title": "hadolint DL1000",
+             "description": "Unexpected token parser-sensitive-value",
+             "file_path": "Dockerfile", "fix_status": "open"},
         ]
         comments = build_finding_comments(7, findings, {10})
         conversation = "\n".join(comments)
-        for finding_id in (10, 11, 12, 13):
+        for finding_id in (10, 11, 12, 13, 14):
             self.assertIn(f"Finding #{finding_id}", conversation)
         self.assertIn("Proposed file change", conversation)
         self.assertIn("No proposed change", conversation)
         self.assertIn("CVE-2026-1234", conversation)
         self.assertNotIn("secret-value", conversation)
         self.assertNotIn("leaked-value", conversation)
+        self.assertNotIn("parser-sensitive-value", conversation)
         self.assertTrue(all(len(comment.encode()) < 25_000 for comment in comments))
 
     def test_large_scan_is_split_without_losing_findings(self):

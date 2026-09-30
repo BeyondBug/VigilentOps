@@ -95,7 +95,7 @@ requires a native report; every other exit code fails the OSV stage. See
 
 The `Validate Reports` stage uses `scripts/validate_scan_reports.py` and must
 list valid Semgrep, Gitleaks, Trivy dependency, Grype, OSV, Dependency-Check,
-and Syft reports. Bandit is required when the target has Python files. When
+Syft, Hadolint and ShellCheck reports. Bandit is required when the target has Python files. When
 the target Docker image builds successfully, Dockle and Trivy image SARIF reports
 are required too. Checkov and unconfigured Snyk remain optional. An invalid
 required report or non-successful report upload must fail the Jenkins build.
@@ -264,3 +264,29 @@ these API checks and restore-manifest preflight; they have not run locally.
 Database connection construction now handles special characters in environment
 passwords, and SQLAlchemy error logs hide bound finding/report parameters.
 Verify connectivity using private configuration after recreating services.
+
+## Dockerfile and shell lint acceptance
+
+Rebuild Jenkins before using this stage. On Kali, pre-pull the versioned images:
+
+```bash
+docker pull hadolint/hadolint:v2.15.1-debian
+docker pull koalaman/shellcheck:v0.11.0
+```
+
+Run the expanded suite and a fresh Jenkins scan. Verify both SARIF reports,
+HTTP 200 uploads and accepted report receipts, including a repository with
+no applicable files. It must record `not_applicable`, zero selected files and
+successful adapter execution, rather than silently omit a tool. On a private
+fixture branch, include a Dockerfile with an unversioned base and a shell
+script with an unquoted expansion; confirm rule IDs, actual paths (including
+spaces), line numbers and `quality` class in the API and PR conversation.
+Remove one required lint report and confirm completion fails; reject malformed
+native JSON, execution exit codes above 1, timeouts and inconsistent
+not-applicable claims. Verify cancellation leaves no labeled child containers.
+Lint findings do not imply a CVE or CVSS score. See [scope](SCANNERS.md).
+
+The Grafana scanner chart now uses one grouped query for all scanner labels.
+Recheck its query and rendered legend on Kali; the previous 32-query acceptance
+count does not describe this updated dashboard. Verify INFO/UNKNOWN filters
+and severity totals in the findings UI. These changes have not run locally.

@@ -321,7 +321,9 @@
                 "justifyMode": "center",
                 "orientation": "auto",
                 "reduceOptions": {
-                  "calcs": ["lastNotNull"],
+                  "calcs": [
+                    "lastNotNull"
+                  ],
                   "fields": "",
                   "values": false
                 },
@@ -1433,7 +1435,7 @@
         "spec": {
           "id": 11,
           "title": "Findings by Severity Over Time",
-          "description": "",
+          "description": "Stored finding increases by all scanner severity labels, including LOW, INFO and UNKNOWN. Lint severity does not imply a CVSS score.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -1450,49 +1452,11 @@
                         "name": "Prometheus"
                       },
                       "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{severity=\"CRITICAL\"}[30m])) or vector(0)",
-                        "legendFormat": "CRITICAL"
+                        "expr": "sum by (severity) (increase(secureguard_findings_total[30m]))",
+                        "legendFormat": "{{severity}}"
                       }
                     },
                     "refId": "A",
-                    "hidden": false
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{severity=\"HIGH\"}[30m])) or vector(0)",
-                        "legendFormat": "HIGH"
-                      }
-                    },
-                    "refId": "B",
-                    "hidden": false
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{severity=\"MEDIUM\"}[30m])) or vector(0)",
-                        "legendFormat": "MEDIUM"
-                      }
-                    },
-                    "refId": "C",
                     "hidden": false
                   }
                 }
@@ -1588,7 +1552,7 @@
         "spec": {
           "id": 12,
           "title": "Findings by Scanner",
-          "description": "",
+          "description": "Stored finding records by every reporting scanner, including lint tools. Missing series do not prove a clean scan; check accepted report coverage.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -1605,163 +1569,11 @@
                         "name": "Prometheus"
                       },
                       "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=\"semgrep\"}[30m])) or vector(0)",
-                        "legendFormat": "Semgrep"
+                        "expr": "sum by (scanner) (increase(secureguard_findings_total[30m]))",
+                        "legendFormat": "{{scanner}}"
                       }
                     },
                     "refId": "A",
-                    "hidden": false
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=\"bandit\"}[30m])) or vector(0)",
-                        "legendFormat": "Bandit"
-                      }
-                    },
-                    "refId": "B",
-                    "hidden": false
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=~\"trivy.*\"}[30m])) or vector(0)",
-                        "legendFormat": "Trivy"
-                      }
-                    },
-                    "refId": "C",
-                    "hidden": false
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=\"gitleaks\"}[30m])) or vector(0)",
-                        "legendFormat": "Gitleaks"
-                      }
-                    },
-                    "refId": "D",
-                    "hidden": false
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=\"osv\"}[30m])) or vector(0)",
-                        "legendFormat": "OSV-Scanner"
-                      }
-                    },
-                    "refId": "E",
-                    "hidden": false
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=\"grype\"}[30m])) or vector(0)",
-                        "legendFormat": "Grype"
-                      }
-                    },
-                    "refId": "F",
-                    "hidden": false
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=\"checkov\"}[30m])) or vector(0)",
-                        "legendFormat": "Checkov"
-                      }
-                    },
-                    "refId": "G",
-                    "hidden": false
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=\"dep-check\"}[30m])) or vector(0)",
-                        "legendFormat": "Dependency-Check"
-                      }
-                    },
-                    "refId": "H",
-                    "hidden": false
-                  }
-                },
-                {
-                  "kind": "PanelQuery",
-                  "spec": {
-                    "query": {
-                      "kind": "DataQuery",
-                      "group": "prometheus",
-                      "version": "v0",
-                      "datasource": {
-                        "name": "Prometheus"
-                      },
-                      "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=\"dockle\"}[30m])) or vector(0)",
-                        "legendFormat": "Dockle"
-                      }
-                    },
-                    "refId": "I",
                     "hidden": false
                   }
                 }

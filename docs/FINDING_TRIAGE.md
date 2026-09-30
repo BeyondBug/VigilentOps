@@ -73,3 +73,12 @@ It checks that every exported finding appears exactly once, owners/evidence
 are present and high/critical/secret/unknown records are dispositioned.
 It never updates findings, approves an exception or proves the evidence valid.
 Keep both CSVs private and preserve the original export for audit.
+
+## Lint findings
+
+Hadolint and ShellCheck findings use the `quality` class. Native error levels
+map to MEDIUM, warnings to LOW, and informational/style levels to INFO. These
+labels prioritize review; they do not establish exploitability, a CVE or a
+CVSS score. Review the actual diagnostic and context, especially parser errors
+and suppressed shell diagnostics. They appear in private exports and future
+whole-scan PR conversations but are outside Python automatic patch scope.

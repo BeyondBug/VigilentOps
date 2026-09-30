@@ -212,3 +212,16 @@ fixed startup metrics attribution/count replay, and added restore-manifest
 preflight before Docker resource creation. These are code changes with prepared
 regression checks, not new acceptance evidence. No laptop builds/tests or
 additional server actions were performed.
+
+## Additional offline preparation: static lint coverage
+
+Hadolint 2.15.1 and ShellCheck 0.11.0 are integrated into the shared pipeline,
+required report contract, API quality findings and future whole-scan PR
+conversations. No-file targets receive explicit not-applicable receipts.
+Target checkout cleanup and Docker bind commit verification guard against
+stale/wrong source mounts. The scanner chart now groups all scanner labels;
+findings filters include INFO and UNKNOWN. Additional checks were written for
+Kali. **No images, builds, application checks or tests were run on the laptop.**
+Server compatibility, report coverage and rendered charts remain unverified.
+Follow [Next server session](NEXT_SERVER_SESSION.md); earlier acceptance does
+not establish success for these code changes.

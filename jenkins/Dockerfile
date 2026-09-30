@@ -3,7 +3,7 @@ FROM jenkins/jenkins:lts
 USER root
 
 RUN apt-get update -qq && \
-    apt-get install -y -qq ca-certificates curl gnupg && \
+    apt-get install -y -qq ca-certificates curl gnupg python3 && \
     install -m 0755 -d /etc/apt/keyrings && \
     curl -fsSL https://download.docker.com/linux/debian/gpg | \
       gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \

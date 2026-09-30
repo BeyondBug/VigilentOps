@@ -1,12 +1,13 @@
 """Normalize scanner reports into finding records."""
 
 import re
+from urllib.parse import unquote
 
 
 CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}")
 SUPPORTED_TOOLS = {'semgrep', 'bandit', 'gitleaks', 'trivy', 'trivy-deps', 'trivy-image',
-                   'grype', 'osv', 'dep-check', 'checkov', 'snyk', 'dockle', 'syft-sbom'}
-REQUIRED_TOOLS = {'semgrep', 'gitleaks', 'trivy-deps', 'grype', 'osv', 'dep-check', 'syft-sbom'}
+                   'grype', 'osv', 'dep-check', 'checkov', 'snyk', 'dockle', 'syft-sbom', 'hadolint', 'shellcheck'}
+REQUIRED_TOOLS = {'semgrep', 'gitleaks', 'trivy-deps', 'grype', 'osv', 'dep-check', 'syft-sbom', 'hadolint', 'shellcheck'}
 
 
 def validate_report_shape(data, tool: str) -> None:
@@ -41,9 +42,12 @@ def validate_report_shape(data, tool: str) -> None:
         properties = run.get('properties', {})
         if not isinstance(properties, dict):
             raise ValueError('SARIF run properties must be an object')
-        if properties.get('coverage') == 'not_applicable' and (tool != 'osv' or run['results']
-                or not any(item.get('exitCode') == 128 for item in invocations)):
-            raise ValueError('Not-applicable coverage requires the OSV no-packages result')
+        if properties.get('coverage') == 'not_applicable':
+            expected_exit = 128 if tool == 'osv' else 0
+            if (tool not in {'osv', 'hadolint', 'shellcheck'} or run['results']
+                    or not any(item.get('exitCode') == expected_exit and item.get('executionSuccessful') is True for item in invocations)
+                    or (tool != 'osv' and properties.get('scanned_file_count') != 0)):
+                raise ValueError('Not-applicable coverage requires an explicit supported scanner result')
 
 def _extract_cve(rule_id: str, rule: dict, result: dict):
     direct = CVE_RE.search(rule_id)
@@ -116,7 +120,7 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
             findings.append({
                 "scanner":        tool,
                 "rule_id":        rule_id,
-                "cve_id":         (result.get("properties", {}).get("cve_id")
+                "cve_id":         None if finding_class == 'quality' else (result.get("properties", {}).get("cve_id")
                                    or _extract_cve(rule_id, rule, result)),
                 "cwe_id":         result.get("properties", {}).get("cwe_id"),
                 **metadata,
@@ -125,7 +129,8 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
                                    rule_id)[:500],
                 "description":    ('\n'.join(filter(None, [result.get("message", {}).get("text", ""),
                                    rule.get("fullDescription", {}).get("text", "")]))[:2000],
-                "file_path":      loc.get("artifactLocation", {}).get("uri", ""),
+                "file_path":      (unquote(loc.get("artifactLocation", {}).get("uri", ""))
+                                   if finding_class == 'quality' else loc.get("artifactLocation", {}).get("uri", "")),
                 "line_start":     region.get("startLine"),
                 "line_end":       region.get("endLine"),
                 "vulnerable_code": result.get("properties", {}).get("snippet", "")[:5000],
@@ -137,6 +142,7 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
 
 def determine_finding_class(tool: str) -> str:
     t = tool.lower()
+    if t in {'hadolint', 'shellcheck'}: return 'quality'
     if t in ["trivy", "trivy-deps", "trivy-image", "grype", "syft", "syft-sbom",
              "osv", "osv-scanner", "dependency-check", "dep-check", "snyk"]: return "sca"
     if t in ["semgrep", "bandit", "sonarqube", "zap"]: return "sast"

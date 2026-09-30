@@ -373,7 +373,7 @@ async def upload_report(scan_id: int, tool: str, request: Request):
             if findings and not existing:
                 save_findings_to_db(db, int(scan_id), findings)
             if not existing:
-                not_applicable = tool == 'osv' and any(run.get('properties', {}).get('coverage') == 'not_applicable' for run in data.get('runs', []))
+                not_applicable = tool in {'osv', 'hadolint', 'shellcheck'} and any(run.get('properties', {}).get('coverage') == 'not_applicable' for run in data.get('runs', []))
                 db.add(ScanReport(scan_run_id=scan_id, tool=tool, sha256=digest,
                                   finding_count=len(findings), coverage='not_applicable' if not_applicable else 'analyzed'))
     except HTTPException:

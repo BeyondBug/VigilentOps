@@ -27,7 +27,7 @@ flowchart LR
 ```
 
 1. A Gitea push to `main`, `develop`, or `master` triggers the Jenkins Generic Webhook Trigger job.
-2. Jenkins checks out the pushed repository, verifies its commit, registers the target and shared pipeline commits, and runs scanners. Required output and uploads must pass validation. The API records report receipts and refuses completion with missing required reports. Zero findings and explicit OSV not-applicable coverage remain distinguishable.
+2. Jenkins checks out the pushed repository, verifies its commit, registers the target and shared pipeline commits, and runs scanners. Required output and uploads must pass validation. The API records report receipts and refuses completion with missing required reports. Zero findings and explicit OSV/Hadolint/ShellCheck not-applicable coverage remain distinguishable.
 3. The orchestrator parses supported SARIF reports and Bandit JSON into findings. Dockle image-configuration results now use SARIF; Syft's SPDX SBOM is inventory only. The CVE service queues enrichment separately.
 4. The AI worker considers **open, medium or higher Python SAST findings**. It checks syntax, change size and existing Python interfaces. Bandit candidates must reproduce the original rules and remove them without adding medium/high results, ignoring suppression comments. Accepted candidates become a `WIP:` PR against the scanned branch, with all stored findings across all tools in numbered comments. Secret-bearing details are omitted. Runtime correctness still requires review and server checks.
 5. A reviewer checks the diff against the original finding, runs relevant checks on the PR branch, and merges only after approval. The Jenkins build on the base branch does not validate a later AI PR.
@@ -43,7 +43,7 @@ The latest changes are prepared for deployment. Follow [Next server session](doc
 | `ai-engine/` | FastAPI orchestrator, report parsers, database migrations, Celery AI worker, notifications |
 | `cve-intel/` | CVE enrichment API and worker |
 | `jenkins/pipelines/` | Jenkins scanner pipeline |
-| `scanners/` | Custom Semgrep rules |
+| `scanners/` | Shared Semgrep rules and Dockerfile lint policy |
 | `dashboard/` | React UI served by Nginx; `/api` proxies to the orchestrator |
 | `monitoring/` | Prometheus, Grafana, Falco, Wazuh, Loki, and Promtail configuration |
 | `wazuh-proxy/` | Internal Wazuh API proxy used by Grafana |
@@ -65,6 +65,6 @@ This project's working workflow is to edit and push from the development checkou
 
 ## Scope and limitations
 
-The Jenkinsfile includes Semgrep, Bandit, Gitleaks, Trivy, Checkov, Snyk when configured, Dockle, OWASP Dependency-Check, Grype, OSV-Scanner, and Syft stages. Their availability and output depend on the server, scanner images, credentials, and target repository. The implemented pipeline does not provide DAST, malware scanning, artifact signing, or an automatic merge gate. Runtime monitoring is available through the optional `monitoring` profile.
+The Jenkinsfile includes Semgrep, Bandit, Gitleaks, Trivy, Checkov, Snyk when configured, Dockle, OWASP Dependency-Check, Grype, OSV-Scanner, Syft, Hadolint, and ShellCheck stages. See [Scanner coverage](docs/SCANNERS.md) for scope, required reports and limitations. Their availability and output depend on the server, scanner images, credentials, and target repository. The implemented pipeline does not provide DAST, malware scanning, artifact signing, or an automatic merge gate. Runtime monitoring is available through the optional `monitoring` profile.
 
 Model calls may send source files and finding details to the configured provider. Read [Deployment](docs/DEPLOYMENT.md) before enabling AI remediation or exposing services.
