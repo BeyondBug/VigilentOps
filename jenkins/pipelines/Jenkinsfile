@@ -335,7 +335,15 @@ pipeline {
                             else
                                 set --
                             fi
+                            DOCKER_DNS_ARGS=""
+                            if [ -n "\${SCANNER_DNS:-}" ]; then
+                                case "\$SCANNER_DNS" in
+                                    *[!0-9a-fA-F.:]*) echo "ERROR: SCANNER_DNS must be an IP address"; exit 1 ;;
+                                esac
+                                DOCKER_DNS_ARGS="--dns=\$SCANNER_DNS"
+                            fi
                             docker run --rm \
+                              \$DOCKER_DNS_ARGS \
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
                               -v depcheck-cache:/usr/share/dependency-check/data \

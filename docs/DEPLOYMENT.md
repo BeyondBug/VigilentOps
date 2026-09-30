@@ -158,6 +158,15 @@ repair DNS or blocked outbound HTTPS. The Jenkins stage writes a temporary
 mode-0600 properties file owned by the Dependency-Check container user,
 mounts it for Dependency-Check, and removes it at
 stage exit. This keeps the key out of command arguments and console output.
+If the Dependency-Check container cannot resolve NVD, CISA, or RetireJS hosts
+while the server can, set `SCANNER_DNS` in the server's private `.env` to an
+IP address of a resolver reachable from Docker's bridge network, then recreate
+Jenkins. The setting adds `--dns` only to Dependency-Check's container; leave
+it empty when Docker's default resolver works. On the Kali lab host on
+30 September 2026, the host resolver was `10.20.16.1` while Docker was
+configured with public resolvers; Jenkins #317 failed with DNS lookup errors.
+Verify the chosen resolver inside a disposable scanner container before using
+it for the next full scan.
 Grype now keeps its vulnerability database in the persistent `grype-cache`
 volume and bounds its update waits. The first cache fill still needs access
 to Anchore's database service.

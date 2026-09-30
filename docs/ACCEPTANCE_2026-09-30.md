@@ -24,12 +24,19 @@ and scanner logs remain off Git.
 - Jenkins #316 timed out after about 120 minutes during the first NVD database
   download. Scan #242 was manually reconciled to `failed`. Commit `ef9d6cb`
   adds an aborted-build status handler for later runs.
-- A Gitea push of `ef9d6cb` triggered Jenkins #317 and scan #243. At the
-  latest check, Dependency-Check had downloaded 110,000 of 399,513 NVD
-  records. The build was still running. Do not count it as an accepted scan
-  until required SARIF reports validate, upload, and appear in the database.
+- A Gitea push of `ef9d6cb` triggered Jenkins #317 and scan #243.
+  Dependency-Check downloaded 110,000 of 399,513 NVD records, then failed
+  with repeated NVD request errors and DNS lookup errors for CISA and
+  RetireJS. Jenkins #317 ended `FAILURE`; scan #243 ended `failed`. Required
+  report validation and upload were skipped, so this is not an accepted scan.
 - While Dependency-Check ran, its temporary NVD properties file was owned by
   UID/GID 1000 with mode 0600. Verify its removal after the scanner exits.
+- The host resolved external names through `10.20.16.1`, while Docker's daemon
+  config provided `8.8.8.8` and `1.1.1.1` to scanner containers. A disposable
+  Dependency-Check container successfully resolved CISA through `10.20.16.1`.
+  The configured NVD key also returned HTTP 200 on a one-record keyed request.
+  An optional per-container `SCANNER_DNS` setting is prepared for the next
+  scan; its full-run effectiveness remains unverified.
 - The NVD and CISA endpoints responded during this run, but prior transfers
   stalled. Continue monitoring the full download before drawing a network
   reliability conclusion.
