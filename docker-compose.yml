@@ -14,6 +14,7 @@ volumes:
   grafana_data:
   falco-socket:
   wazuh_data:
+  wazuh_alerts:
 
 services:
 
@@ -327,7 +328,7 @@ services:
       - postgres
     networks:
       - sg-net
-    restart: "no"
+    restart: unless-stopped
     profiles: [monitoring]
 
   # ── Redis exporter ───────────────────────────────────────
@@ -342,7 +343,7 @@ services:
       - redis
     networks:
       - sg-net
-    restart: "no"
+    restart: unless-stopped
     profiles: [monitoring]
 
   # ── cAdvisor (Docker container metrics) ──────────────────
@@ -366,7 +367,7 @@ services:
       - "8082:8080"
     networks:
       - sg-net
-    restart: "no"
+    restart: unless-stopped
     profiles: [monitoring]
 
   # ── Falco → Prometheus exporter ──────────────────────────
@@ -396,6 +397,7 @@ services:
       - WAZUH_MANAGER_IP=0.0.0.0
     volumes:
       - wazuh_data:/var/ossec/data
+      - wazuh_alerts:/var/ossec/logs/alerts
       - ./monitoring/wazuh/ossec.conf:/var/ossec/etc/ossec.conf:ro
       - ./monitoring/wazuh/shared:/var/ossec/etc/shared:rw
     networks:
@@ -422,6 +424,7 @@ services:
     volumes:
       - ./monitoring/promtail/promtail.yml:/etc/promtail/config.yml
       - wazuh_data:/var/ossec/data:ro
+      - wazuh_alerts:/var/ossec/logs/alerts:ro
     command: -config.file=/etc/promtail/config.yml
     depends_on:
       - loki

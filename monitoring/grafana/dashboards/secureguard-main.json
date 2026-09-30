@@ -71,7 +71,7 @@
                   "showLineNumbers": false,
                   "showMiniMap": false
                 },
-                "content": "<div style=\"text-align:center;padding:8px;background:linear-gradient(90deg,#0a0e14,#131c2e);border-radius:6px;border:1px solid #1e2d45\"><span style=\"font-family:monospace;font-size:18px;font-weight:700;color:#00e5ff;letter-spacing:4px\">VigilantOps</span><span style=\"font-family:monospace;font-size:12px;color:#5c7a9b;margin-left:16px;letter-spacing:2px\">SECURITY COPILOT \u2014 CLOUD & CYBERSECURITY LABORATORY</span></div>",
+                "content": "<div style=\"text-align:center;padding:8px;background:linear-gradient(90deg,#0a0e14,#131c2e);border-radius:6px;border:1px solid #1e2d45\"><span style=\"font-family:monospace;font-size:18px;font-weight:700;color:#00e5ff;letter-spacing:4px\">VigilentOps</span><span style=\"font-family:monospace;font-size:12px;color:#5c7a9b;margin-left:16px;letter-spacing:2px\">SECURITY COPILOT \u2014 CLOUD & CYBERSECURITY LABORATORY</span></div>",
                 "mode": "html"
               },
               "fieldConfig": {
@@ -104,7 +104,7 @@
                         "name": "Prometheus"
                       },
                       "spec": {
-                        "expr": "secureguard_scans_total or vector(0)",
+                        "expr": "sum(secureguard_scans_total) or vector(0)",
                         "legendFormat": ""
                       }
                     },
@@ -280,7 +280,7 @@
         "spec": {
           "id": 4,
           "title": "Running Containers",
-          "description": "",
+          "description": "SecureGuard containers with a recent cAdvisor sample; requires the cAdvisor monitoring profile.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -297,7 +297,7 @@
                         "name": "Prometheus"
                       },
                       "spec": {
-                        "expr": "count(container_last_seen{name=~\"sg-.*\"}) or vector(0)",
+                        "expr": "count((time() - container_last_seen{name=~\"sg-.*\"}) < 60) or vector(0)",
                         "legendFormat": ""
                       }
                     },
@@ -312,21 +312,20 @@
           },
           "vizConfig": {
             "kind": "VizConfig",
-            "group": "histogram",
+            "group": "stat",
             "version": "13.0.2",
             "spec": {
               "options": {
-                "legend": {
-                  "calcs": [],
-                  "displayMode": "list",
-                  "placement": "bottom",
-                  "showLegend": true
+                "colorMode": "value",
+                "graphMode": "none",
+                "justifyMode": "center",
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": ["lastNotNull"],
+                  "fields": "",
+                  "values": false
                 },
-                "tooltip": {
-                  "hideZeros": false,
-                  "mode": "single",
-                  "sort": "none"
-                }
+                "textMode": "value"
               },
               "fieldConfig": {
                 "defaults": {
@@ -350,20 +349,6 @@
                   },
                   "color": {
                     "mode": "thresholds"
-                  },
-                  "custom": {
-                    "fillOpacity": 80,
-                    "gradientMode": "none",
-                    "hideFrom": {
-                      "legend": false,
-                      "tooltip": false,
-                      "viz": false
-                    },
-                    "lineWidth": 1,
-                    "stacking": {
-                      "group": "A",
-                      "mode": "none"
-                    }
                   }
                 },
                 "overrides": []
@@ -489,7 +474,7 @@
                         "name": "Prometheus"
                       },
                       "spec": {
-                        "expr": "(time() - container_last_seen{name=\"sg-cve-intel\"}) < bool 60"
+                        "expr": "max((time() - container_last_seen{name=\"sg-cve-intel\"}) < bool 60) or vector(0)"
                       }
                     },
                     "refId": "A",
@@ -618,7 +603,7 @@
                         "name": "Prometheus"
                       },
                       "spec": {
-                        "expr": "(time() - container_last_seen{name=\"sg-wazuh\"}) < bool 60"
+                        "expr": "max((time() - container_last_seen{name=\"sg-wazuh\"}) < bool 60) or vector(0)"
                       }
                     },
                     "refId": "A",
@@ -1058,7 +1043,7 @@
                         "name": "Prometheus"
                       },
                       "spec": {
-                        "expr": "(time() - container_last_seen{name=\"sg-falco\"}) < bool 60"
+                        "expr": "max((time() - container_last_seen{name=\"sg-falco\"}) < bool 60) or vector(0)"
                       }
                     },
                     "refId": "A",
@@ -1658,7 +1643,7 @@
                         "name": "Prometheus"
                       },
                       "spec": {
-                        "expr": "sum(increase(secureguard_findings_total{scanner=\"trivy\"}[30m])) or vector(0)",
+                        "expr": "sum(increase(secureguard_findings_total{scanner=~\"trivy.*\"}[30m])) or vector(0)",
                         "legendFormat": "Trivy"
                       }
                     },
@@ -1739,6 +1724,44 @@
                       }
                     },
                     "refId": "G",
+                    "hidden": false
+                  }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "prometheus",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "Prometheus"
+                      },
+                      "spec": {
+                        "expr": "sum(increase(secureguard_findings_total{scanner=\"dep-check\"}[30m])) or vector(0)",
+                        "legendFormat": "Dependency-Check"
+                      }
+                    },
+                    "refId": "H",
+                    "hidden": false
+                  }
+                },
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "prometheus",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "Prometheus"
+                      },
+                      "spec": {
+                        "expr": "sum(increase(secureguard_findings_total{scanner=\"dockle\"}[30m])) or vector(0)",
+                        "legendFormat": "Dockle"
+                      }
+                    },
+                    "refId": "I",
                     "hidden": false
                   }
                 }
@@ -2295,7 +2318,7 @@
                         "name": "Prometheus"
                       },
                       "spec": {
-                        "expr": "container_memory_usage_bytes{name=~\"sg-.*\"} / 1024 / 1024",
+                        "expr": "container_memory_usage_bytes{name=~\"sg-.*\"}",
                         "legendFormat": "{{name}}"
                       }
                     },
@@ -2332,7 +2355,7 @@
               },
               "fieldConfig": {
                 "defaults": {
-                  "unit": "decmbytes",
+                  "unit": "bytes",
                   "thresholds": {
                     "mode": "absolute",
                     "steps": [

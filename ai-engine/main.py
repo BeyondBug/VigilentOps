@@ -79,11 +79,13 @@ async def startup():
                         scanner=scanner or "unknown"
                     ).inc()
 
-            # Count PRs opened
+            # One PR may be associated with thousands of findings. Count its
+            # URL once, matching the increment performed when a PR is opened.
             prs = db.execute(_text(
-                """SELECT s.repo_name, COUNT(*) 
+                """SELECT s.repo_name, COUNT(DISTINCT f.pr_url)
                    FROM findings f JOIN scan_runs s ON f.scan_run_id = s.id 
-                   WHERE f.fix_status = 'pr_opened' GROUP BY s.repo_name"""
+                   WHERE f.pr_url IS NOT NULL AND f.pr_url <> ''
+                   GROUP BY s.repo_name"""
             )).fetchall()
             for repo_name, count in prs:
                 for _ in range(count):
