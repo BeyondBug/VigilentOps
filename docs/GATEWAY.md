@@ -10,12 +10,16 @@ calls stay on that Docker network. Host SSH is separate from the Compose stack.
 | `/dashboard/` | Findings dashboard | Gateway username/password |
 | `/dashboard/api/` | Scan API | Gateway login; writes also require `X-API-Key` |
 | `/dashboard/cve-intel/` | CVE read API | Gateway login |
-| `/jenkins/` | Jenkins | Jenkins login/permissions |
+| `/jenkins/` | Jenkins | Gateway username/password; Jenkins permissions also apply when configured |
 | `/grafana/` | Grafana, including Live WebSockets | Grafana login/permissions |
 | `/prometheus/` | Prometheus UI and query API | Gateway username/password |
 
 Databases, Redis, Loki, Pushgateway, cAdvisor, exporters, and Wazuh's API
 have no host port bindings. Grafana still reaches its data sources internally.
+The public Jenkins webhook endpoint is blocked; Gitea delivers directly over
+`sg-net` using its existing private trigger token. Jenkins gateway credentials
+are stripped before forwarding requests. Configure Jenkins's own users and
+role permissions before admitting other users to this administrative lab.
 Gitea SSH port 2222 and Jenkins inbound agent port 50000 are removed; use
 repository HTTPS and Jenkins WebSocket agents when needed. Wazuh agent
 enrollment/event ports also stay internal. External Wazuh agents require a
@@ -36,7 +40,7 @@ address plus `localhost` in its SAN, and a separate gateway login. It stores
 Private keys and the password hash remain in ignored `secrets/gateway/`.
 Only the server certificate/key and password hash are mounted into Nginx.
 
-To view the gateway login **in your private server shell**:
+To view the dashboard/Jenkins/Prometheus gateway login **in your private server shell**:
 
 ```bash
 sed -n '/^PROXY_AUTH_USER=/p; /^PROXY_AUTH_PASSWORD=/p' .env
@@ -100,7 +104,7 @@ curl --cacert secrets/gateway/ca.pem -I https://localhost:3000/jenkins/login
 python3 scripts/audit_scan_coverage.py
 ```
 
-Confirm unauthenticated dashboard/Prometheus requests get HTTP 401; login
+Confirm unauthenticated dashboard/Jenkins/Prometheus requests get HTTP 401; login
 allows the dashboard's assets, scan API and CVE feed. Check Grafana login,
 panel queries and WebSockets, Jenkins login/crumb requests, and Git clone/push.
 Trigger a Gitea push and confirm the resulting Jenkins scan reaches the exact

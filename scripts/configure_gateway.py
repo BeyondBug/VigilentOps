@@ -103,7 +103,7 @@ def main():
     for path in (ca_cert, server_cert, directory / "fullchain.pem", directory / "htpasswd"):
         path.chmod(0o644)
     print(f"Gateway configured for {args.public_url.rstrip('/')}")
-    print(f"Dashboard/Prometheus username: {username}; password stored only in {args.env}")
+    print(f"Dashboard/Jenkins/Prometheus username: {username}; password stored only in {args.env}")
     print(f"Trust the public CA certificate: {ca_cert}")
     print("Private keys and htpasswd stay in the ignored secrets/gateway directory.")
 
