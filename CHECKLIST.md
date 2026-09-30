@@ -1,13 +1,14 @@
 # Project completion checklist
 
-Status snapshot: 26 September 2026. This is a self-hosted **lab reference implementation**, not a production release. Update the evidence and checkboxes after each server run. Run builds, tests, and live checks on the lab server, following [docs/TESTING.md](docs/TESTING.md). Today's server results and limitations are in [docs/ACCEPTANCE_2026-09-26.md](docs/ACCEPTANCE_2026-09-26.md).
+Status snapshot: 30 September 2026. This is a self-hosted **lab reference implementation**, not a production release. Update the evidence and checkboxes after each server run. Run builds, tests, and live checks on the lab server, following [docs/TESTING.md](docs/TESTING.md). The latest server results and limitations are in [docs/ACCEPTANCE_2026-09-30.md](docs/ACCEPTANCE_2026-09-30.md); earlier evidence is in [docs/ACCEPTANCE_2026-09-26.md](docs/ACCEPTANCE_2026-09-26.md).
 
 ## End-of-day handoff and next actions
 
-- At handoff, GitHub `main`, Gitea `main`, and the Kali checkout matched at `b5766bf0b027e8e6a844c00342126487a44e4f13`. This documentation update will create a later commit; verify all three hashes again before release.
-- Jenkins **#315** on scan **#241** was still running. Its Trivy database update passed and fresh SARIF contained 24 dependency findings and 3,473 image findings; Dockle SARIF contained 5 findings. Dependency-Check had downloaded 30,000 of about 398,000 NVD records. Report validation, upload, scan completion, and AI PR creation were **not yet verified**. Do not count this as a passing scan.
-- The server's outbound NVD, CISA, and container-registry transfers have stalled or timed out repeatedly. The operator is working on server network reliability. First finish/inspect #315, then retry a complete scan only after the feeds are reachable. Keep required scanners fail-closed.
-- **Next in order:** record #315's terminal result and the Dependency-Check error or valid SARIF; confirm all required reports upload and scan #241 reaches a terminal state; run and review one new AI PR with every scan finding in its conversation; then rescan all 13 current Gitea repositories and triage their fresh findings.
+- The Kali server is reachable at its new address. On 30 September, GitHub `main`, Gitea `main`, and the Kali checkout matched at `ef9d6cbf9b2196e926f625d9f36de95e5658dcb5`. Recheck parity after the next documentation/code push.
+- Jenkins **#315** failed because Dependency-Check could not produce a valid report. **#316** hit the 120-minute pipeline timeout while filling the NVD cache; its scan **#242** was reconciled to `failed`. Commit `ef9d6cb` adds an aborted-build handler so future timeouts mark their scans failed.
+- Jenkins **#317** / scan **#243** is running. Its first-load NVD download reached 110,000 of 399,513 records at the latest check. This is progress, not a valid report or completed scan. Keep required scanners fail-closed.
+- On 30 September, the current server commit passed Compose validation, service/Jenkins image builds, and all 29 Python tests; orchestrator, CVE, dashboard, and Jenkins endpoints returned HTTP 200. The private coverage audit found 13 repositories with active push hooks but no fresh complete coverage across all 13. Two ancient `running` records, scans #185 and #222, were verified stale and marked `failed`.
+- **Next in order:** record #317's terminal result; verify Dependency-Check SARIF, required report uploads, dashboard data, and a new AI PR with every scan finding in its conversation; then rescan all 13 current Gitea repositories and triage their fresh findings.
 - The 50 older open AI PRs have no numbered finding comments. The user chose the detailed whole-scan conversation format for **future PRs only**; leave those older conversations unchanged. They still require ordinary review before any merge.
 - Do not run builds or tests on the laptop. Make code changes here, push GitHub, update the Kali checkout, push Gitea from Kali, and test there. Keep credentials and raw findings off Git.
 
@@ -56,7 +57,7 @@ Status snapshot: 26 September 2026. This is a self-hosted **lab reference implem
 - [x] Inventory 13 current Gitea repositories; each has an active push webhook (26 September audit).
 - [ ] Confirm each webhook actually delivers a push event to Jenkins on an accepted branch (`main`, `develop`, or `master`).
 - [ ] Run a fresh scan of **each** intended target with the current shared Jenkinsfile and rules. Record repo, branch, commit, Jenkins build, scan ID, result, and date. The current pipeline has only been confirmed on `VigilentOps`.
-- [ ] Investigate old latest scan states: `Netflix-zuul` and `sietlms-moodle-` show `failed`; `Portfolio` and `browser-use` show `running`. Reconcile stale runs and verify new scans reach a terminal state.
+- [ ] Investigate old latest scan states: `Netflix-zuul`, `sietlms-moodle-`, `Portfolio`, and `browser-use` show `failed`. The stale `Portfolio` and `browser-use` records were reconciled on 30 September; all four still need fresh terminal scans.
 - [ ] Reconcile the scan inventory with Gitea: scan history includes `ShadowPatch`, while the current Gitea list includes `SIET-Hackathon`. Confirm which repositories are in scope.
 - [ ] Document that the shared Jenkinsfile and Semgrep rules come from `VigilentOps/main`. Other repositories' own Jenkinsfile/scanner files are older or absent; update those files only if they must run independently of the shared job.
 
