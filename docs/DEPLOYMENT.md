@@ -83,7 +83,12 @@ docker compose --profile monitoring up -d
 For an existing installation, back up `/var/ossec/api/configuration` from the
 running `sg-wazuh` container and copy it into the new
 `secureguard_wazuh_api_config` volume **before** recreating Wazuh. This
-preserves the API certificate and user password. The proxy mounts that volume
+preserves the API certificate and user password. Docker copies files to the
+host with the invoking user's ownership by default; after loading the volume,
+restore ownership to `wazuh:wazuh` inside the container. Keep the private key
+and RBAC database unreadable by other users. Permit the proxy to traverse the
+configuration and `ssl` directories and read `ssl/server.crt` (mode 0644).
+The proxy mounts that volume
 read-only, trusts its self-signed certificate, and limits unauthenticated
 routes to read-only `/sca/` requests. Set `WAZUH_PASSWORD` in `.env` to the
 actual Wazuh API password. Rotate the default API password on a new install.

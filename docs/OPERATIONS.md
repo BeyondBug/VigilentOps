@@ -26,7 +26,8 @@ docker exec sg-postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc
 chmod 600 ~/secureguard-backups/postgres-before-release.dump
 ```
 
-For Gitea, Jenkins, and Grafana, stop writers during the volume snapshot.
+For Gitea, Jenkins, Grafana, Prometheus, `wazuh_alerts`, and
+`wazuh_api_config`, stop writers during the volume snapshot.
 Inspect each actual volume with `docker volume inspect`; mount it read-only
 into a temporary backup container and archive its contents to the protected
 backup directory. Record the exact volume name, archive name, size, and date.
@@ -42,6 +43,8 @@ archives into separate test volumes. Start the isolated stack and confirm:
 - Gitea repositories, users, and webhook configuration are visible.
 - Jenkins jobs and credentials can be accessed by authorized operators.
 - Grafana dashboards and data sources load.
+- Prometheus targets and Wazuh SCA/alert panels load; preserve Wazuh API
+  certificate, private key, RBAC database, and log volume permissions.
 - The orchestrator can read prior scans and create a new scan.
 
 Record recovery time, missing data, and the operator who performed the test.

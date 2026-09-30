@@ -80,3 +80,54 @@ stored findings, review a new AI PR and its complete finding conversation,
 scan every intended repository, and dispose of current high findings. Then
 repeat builds, migrations, client checks, backup recovery, and security gates
 against the exact release commit. See [the checklist](../CHECKLIST.md).
+
+## Later same-day results: scanner and Grafana
+
+- Jenkins #322 finished `SUCCESS` on `a256636` and orchestrator scan #248
+  reached `complete`. All required uploads returned HTTP 200. Dependency-Check
+  supplied a valid 170,250-byte SARIF report; Checkov used its native SARIF
+  output. Scan #248 stored 3,742 findings: 256 high, 2,189 medium, and
+  1,297 low. The private triage export on Kali contains 3,742 records and
+  2,917 suggested review groups.
+- AI task `663e99f4-1ca5-4d6b-a59d-718b2f3fb0f9` opened Gitea PR #18.
+  Its conversation has 220 numbered parts and covers all 3,742 findings
+  once each. The two edited scripts passed 29 Python tests on the PR head,
+  but a targeted Bandit rescan still reported the original B107 and B310
+  findings. PR #18 is **not accepted for merge**.
+- Gitea webhook test deliveries initiated a current scan for each of the 13
+  repositories. The private `reports/coverage-20260930.md` audit on Kali
+  reports seven latest scans `complete`, five `failed`, and `Range` at
+  `pr_opened`. The five failed targets are Moondream, Netflix-Hystrix,
+  Netflix-zuul, browser-use, and sietlms-moodle-. Jenkins #338 completed
+  `SUCCESS` for VigilentOps scan #262 at `a849b8e` after the monitoring
+  changes. Repository coverage and finding triage are still open.
+- Before Grafana changes, a private backup directory
+  `~/secureguard-backups/pre-grafana-20260930-115649` was created on Kali.
+  It contains a PostgreSQL custom-format dump, Grafana and Prometheus volume
+  archives, Compose/private configuration, Wazuh alerts, and Wazuh API
+  configuration. All seven SHA-256 entries passed; the archives and dump
+  were readable. A complete restore was not performed for this new backup.
+  Gitea/Jenkins volume archives from the 26 September recovery exercise
+  remain separate.
+- The initial dashboard showed stopped cAdvisor, Redis, and PostgreSQL
+  exporters, a histogram for a single container count, an AI PR metric that
+  counted finding rows, and an empty Wazuh alert panel caused by an absent
+  Promtail log mount. The exporters now use `unless-stopped`; their three
+  Prometheus targets and all five other targets were `up` on Kali. The
+  dashboard API returned HTTP 200 with the new scan aggregation, scanner
+  labels, memory unit, running-container stat, and explicit sensor zeros.
+  Every Prometheus panel query returned `success` with a series. Example
+  values after deployment: 20 running containers, eight targets up, 334
+  distinct historical AI PR URLs, CVE and Wazuh containers online, and
+  Falco container at zero because the Kali kernel driver is unsupported.
+- The CVE intelligence endpoint returned HTTP 200. The Wazuh SCA proxy
+  returned HTTP 200 with one policy, and Loki returned two Wazuh log entries
+  in the selected six-hour range. Wazuh API configuration and alert logs now
+  have persistent private volumes. Its manager and proxy were recreated,
+  and the configured Wazuh API password, certificate trust, and SCA result
+  were verified afterward. Grafana panel titles now describe recent CVEs
+  accurately; the feed does not establish that those CVEs were fixed.
+- A second forced recreation of Wazuh and its proxy confirmed the persistent
+  API volume: configured authentication and the SCA endpoint both returned
+  HTTP 200, and Promtail still read the growing alert file. The unsupported
+  Falco kernel driver remains a separate runtime-sensor limitation.

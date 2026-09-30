@@ -1191,8 +1191,8 @@
         "kind": "Panel",
         "spec": {
           "id": 200,
-          "title": "CVEs Matched & Fixed by AI Engine",
-          "description": "Recent CVEs from CVE Intel Engine \u2014 pulled from /cves/recent",
+          "title": "Recent CVE Intelligence",
+          "description": "Recent CVEs from the intelligence feed. Rows do not imply a match in a scan or an AI fix.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
@@ -2912,7 +2912,7 @@
         "spec": {
           "id": 102,
           "title": "Wazuh Security Alerts \u2014 Live Log Stream",
-          "description": "Real-time Wazuh alerts via Loki",
+          "description": "Alerts shipped by Promtail from Wazuh. An empty selected time range can mean no recent alerts.",
           "links": [],
           "data": {
             "kind": "QueryGroup",
