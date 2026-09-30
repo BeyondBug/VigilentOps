@@ -331,7 +331,7 @@ services:
       - falco-socket:/var/run/falco
     networks:
       - sg-net
-    restart: "no"
+    restart: unless-stopped
     profiles: [monitoring]
 
   # ── PostgreSQL exporter ──────────────────────────────────

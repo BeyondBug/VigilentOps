@@ -86,12 +86,20 @@ python3 -m json.tool reports/osv.sarif >/dev/null
 In Jenkins, verify `OSV SCA`, `Upload Reports`, and `CVE Enrichment`. The console
 must show `OSV OK`, `Uploading osv`, and HTTP 200.
 
+OSV's documented exit **128** means no supported package sources were found.
+The pipeline records an explicit `coverage=not_applicable` SARIF run and the
+validator prints `NOT APPLICABLE`. This is missing ecosystem coverage, not
+evidence that the repository has no vulnerable dependencies. Exit 0 or 1
+requires a native report; every other exit code fails the OSV stage. See
+[OSV return codes](https://google.github.io/osv-scanner/output/).
+
 The `Validate Reports` stage uses `scripts/validate_scan_reports.py` and must
 list valid Semgrep, Gitleaks, Trivy dependency, Grype, OSV, Dependency-Check,
 and Syft reports. Bandit is required when the target has Python files. When
 the target Docker image builds successfully, Dockle and Trivy image SARIF reports
 are required too. Checkov and unconfigured Snyk remain optional. An invalid
 required report or non-successful report upload must fail the Jenkins build.
+Empty SARIF runs and explicitly failed scanner invocations are rejected.
 The orchestrator should reject malformed report bodies and unknown scan IDs;
 a valid SARIF report with zero results is accepted. Confirm Dockle SARIF
 produces `iac` findings when it reports image-configuration issues. Syft's
@@ -121,6 +129,15 @@ Build #313 found a protected key-file ownership mismatch: Jenkins writes as
 UID 0 and Dependency-Check reads as UID 1000. Verify that the next run can
 read the temporary mode-0600 file, then that the file is removed after the
 stage and its value is absent from process arguments and console output.
+
+For `BeyondBug/sietlms-moodle-` only, Dependency-Check excludes
+`/src/public/lib/filestorage/tests/fixtures/*.zip`: those archive-parser test
+fixtures include intentionally malformed and encrypted ZIP files. Other
+source, dependencies and archives remain in scope. This exclusion is explicit
+in Jenkins Prepare output; do not blanket-disable archive analysis or ignore
+Dependency-Check errors. See [Dependency-Check CLI exclusions](https://jeremylong.github.io/DependencyCheck/dependency-check-cli/arguments.html).
+Trivy source/image scans have explicit 25/30-minute timeouts; its persistent
+cache retains the Java DB downloaded during the Moondream run.
 
 Snyk is optional. If `SNYK_TOKEN` is configured in the server's private
 `.env`, recreate Jenkins and verify a nonempty `snyk.sarif` plus HTTP 200

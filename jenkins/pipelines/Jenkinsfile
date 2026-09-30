@@ -78,6 +78,13 @@ pipeline {
                     env.HOST_REPORTS = "${JENKINS_HOME_HOST}/${wsRelative}/reports"
                     env.HOST_RULES   = "${JENKINS_HOME_HOST}/${wsRelative}/scanners/semgrep-rules"
                     env.HOST_VALIDATOR = "${JENKINS_HOME_HOST}/${wsRelative}/scripts/validate_scan_reports.py"
+                    env.DEPCHECK_FIXTURE_EXCLUDE = ''
+                    if (env.TARGET_REPO == 'http://sg-gitea:3000/BeyondBug/sietlms-moodle-.git') {
+                        // Deliberately malformed/encrypted archive test data,
+                        // not deployed dependencies. Keep all other files scanned.
+                        env.DEPCHECK_FIXTURE_EXCLUDE = '/src/public/lib/filestorage/tests/fixtures/*.zip'
+                        echo 'Dependency-Check excludes only Moodle filestorage ZIP test fixtures'
+                    }
 
                     echo "Container SOURCE : ${SOURCE_DIR}"
                     echo "Host SOURCE      : ${env.HOST_SOURCE}"
@@ -236,6 +243,7 @@ pipeline {
                               -v ${env.HOST_REPORTS}:/reports \
                               -v trivy-cache:/root/.cache/trivy \
                               aquasec/trivy:latest fs \
+                                --timeout 25m \
                                 --skip-db-update \
                                 --format sarif \
                                 --output /reports/trivy-deps.sarif \
@@ -316,7 +324,7 @@ pipeline {
                                 if docker build -t sg-target-scan:${BUILD_NUMBER} "\$DIR"; then
                                     touch ${REPORTS_DIR}/image-built.marker
                                     docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports goodwithtech/dockle:latest -f sarif -o /reports/dockle.sarif sg-target-scan:${BUILD_NUMBER} || true
-                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports -v trivy-cache:/root/.cache/trivy aquasec/trivy:latest image --skip-db-update --cache-backend memory --format sarif --output /reports/trivy-image.sarif sg-target-scan:${BUILD_NUMBER} || true
+                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports -v trivy-cache:/root/.cache/trivy aquasec/trivy:latest image --timeout 30m --skip-db-update --cache-backend memory --format sarif --output /reports/trivy-image.sarif sg-target-scan:${BUILD_NUMBER}
                                 else
                                     echo "WARNING: target image build failed; image scanners skipped"
                                 fi
@@ -354,6 +362,9 @@ pipeline {
                                     *) echo "ERROR: NVD_DATAFEED_URL must be an HTTP(S) URL"; exit 1 ;;
                                 esac
                                 set -- "\$@" --nvdDatafeed "\$NVD_DATAFEED_URL"
+                            fi
+                            if [ -n "\${DEPCHECK_FIXTURE_EXCLUDE:-}" ]; then
+                                set -- "\$@" --exclude "\$DEPCHECK_FIXTURE_EXCLUDE"
                             fi
                             # The scanner runs as UID 1000; Jenkins creates the
                             # report directory as root in the mounted workspace.
@@ -417,13 +428,19 @@ pipeline {
                 stage('OSV SCA') {
                     steps {
                         sh """
+                            set -eu
                             echo "Running OSV-Scanner against supported lockfiles and manifests"
+                            OSV_EXIT=0
                             docker run --rm \
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
                               ghcr.io/google/osv-scanner:v2.4.0 \
                                 scan source --recursive --format sarif \
-                                --output-file /reports/osv.sarif /src || true
+                                --output-file /reports/osv.sarif /src || OSV_EXIT=\$?
+                            docker run --rm -v ${env.HOST_REPORTS}:/reports \
+                              -v ${env.HOST_VALIDATOR}:/validator.py:ro \
+                              python:3.12-slim python /validator.py /reports \
+                                --normalize-osv-exit-code "\$OSV_EXIT"
 
                             ls -lh ${REPORTS_DIR}/osv.sarif 2>/dev/null \
                               && echo "OSV OK — \$(wc -c < ${REPORTS_DIR}/osv.sarif) bytes" \

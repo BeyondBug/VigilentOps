@@ -36,12 +36,41 @@ def _sarif(path: Path) -> int:
     if not isinstance(data, dict) or data.get("version") != "2.1.0":
         raise ValueError(f"{path.name}: expected SARIF version 2.1.0")
     runs = data.get("runs")
-    if not isinstance(runs, list):
-        raise ValueError(f"{path.name}: SARIF runs must be a list")
+    if not isinstance(runs, list) or not runs:
+        raise ValueError(f"{path.name}: SARIF runs must be a nonempty list")
     if any(not isinstance(run, dict) or not isinstance(run.get("results", []), list)
            for run in runs):
         raise ValueError(f"{path.name}: SARIF results must be lists")
+    for run in runs:
+        for invocation in run.get("invocations", []):
+            if invocation.get("executionSuccessful") is False:
+                raise ValueError(f"{path.name}: scanner invocation failed")
     return sum(len(run.get("results", [])) for run in runs)
+
+
+def normalize_osv_report(reports: Path, exit_code: int) -> None:
+    """OSV exit 128 means no supported packages, never a clean vulnerability scan."""
+    path = reports / "osv.sarif"
+    if exit_code in (0, 1):
+        _sarif(path)
+        return
+    if exit_code != 128:
+        raise ValueError(f"OSV scanner failed with exit code {exit_code}")
+    if path.exists() and path.stat().st_size and _sarif(path):
+        raise ValueError("OSV returned no-packages status with nonempty findings")
+    path.write_text(json.dumps({
+        "version": "2.1.0",
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "runs": [{
+            "tool": {"driver": {"name": "osv-scanner", "version": "2.4.0"}},
+            "results": [],
+            "invocations": [{"executionSuccessful": True, "exitCode": 128}],
+            "properties": {
+                "coverage": "not_applicable",
+                "reason": "OSV found no supported package sources; this is not a clean scan.",
+            },
+        }],
+    }) + "\n", encoding="utf-8")
 
 
 def validate_reports(reports: Path, has_python: bool = False,
@@ -59,7 +88,13 @@ def validate_reports(reports: Path, has_python: bool = False,
     summary = []
     for filename in required_sarif:
         count = _sarif(reports / filename)
-        summary.append(f"{filename}: {count} results")
+        if filename == "osv.sarif" and any(
+            run.get("properties", {}).get("coverage") == "not_applicable"
+            for run in _load(reports / filename)["runs"]
+        ):
+            summary.append("osv.sarif: NOT APPLICABLE (no supported package sources)")
+        else:
+            summary.append(f"{filename}: {count} results")
 
     if has_python:
         bandit = _load(reports / "bandit.json")
@@ -90,8 +125,13 @@ def main() -> int:
     parser.add_argument("reports", type=Path)
     parser.add_argument("--python", action="store_true")
     parser.add_argument("--snyk", action="store_true")
+    parser.add_argument("--normalize-osv-exit-code", type=int)
     args = parser.parse_args()
     try:
+        if args.normalize_osv_exit_code is not None:
+            normalize_osv_report(args.reports, args.normalize_osv_exit_code)
+            print(f"OSV report contract recorded (exit {args.normalize_osv_exit_code})")
+            return 0
         for line in validate_reports(args.reports, args.python, args.snyk):
             print(line)
     except ValueError as exc:

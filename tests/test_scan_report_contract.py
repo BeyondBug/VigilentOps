@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from validate_scan_reports import REQUIRED_SARIF, validate_reports
+from validate_scan_reports import REQUIRED_SARIF, normalize_osv_report, validate_reports
 
 
 class ReportContractTests(unittest.TestCase):
@@ -37,6 +37,32 @@ class ReportContractTests(unittest.TestCase):
     def test_invalid_sarif_fails(self):
         (self.reports / "grype.sarif").write_text('{"runs": []}')
         with self.assertRaisesRegex(ValueError, "SARIF version"):
+            validate_reports(self.reports)
+
+    def test_osv_no_packages_is_explicitly_not_applicable(self):
+        (self.reports / "osv.sarif").unlink()
+        normalize_osv_report(self.reports, 128)
+        summary = validate_reports(self.reports)
+        self.assertIn("osv.sarif: NOT APPLICABLE (no supported package sources)", summary)
+
+    def test_osv_failure_cannot_be_recorded_as_no_findings(self):
+        with self.assertRaisesRegex(ValueError, "exit code 127"):
+            normalize_osv_report(self.reports, 127)
+
+    def test_osv_success_still_requires_report(self):
+        (self.reports / "osv.sarif").unlink()
+        with self.assertRaisesRegex(ValueError, "missing or empty"):
+            normalize_osv_report(self.reports, 0)
+
+    def test_failed_invocation_and_empty_runs_are_rejected(self):
+        path = self.reports / "semgrep.sarif"
+        path.write_text(json.dumps({"version": "2.1.0", "runs": []}))
+        with self.assertRaisesRegex(ValueError, "nonempty"):
+            validate_reports(self.reports)
+        path.write_text(json.dumps({"version": "2.1.0", "runs": [{
+            "results": [], "invocations": [{"executionSuccessful": False}],
+        }]}))
+        with self.assertRaisesRegex(ValueError, "invocation failed"):
             validate_reports(self.reports)
 
     def test_python_and_configured_snyk_become_required(self):

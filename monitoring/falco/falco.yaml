@@ -1,7 +1,7 @@
 engine:
-  kind: nodriver
+  kind: modern_ebpf
 
-rules_file:
+rules_files:
   - /etc/falco/falco_rules.yaml
   - /etc/falco/falco_rules.local.yaml
   - /etc/falco/rules.d
