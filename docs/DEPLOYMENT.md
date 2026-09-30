@@ -72,26 +72,34 @@ this server:
 docker compose --profile ci up -d jenkins
 ```
 
-Prepare Wazuh's API certificate before starting the proxy:
+Start Wazuh before its proxy so the manager can generate its API certificate
+and security database in the persistent `wazuh_api_config` volume:
 
 ```bash
 docker compose --profile monitoring up -d wazuh
-mkdir -p monitoring/wazuh/certs
-docker cp sg-wazuh:/var/ossec/api/configuration/ssl/server.crt monitoring/wazuh/certs/api.crt
-chmod 644 monitoring/wazuh/certs/api.crt
 docker compose --profile monitoring up -d
 ```
 
-The certificate is specific to this Wazuh instance and is excluded from Git.
-Repeat the copy after replacing the manager's certificate, then recreate the
-proxy. Set `WAZUH_PASSWORD` in `.env` to the actual Wazuh API password before
-starting the proxy; the placeholder is not a valid password. Rotate the
-manager's default API password if this is a new installation. The proxy trusts
-the copied self-signed certificate, checks the certificate chain, and limits
-unauthenticated proxy routes to read-only `/sca/` requests. The bundled
-certificate has only `localhost` in its DNS names, so the proxy pins that
-certificate without a hostname check when connecting to `sg-wazuh`. For full
-hostname validation, issue a certificate with `sg-wazuh` in its SAN.
+For an existing installation, back up `/var/ossec/api/configuration` from the
+running `sg-wazuh` container and copy it into the new
+`secureguard_wazuh_api_config` volume **before** recreating Wazuh. This
+preserves the API certificate and user password. The proxy mounts that volume
+read-only, trusts its self-signed certificate, and limits unauthenticated
+routes to read-only `/sca/` requests. Set `WAZUH_PASSWORD` in `.env` to the
+actual Wazuh API password. Rotate the default API password on a new install.
+The bundled certificate has only `localhost` in its DNS names, so the proxy
+checks the pinned certificate without a hostname check when connecting to
+`sg-wazuh`. For full hostname validation, issue a certificate with `sg-wazuh`
+in its SAN.
+
+Wazuh alerts are retained in the `wazuh_alerts` volume and mounted read-only
+in Promtail. During an existing-install migration, copy any previous
+`/var/ossec/logs/alerts` contents into that volume before recreating Wazuh.
+Wazuh's entrypoint creates its archive and firewall log directories before
+the manager starts; without them, analysisd fails and SCA endpoints return
+errors. Check `docker exec sg-wazuh /var/ossec/bin/wazuh-control status`,
+`docker exec sg-promtail ls /var/ossec/logs/alerts`, and the proxy
+`/_proxy_health` route after a redeploy.
 
 `docker compose --profile monitoring up -d` starts the base services as well
 as monitoring services. Grafana is published on port 3002. The Wazuh proxy

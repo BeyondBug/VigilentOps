@@ -20,7 +20,7 @@ app = FastAPI(title="Wazuh Auth Proxy")
 WAZUH_URL  = os.getenv("WAZUH_URL", "https://sg-wazuh:55000")
 WAZUH_USER = os.getenv("WAZUH_USER", "wazuh")
 WAZUH_PASS = os.getenv("WAZUH_PASS", "")
-WAZUH_CA_CERT = os.getenv("WAZUH_CA_CERT", "/etc/wazuh/certs/api.crt")
+WAZUH_CA_CERT = os.getenv("WAZUH_CA_CERT", "/etc/wazuh/api/ssl/server.crt")
 
 if not WAZUH_PASS:
     raise RuntimeError("WAZUH_PASS must be configured")

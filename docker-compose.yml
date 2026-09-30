@@ -15,6 +15,7 @@ volumes:
   falco-socket:
   wazuh_data:
   wazuh_alerts:
+  wazuh_api_config:
 
 services:
 
@@ -389,6 +390,7 @@ services:
   wazuh:
     image: wazuh/wazuh-manager:4.7.3
     container_name: sg-wazuh
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /var/ossec/logs/archives /var/ossec/logs/firewall && chown wazuh:wazuh /var/ossec/logs/archives /var/ossec/logs/firewall && exec /init"]
     ports:
       - "1514:1514/udp"
       - "1515:1515"
@@ -398,6 +400,7 @@ services:
     volumes:
       - wazuh_data:/var/ossec/data
       - wazuh_alerts:/var/ossec/logs/alerts
+      - wazuh_api_config:/var/ossec/api/configuration
       - ./monitoring/wazuh/ossec.conf:/var/ossec/etc/ossec.conf:ro
       - ./monitoring/wazuh/shared:/var/ossec/etc/shared:rw
     networks:
@@ -442,9 +445,9 @@ services:
       - WAZUH_URL=https://sg-wazuh:55000
       - WAZUH_USER=${WAZUH_USER:-wazuh}
       - WAZUH_PASS=${WAZUH_PASSWORD:?Set WAZUH_PASSWORD in .env}
-      - WAZUH_CA_CERT=/etc/wazuh/certs/api.crt
+      - WAZUH_CA_CERT=/etc/wazuh/api/ssl/server.crt
     volumes:
-      - ./monitoring/wazuh/certs:/etc/wazuh/certs:ro
+      - wazuh_api_config:/etc/wazuh/api:ro
     expose:
       - "8002"
     depends_on:
