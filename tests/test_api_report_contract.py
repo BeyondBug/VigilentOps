@@ -53,6 +53,26 @@ class ApiReportContractTests(unittest.TestCase):
     def upload(self, tool, body):
         return self.client.post(f'/api/scans/{self.scan}/reports/{tool}', headers=self.headers, json=body)
 
+    def test_malformed_scan_coordinates_are_validation_errors(self):
+        valid = {'repo_url': 'http://sg-gitea:3000/BeyondBug/example.git', 'commit_sha': 'a' * 40, 'branch': 'main'}
+        for field, value in [('repo_url', None), ('repo_url', 'http://attacker.example:3000/owner/repo.git'),
+                             ('commit_sha', 'HEAD'), ('commit_sha', {}), ('branch', []),
+                             ('pipeline_commit', 'short-sha'), ('repo_name', {})]:
+            response = self.client.post('/api/scans', headers=self.headers, json={**valid, field: value})
+            self.assertEqual(response.status_code, 422)
+        with self.sessions() as session:
+            self.assertEqual(session.query(ScanRun).count(), 1)
+
+    def test_invalid_scan_identifier_is_a_validation_error(self):
+        self.assertEqual(self.client.get('/api/scans/not-an-id').status_code, 422)
+
+    def test_incomplete_or_failed_scan_cannot_queue_ai(self):
+        path = f'/api/scans/{self.scan}'
+        self.assertEqual(self.client.post(path + '/fix', headers=self.headers).status_code, 409)
+        self.assertEqual(self.client.patch(path, headers=self.headers, json={'status': 'failed'}).status_code, 200)
+        self.assertEqual(self.client.post(path + '/fix', headers=self.headers).status_code, 409)
+        self.assertEqual(self.client.patch(path, headers=self.headers, json={'status': 'complete'}).status_code, 409)
+
     def test_invalid_upload_is_non_success_and_creates_no_findings(self):
         for body in ({'version': '2.1.0', 'runs': []}, {'error': 'failed'}):
             self.assertEqual(self.upload('osv', body).status_code, 422)

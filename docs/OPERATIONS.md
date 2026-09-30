@@ -121,3 +121,10 @@ recovery separately; full restored service login/client validation remains
 required. The new scripts are prepared but unverified until the next server
 session. Existing historical backups use different manifests; do not run this
 restore command against them without an explicit conversion/review.
+
+Restore preflight now requires checksums for the database, private configuration
+and every distinct volume archive, exact image IDs and table counts before
+creating Docker resources. Missing, corrupt or symlinked artifacts are rejected.
+Backup output must be outside the checkout. Use a quiet maintenance window:
+prevent new pushes, API writes and scheduled jobs while taking the snapshot.
+Idle checks are point-in-time checks; they do not lock out other operators.

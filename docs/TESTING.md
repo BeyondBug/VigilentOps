@@ -235,3 +235,32 @@ its inactive state did not prove a kernel-driver incompatibility. See
 After all target scans, run coverage with `--pipeline-commit` and
 `--require-complete`. After manual triage, run `check_triage.py`. Neither tool
 substitutes for delivered hooks, patch review or verified exception evidence.
+
+## Follow-up code review fixes
+
+Required scanner commands now preserve execution failures instead of piping
+through `tail` or discarding nonzero exits. Bandit installation/scanning uses
+fail-fast shell execution and the same pinned version as candidate validation.
+Configured Snyk accepts only completed-scan exits 0/1 and uses `--fail-fast`;
+its error/unsupported-project exits fail the stage. Checkov uses its documented
+soft-fail setting for findings while preserving command execution failures.
+See [Snyk test semantics](https://docs.snyk.io/developer-tools/snyk-cli/commands/test),
+[Checkov soft fail](https://www.checkov.io/2.Basics/Hard%20and%20soft%20fail.html),
+and [Dockle exit behavior](https://github.com/goodwithtech/dockle#specify-exit-code).
+
+On Kali verify a failing scanner command fails its stage even when a partial
+report exists. Restricted execution logs for Semgrep, Gitleaks, Checkov and
+Trivy source scans stay in the temporary Jenkins workspace and are removed
+by cleanup; no raw scanner output is copied into public acceptance records.
+An execution success still does not establish that every language/file was
+analyzed; review native coverage and parser warnings separately.
+
+New API checks require trusted Gitea coordinates and an exact target SHA,
+return 422 for malformed input/IDs, and reject AI queuing for incomplete or
+failed scans. A failed scan cannot be relabeled complete; start a new scan.
+After restart, verify metric labels use the actual repository and the active
+scan gauge restores unfinished scan counts. Expanded server tests include
+these API checks and restore-manifest preflight; they have not run locally.
+Database connection construction now handles special characters in environment
+passwords, and SQLAlchemy error logs hide bound finding/report parameters.
+Verify connectivity using private configuration after recreating services.

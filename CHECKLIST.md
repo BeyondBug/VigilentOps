@@ -17,6 +17,11 @@ Kali. Follow [Next server session](docs/NEXT_SERVER_SESSION.md).
 - Last confirmed deployed code: `7bcfd0c` on Kali and Gitea. Compose validation
   and **33 Python tests passed on Kali at that commit**. The subsequent code
   changes and expanded tests have not run. Recheck GitHub/Gitea/server parity.
+- Follow-up code review corrected discarded scanner exit codes, malformed scan
+  coordinate handling, AI queuing from incomplete/failed scans, startup metric
+  attribution, database password escaping/log redaction and restore-manifest
+  preflight. These additions are untested;
+  include them in the next server run.
 - Private backups: `~/secureguard-backups/pre-grafana-20260930-115649`,
   `~/secureguard-backups/pre-proxy-20260930-145430`, and
   `~/secureguard-backups/gateway-20260930`. Integrity passed; these newer

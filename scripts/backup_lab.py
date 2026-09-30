@@ -42,6 +42,9 @@ def main():
     os.umask(0o077)
     directory = (args.output or Path.home() / 'secureguard-backups' /
                  ('lab-' + datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))).resolve()
+    checkout = Path.cwd().resolve()
+    if directory == checkout or checkout in directory.parents:
+        raise ValueError('Private backups must be outside the Git checkout')
     if directory.exists():
         raise ValueError('Choose a new backup directory; existing snapshots are never overwritten')
     directory.mkdir(mode=0o700, parents=True)

@@ -205,3 +205,10 @@ Documentation and the checklist describe these changes. They have **not** been
 built, tested or deployed. No local builds/tests were run. The project remains
 incomplete until [Next server session](NEXT_SERVER_SESSION.md) and the required
 [checklist](../CHECKLIST.md) gates have recorded evidence on the release commit.
+
+A subsequent offline review corrected scanner stages that discarded execution
+exit codes, tightened scan-coordinate validation and AI queue eligibility,
+fixed startup metrics attribution/count replay, and added restore-manifest
+preflight before Docker resource creation. These are code changes with prepared
+regression checks, not new acceptance evidence. No laptop builds/tests or
+additional server actions were performed.

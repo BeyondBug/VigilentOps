@@ -196,6 +196,7 @@ pipeline {
                 stage('Semgrep SAST') {
                     steps {
                         sh """
+                            set -eu
                             echo "Running Semgrep via HOST path: ${env.HOST_SOURCE}"
 
                             docker run --rm \
@@ -209,7 +210,7 @@ pipeline {
                                 --output=/reports/semgrep.sarif \
                                 --timeout=120 --max-memory=1024 --jobs=2 \
                                 --no-git-ignore --skip-unknown-extensions \
-                                /src 2>&1 | tail -10 || true
+                                /src > ${WORKSPACE}/semgrep-execution.log 2>&1
 
                             ls -lh ${REPORTS_DIR}/semgrep.sarif 2>/dev/null \
                               && echo "Semgrep OK — \$(wc -c < ${REPORTS_DIR}/semgrep.sarif) bytes" \
@@ -222,16 +223,17 @@ pipeline {
                     when { expression { return env.HAS_PYTHON == "true" } }
                     steps {
                         sh """
+                            set -eu
                             echo "Running Bandit via HOST path: ${env.HOST_SOURCE}"
 
                             docker run --rm \
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
-                              python:3.12-slim bash -c "
-                                pip install bandit -q --no-warn-script-location 2>/dev/null
-                                bandit -r /src -f json -o /reports/bandit.json --exit-zero 2>&1 | tail -5
-                                ls -lh /reports/bandit.json && echo 'Bandit wrote file' || echo 'Bandit no output'
-                              " || true
+                              python:3.12-slim bash -ec "
+                                pip install bandit==1.9.4 -q --no-warn-script-location
+                                bandit -r /src -f json -o /reports/bandit.json --exit-zero
+                                test -s /reports/bandit.json
+                              "
 
                             ls -lh ${REPORTS_DIR}/bandit.json 2>/dev/null \
                               && echo "Bandit OK — \$(wc -c < ${REPORTS_DIR}/bandit.json) bytes" \
@@ -243,6 +245,7 @@ pipeline {
                 stage('Gitleaks Secrets') {
                     steps {
                         sh """
+                            set -eu
                             echo "Running Gitleaks via HOST path: ${env.HOST_SOURCE}"
 
                             docker run --rm \
@@ -252,7 +255,7 @@ pipeline {
                                 --source=/src \
                                 --report-format=sarif \
                                 --report-path=/reports/gitleaks.sarif \
-                                --no-git --exit-code=0 2>&1 || true
+                                --no-git --exit-code=0 > ${WORKSPACE}/gitleaks-execution.log 2>&1
 
                             ls -lh ${REPORTS_DIR}/gitleaks.sarif 2>/dev/null \
                               && echo "Gitleaks OK — \$(wc -c < ${REPORTS_DIR}/gitleaks.sarif) bytes" \
@@ -264,6 +267,7 @@ pipeline {
                 stage('Trivy SCA') {
                     steps {
                         sh """
+                            set -eu
                             echo "Running Trivy via HOST path: ${env.HOST_SOURCE}"
 
                             docker run --rm \
@@ -278,7 +282,7 @@ pipeline {
                                 --exit-code 0 \
                                 --scanners vuln,secret \
                                 --skip-version-check \
-                                /src 2>&1 | tail -8 || true
+                                /src > ${WORKSPACE}/trivy-execution.log 2>&1
 
                             ls -lh ${REPORTS_DIR}/trivy-deps.sarif 2>/dev/null \
                               && echo "Trivy OK — \$(wc -c < ${REPORTS_DIR}/trivy-deps.sarif) bytes" \
@@ -290,6 +294,7 @@ pipeline {
                 stage('Checkov IaC') {
                     steps {
                         sh """
+                            set -eu
                             echo "Running Checkov via HOST path: ${env.HOST_SOURCE}"
 
                             docker run --rm \
@@ -298,7 +303,7 @@ pipeline {
                               bridgecrew/checkov:latest \
                                 -d /src \
                                 -o sarif \
-                                --output-file-path /reports 2>&1 | tail -5 || true
+                                --soft-fail --output-file-path /reports > ${WORKSPACE}/checkov-execution.log 2>&1
 
                             if [ -s ${REPORTS_DIR}/results_sarif.sarif ]; then
                                 mv ${REPORTS_DIR}/results_sarif.sarif ${REPORTS_DIR}/checkov.sarif
@@ -320,10 +325,15 @@ pipeline {
                                 echo "WARNING: SNYK_TOKEN not set, skipping."
                                 exit 0
                             fi
+                            SNYK_EXIT=0
                             docker run --rm \
                               -e SNYK_TOKEN \
                               -v ${env.HOST_SOURCE}:/src \
-                              snyk/snyk:linux test --sarif --all-projects > ${REPORTS_DIR}/snyk.sarif || true
+                              snyk/snyk:linux test --sarif --all-projects --fail-fast > ${REPORTS_DIR}/snyk.sarif || SNYK_EXIT=\$?
+                            case "\$SNYK_EXIT" in
+                                0|1) ;;
+                                *) echo "ERROR: Snyk execution failed (exit \$SNYK_EXIT)"; exit 1 ;;
+                            esac
 
                             test -s ${REPORTS_DIR}/snyk.sarif || {
                                 echo "ERROR: Snyk produced no SARIF report"
@@ -345,13 +355,14 @@ pipeline {
                 stage('Container Image Scans') {
                     steps {
                         sh """
+                            set -eu
                             echo "Building and scanning the first target Dockerfile"
                             DOCKERFILE=\$(find ${SOURCE_DIR} -name Dockerfile -print -quit)
                             if [ -n "\$DOCKERFILE" ]; then
                                 DIR=\$(dirname "\$DOCKERFILE")
                                 if docker build -t sg-target-scan:${BUILD_NUMBER} "\$DIR"; then
                                     touch ${REPORTS_DIR}/image-built.marker
-                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports goodwithtech/dockle:latest -f sarif -o /reports/dockle.sarif sg-target-scan:${BUILD_NUMBER} || true
+                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports goodwithtech/dockle:latest -f sarif -o /reports/dockle.sarif sg-target-scan:${BUILD_NUMBER}
                                     docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports -v trivy-cache:/root/.cache/trivy aquasec/trivy:latest image --timeout 30m --skip-db-update --cache-backend memory --format sarif --output /reports/trivy-image.sarif sg-target-scan:${BUILD_NUMBER}
                                 else
                                     echo "WARNING: target image build failed; image scanners skipped"
@@ -433,6 +444,7 @@ pipeline {
                 stage('Grype SCA') {
                     steps {
                         sh """
+                            set -eu
                             echo "Running Grype via HOST path: ${env.HOST_SOURCE}"
                             docker run --rm \
                               -v ${env.HOST_SOURCE}:/src \
@@ -444,7 +456,7 @@ pipeline {
                               -e GRYPE_DB_UPDATE_DOWNLOAD_TIMEOUT=3m \
                               anchore/grype:latest \
                                 dir:/src \
-                                -o sarif > ${REPORTS_DIR}/grype.sarif || true
+                                -o sarif > ${REPORTS_DIR}/grype.sarif
 
                             ls -lh ${REPORTS_DIR}/grype.sarif 2>/dev/null \
                               && echo "Grype OK — \$(wc -c < ${REPORTS_DIR}/grype.sarif) bytes" \
@@ -480,8 +492,9 @@ pipeline {
                 stage('Syft SBOM') {
                     steps {
                         sh """
+                            set -eu
                             echo "Running Syft SBOM Generator via HOST path: ${env.HOST_SOURCE}"
-                            docker run --rm -v ${env.HOST_SOURCE}:/src -v ${env.HOST_REPORTS}:/reports anchore/syft:latest dir:/src -o spdx-json=/reports/syft-sbom.json || true
+                            docker run --rm -v ${env.HOST_SOURCE}:/src -v ${env.HOST_REPORTS}:/reports anchore/syft:latest dir:/src -o spdx-json=/reports/syft-sbom.json
                             ls -lh ${REPORTS_DIR}/syft-sbom.json 2>/dev/null && echo "Syft OK" || echo "WARNING: Syft no output"
                         """
                     }

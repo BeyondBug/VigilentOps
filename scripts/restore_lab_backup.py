@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import secrets
+import re
 import subprocess
 import time
 import uuid
@@ -13,21 +14,52 @@ from pathlib import Path
 from backup_lab import run, table_counts
 
 
+def validate_backup(directory):
+    """Verify every required artifact before creating any Docker resources."""
+    metadata = json.loads((directory / 'manifest.json').read_text())
+    if not isinstance(metadata, dict):
+        raise ValueError('Backup manifest must be an object')
+    checksums = metadata.get('checksums')
+    if not isinstance(checksums, dict) or not {'postgres.dump', 'private-config.tgz'} <= set(checksums):
+        raise ValueError('Backup manifest must checksum the database and private configuration')
+    for field in ('postgres_image', 'archive_image'):
+        if not isinstance(metadata.get(field), str) or not re.fullmatch(r'sha256:[0-9a-f]{64}', metadata[field]):
+            raise ValueError('Backup must record exact local image IDs')
+    counts = metadata.get('table_counts')
+    if not isinstance(counts, dict) or not counts or any(not isinstance(name, str) or type(count) is not int or count < 0 for name, count in counts.items()):
+        raise ValueError('Backup must record database table counts')
+    volumes = metadata.get('volumes')
+    if not isinstance(volumes, list) or not volumes:
+        raise ValueError('Backup must record persistent volume archives')
+    names = []
+    for item in volumes:
+        if not isinstance(item, dict) or not isinstance(item.get('archive'), str) or not item.get('source'):
+            raise ValueError('Invalid volume archive entry')
+        names.append(item['archive'])
+    if len(names) != len(set(names)) or not set(names) <= set(checksums):
+        raise ValueError('Every volume needs a distinct checksummed archive')
+    for name, expected in checksums.items():
+        if (not isinstance(name, str) or Path(name).name != name or name in {'.', '..'}
+                or not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected)):
+            raise ValueError('Invalid backup checksum entry')
+        path = directory / name
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('Backup artifact is missing or is a symbolic link')
+        digest = hashlib.sha256()
+        with path.open('rb') as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b''):
+                digest.update(block)
+        if digest.hexdigest() != expected:
+            raise ValueError('Backup checksum failed: ' + name)
+    return metadata
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('backup', type=Path)
     args = parser.parse_args()
     directory = args.backup.resolve()
-    metadata = json.loads((directory / 'manifest.json').read_text())
-    for name, expected in metadata['checksums'].items():
-        if Path(name).name != name:
-            raise ValueError('Manifest archive paths must be filenames')
-        digest = hashlib.sha256()
-        with (directory / name).open('rb') as stream:
-            for block in iter(lambda: stream.read(1024 * 1024), b''):
-                digest.update(block)
-        if digest.hexdigest() != expected:
-            raise ValueError('Backup checksum failed: ' + name)
+    metadata = validate_backup(directory)
     prefix = 'sg-restore-' + uuid.uuid4().hex[:12]
     database = prefix + '-postgres'
     volumes = []

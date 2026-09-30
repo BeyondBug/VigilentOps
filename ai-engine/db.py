@@ -4,14 +4,16 @@ from contextlib import contextmanager
 from sqlalchemy import create_engine, Column, Integer, Float, Text, DateTime, JSON
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.engine import URL
 from datetime import datetime
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    f"postgresql://{os.getenv('POSTGRES_USER','sgadmin')}:{os.getenv('POSTGRES_PASSWORD','')}@postgres:5432/{os.getenv('POSTGRES_DB','secureguard')}"
+DATABASE_URL = os.getenv('DATABASE_URL') or URL.create(
+    'postgresql', username=os.getenv('POSTGRES_USER', 'sgadmin'),
+    password=os.getenv('POSTGRES_PASSWORD', ''), host='postgres',
+    port=5432, database=os.getenv('POSTGRES_DB', 'secureguard'),
 )
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300, hide_parameters=True)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 

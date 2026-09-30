@@ -3,6 +3,7 @@ import logging
 import hmac
 import hashlib
 import json
+import re
 from datetime import datetime
 
 from fastapi import FastAPI, Request, HTTPException
@@ -62,22 +63,23 @@ async def startup():
             from sqlalchemy import text as _text, func
             # Count scans by status
             rows = db.execute(_text(
-                "SELECT status, COUNT(*) FROM scan_runs GROUP BY status"
+                "SELECT COALESCE(repo_name, 'unknown'), status, COUNT(*) FROM scan_runs GROUP BY repo_name, status"
             )).fetchall()
-            for status, count in rows:
-                for _ in range(count):
-                    scans_total.labels(repo="ShadowPatch", status=status).inc()
+            for repo, status, count in rows:
+                scans_total.labels(repo=repo, status=status).inc(count)
+            scans_active.set(db.execute(_text(
+                "SELECT COUNT(*) FROM scan_runs WHERE finished_at IS NULL AND status IN ('running', 'pr_opened')"
+            )).scalar())
 
             # Count findings by severity and scanner
             rows2 = db.execute(_text(
                 "SELECT severity, scanner, COUNT(*) FROM findings GROUP BY severity, scanner"
             )).fetchall()
             for severity, scanner, count in rows2:
-                for _ in range(count):
-                    findings_total.labels(
-                        severity=severity or "UNKNOWN",
-                        scanner=scanner or "unknown"
-                    ).inc()
+                findings_total.labels(
+                    severity=severity or "UNKNOWN",
+                    scanner=scanner or "unknown"
+                ).inc(count)
 
             # One PR may be associated with thousands of findings. Count its
             # URL once, matching the increment performed when a PR is opened.
@@ -88,8 +90,7 @@ async def startup():
                    GROUP BY s.repo_name"""
             )).fetchall()
             for repo_name, count in prs:
-                for _ in range(count):
-                    prs_opened_total.labels(repo=repo_name or "unknown").inc()
+                prs_opened_total.labels(repo=repo_name or "unknown").inc(count)
 
             print(f"Metrics replayed from DB on startup")
     except Exception as e:
@@ -191,9 +192,25 @@ async def create_scan(request: Request):
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail='Scan payload must be an object')
     expected = required_tools(body.get('required_reports', sorted(REQUIRED_TOOLS)))
-    repo_url   = body.get("repo_url", "")
-    commit_sha = body.get("commit_sha", "HEAD")
+    repo_url   = body.get("repo_url")
+    commit_sha = body.get("commit_sha")
     branch     = body.get("branch", "main")
+    from fix_engine import canonical_repo_url
+    if not isinstance(repo_url, str):
+        raise HTTPException(status_code=422, detail='repo_url must be a configured Gitea clone URL')
+    try:
+        repo_url = canonical_repo_url(repo_url)
+    except ValueError:
+        raise HTTPException(status_code=422, detail='repo_url must be a configured Gitea clone URL')
+    if not isinstance(commit_sha, str) or not re.fullmatch(r'[0-9a-fA-F]{40}', commit_sha):
+        raise HTTPException(status_code=422, detail='commit_sha must be the exact 40-character scanned commit')
+    if not isinstance(branch, str) or not re.fullmatch(r'[A-Za-z0-9_][A-Za-z0-9_./-]{0,254}', branch):
+        raise HTTPException(status_code=422, detail='Invalid scan branch')
+    pipeline_commit = body.get('pipeline_commit')
+    if pipeline_commit is not None and (not isinstance(pipeline_commit, str) or not re.fullmatch(r'[0-9a-fA-F]{40}', pipeline_commit)):
+        raise HTTPException(status_code=422, detail='pipeline_commit must be a full Git SHA')
+    if body.get('repo_name') is not None and (not isinstance(body['repo_name'], str) or len(body['repo_name']) > 255):
+        raise HTTPException(status_code=422, detail='Invalid repository name')
     repo_name  = body.get("repo_name") or repo_url.rstrip("/").removesuffix(".git").split("/")[-1]
 
     try:
@@ -207,7 +224,7 @@ async def create_scan(request: Request):
                 status       = "running",
                 started_at   = datetime.utcnow(),
                 required_reports = expected,
-                pipeline_commit = body.get('pipeline_commit'),
+                pipeline_commit = pipeline_commit,
             )
             db.add(scan)
             db.flush()          # flush to get the auto-generated id
@@ -249,7 +266,7 @@ async def get_scans(limit: int = 100, summary_only: bool = False):
 
 
 @app.get("/api/scans/{scan_id}")
-async def get_scan(scan_id: str):
+async def get_scan(scan_id: int):
     try:
         with get_db_session() as db:
             result = db.query(ScanRun).filter_by(id=int(scan_id)).first()
@@ -269,7 +286,7 @@ async def get_scan(scan_id: str):
 
 
 @app.patch("/api/scans/{scan_id}")
-async def update_scan(scan_id: str, request: Request):
+async def update_scan(scan_id: int, request: Request):
     """Called by Jenkins to update scan status."""
     try:
         body = await request.json()
@@ -291,6 +308,8 @@ async def update_scan(scan_id: str, request: Request):
                         raise HTTPException(status_code=422, detail='Required reports cannot be removed')
                     scan.required_reports = expected
                 if status == 'complete':
+                    if scan.status == 'failed':
+                        raise HTTPException(status_code=409, detail='Failed scans require a new scan; completion cannot be replayed')
                     received = {report.tool for report in db.query(ScanReport).filter_by(scan_run_id=scan.id).all()}
                     missing = set(scan.required_reports or REQUIRED_TOOLS) - received
                     if missing:
@@ -398,9 +417,7 @@ async def enrich_scan(scan_id: str, request: Request):
 @app.post("/api/scans/{scan_id}/fix")
 async def fix_scan(scan_id: str, request: Request):
     """
-    AI fix engine trigger — called by Jenkins after CVE enrichment.
-    Reads HIGH/CRITICAL findings, calls NVIDIA NIM, opens Gitea PRs.
-    Runs in background so Jenkins does not timeout.
+    Queue a proposal for eligible Python SAST findings after report acceptance.
     """
     # Repository coordinates are always loaded from the trusted scan record. Never
     # accept a caller-provided URL because clone_repo injects the Gitea credential.
@@ -413,6 +430,11 @@ async def fix_scan(scan_id: str, request: Request):
         scan = db.query(ScanRun).filter_by(id=numeric_scan_id).first()
         if not scan:
             raise HTTPException(status_code=404, detail="Scan not found")
+        if scan.status == 'failed':
+            raise HTTPException(status_code=409, detail='Cannot remediate a failed scan')
+        received = {report.tool for report in db.query(ScanReport).filter_by(scan_run_id=scan.id).all()}
+        if set(scan.required_reports or REQUIRED_TOOLS) - received:
+            raise HTTPException(status_code=409, detail='Accept all required reports before queuing remediation')
         repo_url = scan.repo_url
         commit_sha = scan.commit_sha
 

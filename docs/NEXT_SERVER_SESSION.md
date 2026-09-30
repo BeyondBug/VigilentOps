@@ -199,3 +199,12 @@ git ls-remote origin refs/heads/main
 
 Update [CHECKLIST](../CHECKLIST.md) with evidence and limitations. Mark the lab
 complete only when all required gates pass on this exact release commit.
+
+## Follow-up verification
+
+Include the follow-up scanner exit-code, API-input/AI-eligibility, startup
+metrics and recovery-manifest fixes in the same acceptance run. Use a quiet
+maintenance window for backups; idle checks do not prevent a different operator
+from starting work. Required scanners must fail on execution errors even when
+a partial report exists. Do not invoke remediation on historical scans without
+new report receipts; rerun them first.
