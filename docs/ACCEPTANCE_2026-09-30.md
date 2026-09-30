@@ -225,3 +225,14 @@ Kali. **No images, builds, application checks or tests were run on the laptop.**
 Server compatibility, report coverage and rendered charts remain unverified.
 Follow [Next server session](NEXT_SERVER_SESSION.md); earlier acceptance does
 not establish success for these code changes.
+
+## Offline AI reliability preparation
+
+Expanded explicit model routes (maximum 32), optional shared-key NVIDIA model
+allowlist, per-file budgets and process-local route cooldowns are prepared.
+The response parser rejects explicit truncation, filtering, refusals and tool
+requests. Server-only regression cases and a synthetic model compatibility
+fixture were added. None was run on the laptop. Live model entitlement/quota,
+fixture compatibility and one real PR-head remediation remain required.
+See [Model pool](MODEL_POOL.md). This does not extend automatic remediation
+beyond eligible Python SAST or establish project completion.

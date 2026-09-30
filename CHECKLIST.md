@@ -81,6 +81,11 @@ Kali. Follow [Next server session](docs/NEXT_SERVER_SESSION.md).
   tokens in temporary askpass/environment rather than command arguments.
 - [x] Keep findings open if whole-scan conversation publication is incomplete;
   include report coverage and available artifact metadata in future PRs.
+- [x] Prepare up to 32 explicit model routes, a shared NVIDIA allowlist,
+  process-local cooldowns, per-file route budgets and rejection of truncated,
+  refusal and tool-call responses. Add a Kali-only synthetic pool fixture.
+- [ ] Verify model access/response compatibility, cooldowns and budgets on Kali;
+  record a real accepted PR-head fix before relying on a route's patch quality.
 - [x] Prepare administrator-only PR-head scanning without queuing another AI fix.
 - [x] Prepare a server-only controlled Celery/HTTP retry and fallback fixture.
 - [ ] Run the expanded Python suite and controlled failure fixture on Kali.

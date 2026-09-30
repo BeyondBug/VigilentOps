@@ -215,3 +215,14 @@ maintenance window for backups; idle checks do not prevent a different operator
 from starting work. Required scanners must fail on execution errors even when
 a partial report exists. Do not invoke remediation on historical scans without
 new report receipts; rerun them first.
+
+## Model-pool compatibility and real fix acceptance
+
+Configure only account-verified model IDs in the private `.env`. Follow
+[Model pool](MODEL_POOL.md) to run the synthetic compatibility fixture after
+rebuilding images, the expanded suite and the controlled Celery checks.
+Verify route budgets, cooldown expiry and rejection of truncated/refusal/tool
+responses. Then create and review one real proposal, scan its exact head and
+exercise affected clients before recording an accepted fix. Synthetic fixture
+success alone does not meet that gate. Keep cooldown state at one worker;
+provider-wide quota handling across workers remains future work.

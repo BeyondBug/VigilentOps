@@ -22,6 +22,17 @@ class LLMResponseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             extract_llm_content({"choices": [{"message": {}}]})
 
+    def test_truncated_filtered_tool_calls_and_refusals_are_rejected(self):
+        for reason in ('length', 'content_filter', 'tool_calls'):
+            with self.assertRaises(ValueError):
+                extract_llm_content({'choices': [{'finish_reason': reason,
+                    'message': {'content': "print('incomplete')"}}]})
+        for message in ({'content': [], 'refusal': 'cannot comply'},
+                        {'content': 'pass', 'tool_calls': [{'id': 'unsupported'}]},
+                        {'content': ['unexpected structured content']}):
+            with self.assertRaises(ValueError):
+                extract_llm_content({'choices': [{'message': message}]})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,9 +21,14 @@ def extract_llm_content(data) -> str:
     if not isinstance(data, dict):
         raise ValueError("LLM returned an invalid response type")
     choices = data.get("choices") or []
-    if not choices:
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
         raise ValueError("LLM returned no choices")
-    content = choices[0].get("message", {}).get("content")
-    if not content:
+    if choices[0].get('finish_reason') not in (None, 'stop'):
+        raise ValueError('LLM response was truncated, filtered or requires tool execution')
+    message = choices[0].get('message')
+    if not isinstance(message, dict) or message.get('refusal') or message.get('tool_calls'):
+        raise ValueError('LLM returned a refusal or unsupported tool request')
+    content = message.get("content")
+    if not isinstance(content, str) or not content.strip():
         raise ValueError("LLM returned no text content")
     return unfence(content)

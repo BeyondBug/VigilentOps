@@ -17,11 +17,11 @@ finding. See [AI PR review](AI_PR_REVIEW.md) for the release decision.
 - For HTTP 429 and temporary 5xx responses, the worker makes up to three
   attempts. It uses `Retry-After` when present (seconds or HTTP date), with a
   bounded delay (at most one hour), and uses exponential backoff with jitter otherwise. If a
-  requested wait exceeds a minute, it tries another configured model instead
+  requested wait exceeds a minute, it tries another available configured model instead
   of holding a worker idle. Error bodies are not logged because they may
   contain source or credentials.
-- If all usable routes are rate limited, Celery defers the whole proposal
-  task for the provider's requested interval, up to five retries. No branch
+- If usable routes are cooling or temporarily unavailable, Celery defers the whole proposal
+  task until the earliest recorded route cooldown expires, up to five retries. No branch
   is pushed before the full proposal is assembled, so this retry starts from
   the scan commit. A task that still cannot call a model ends in failure and
   leaves findings open for a later manual rerun.
@@ -84,3 +84,13 @@ uses real Celery/Redis scheduling on a unique queue with a local fake provider;
 it checks deferred 429 exhaustion and invalid-output fallback without database
 changes or PR publication. It does not establish real-provider or real-patch
 acceptance. These new checks have not yet run.
+
+## Expanded model pool
+
+Numbered routes now support indices above nine, up to 32 distinct routes.
+An explicit `NVIDIA_NIM_MODELS` list can share `NVIDIA_NIM_API_KEY`. The worker
+skips cooling routes, bounds attempts per file and rejects explicitly truncated,
+filtered, refusal or tool-call responses. Cooldowns are process-local and
+reset on restart; keep the single-worker lab default. Configuration, limitations
+and the Kali-only synthetic compatibility check are in [Model pool](MODEL_POOL.md).
+These changes are prepared, not verified against live NVIDIA models.

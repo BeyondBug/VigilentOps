@@ -16,9 +16,15 @@ sys.path.insert(0, os.path.join(ROOT, "ai-engine"))
 import fix_engine
 from fix_validation import preserves_python_interface, validates_security_change
 from pr_findings import build_finding_comments
+from model_pool import RouteCooldowns
 
 
 class RemediationSafetyTests(unittest.TestCase):
+    def setUp(self):
+        cooldowns = patch.object(fix_engine, 'MODEL_COOLDOWNS', RouteCooldowns())
+        cooldowns.start()
+        self.addCleanup(cooldowns.stop)
+
     def test_clone_rejects_untrusted_origin_port_and_path_before_git(self):
         with patch.object(fix_engine.subprocess, 'run') as git:
             for url in ('http://attacker.example:3000/owner/repo.git',

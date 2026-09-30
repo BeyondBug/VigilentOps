@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import logging
 import random
+import math
 import re
 import sys
 from datetime import datetime, timezone
@@ -24,6 +25,7 @@ from llm_response import extract_llm_content
 from fix_validation import parses_ok, preserves_python_interface, validates_security_change
 from fix_prompts import build_primary_prompt
 from pr_findings import build_finding_comments
+from model_pool import load_model_pool, bounded_integer, RouteCooldowns
 
 import httpx
 import psycopg2
@@ -33,28 +35,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 # ── Config ────────────────────────────────────────────────────
 
-MODELS = []
-for i in range(1, 10):
-    m = os.getenv(f"MODEL_{i}")
-    k = os.getenv(f"API_KEY_{i}")
-    u = os.getenv(f"API_URL_{i}")
-    if m and k and u:
-        MODELS.append({"model": m, "key": k, "url": u})
-
-# Fallback to legacy
-if not MODELS:
-    for prefix, default_model, default_url in (
-        ("PRIMARY", "moonshotai/kimi-k3", "https://api.moonshot.cn/v1/chat/completions"),
-        ("SECONDARY", "deepseek-ai/deepseek-v4-flash-0731", "https://api.deepseek.com/chat/completions"),
-        ("FALLBACK", "meta/muse-glimmer-30b", "https://api.together.xyz/v1/chat/completions"),
-    ):
-        key = os.getenv(f"{prefix}_API_KEY", "")
-        if key:
-            MODELS.append({
-                "model": os.getenv(f"{prefix}_MODEL", default_model),
-                "key": key,
-                "url": os.getenv(f"{prefix}_API_URL", default_url),
-            })
+MODELS = load_model_pool(os.environ)
+MAX_MODEL_ROUTES_PER_FILE = bounded_integer(os.environ, 'AI_MAX_MODEL_ROUTES_PER_FILE', 4, 1, 32)
+MODEL_FAILURE_COOLDOWN = bounded_integer(os.environ, 'AI_MODEL_FAILURE_COOLDOWN_SECONDS', 60, 1, 3600)
+MODEL_COOLDOWNS = RouteCooldowns()
 
 GITEA_URL        = os.getenv("GITEA_URL",      "http://sg-gitea:3000")
 
@@ -155,11 +139,11 @@ GENERATED_LOCKFILES = {
 
 
 class RateLimitDeferred(Exception):
-    """All usable model routes were rate limited; retry the Celery task later."""
+    """Usable routes are cooling or unavailable; retry the Celery task later."""
 
     def __init__(self, retry_after: int):
         self.retry_after = retry_after
-        super().__init__(f"Model provider rate limited; retry in {retry_after}s")
+        super().__init__(f"Model routes temporarily unavailable; retry in {retry_after}s")
 
 
 def _retry_delay(value: str | None, attempt: int) -> int:
@@ -176,7 +160,7 @@ def _retry_delay(value: str | None, attempt: int) -> int:
                 delay = (target - datetime.now(timezone.utc)).total_seconds()
             except (TypeError, ValueError, OverflowError):
                 pass
-    if delay is None:
+    if delay is None or not math.isfinite(delay):
         delay = min(60, 2 ** (attempt + 2)) + random.uniform(0, 1)
     return max(1, min(3600, int(delay + 0.999)))
 
@@ -238,6 +222,7 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
 
     deferred = []
     validation_feedback = ""
+    attempted = 0
     for i, m_conf in enumerate(MODELS):
         m = m_conf["model"]
         k = m_conf["key"]
@@ -247,13 +232,29 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
             log.warning(f"Skipping model {m} because API key is empty.")
             continue
 
+        remaining = MODEL_COOLDOWNS.remaining(m_conf)
+        if remaining:
+            deferred.append(remaining)
+            log.info('Skipping cooling model %s; retry available in %ss', m, remaining)
+            continue
+        if attempted >= MAX_MODEL_ROUTES_PER_FILE:
+            log.warning('Per-file model route budget exhausted (%s)', MAX_MODEL_ROUTES_PER_FILE)
+            break
+        attempted += 1
+
         log.info(f"Trying model {i+1}/{len(MODELS)}: {m}")
         try:
             content = call_llm(prompt + validation_feedback, m, u, k, max_tokens)
         except RateLimitDeferred as exc:
+            MODEL_COOLDOWNS.defer(m_conf, exc.retry_after)
             deferred.append(exc.retry_after)
             log.warning("Model %s rate limited; trying next configured model", m)
             continue
+        if not content:
+            MODEL_COOLDOWNS.defer(m_conf, MODEL_FAILURE_COOLDOWN)
+            deferred.append(MODEL_FAILURE_COOLDOWN)
+        else:
+            MODEL_COOLDOWNS.clear(m_conf)
         if content and content.strip() != file_content.strip() and parses_ok(file_path, content) and len(content.splitlines()) >= len(file_content.splitlines()) * 0.7:
             if file_path.endswith('.py') and not preserves_python_interface(file_content, content):
                 validation_feedback = "\nPREVIOUS CANDIDATE REJECTED: preserve existing classes, functions, method names and argument names.\n"
@@ -270,7 +271,7 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
             log.warning("Model %s returned no usable content; trying next model", m)
 
     if deferred:
-        raise RateLimitDeferred(max(deferred))
+        raise RateLimitDeferred(min(deferred))
     return "", ""
 
 

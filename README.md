@@ -36,6 +36,10 @@ See [Architecture](docs/ARCHITECTURE.md) for the service map, repository layout,
 
 The latest changes are prepared for deployment. Follow [Next server session](docs/NEXT_SERVER_SESSION.md) to migrate the schema, enable native Jenkins security and verify the changes on Kali. [CHECKLIST.md](CHECKLIST.md) records the remaining acceptance work; the lab is not yet complete.
 
+The AI [model pool](docs/MODEL_POOL.md) supports explicit NVIDIA backups,
+bounded attempts and route cooldowns. Model compatibility and accepted real
+fixes must still be demonstrated on Kali.
+
 ## Repository map
 
 | Path | Purpose |
