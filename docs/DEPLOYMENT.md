@@ -92,6 +92,11 @@ this server:
 docker compose --profile ci up -d jenkins
 ```
 
+Existing controllers need the coordinated [Jenkins upgrade procedure](JENKINS_UPGRADES.md).
+The core image is pinned to 2.580.1 LTS / Java 25, and `jenkins/plugins.txt`
+defines compatible plugin versions. Compose enables reference-plugin upgrades
+for the persistent home; preserve an idle controller backup before recreation.
+
 Start Wazuh before its proxy so the manager can generate its API certificate
 and security database in the persistent `wazuh_api_config` volume:
 

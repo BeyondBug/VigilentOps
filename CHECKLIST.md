@@ -15,11 +15,21 @@ No application or test runs are performed on the laptop. See
 - Native Jenkins authentication, matrix permissions, CSRF and private hooks
   are deployed. All eight Prometheus targets and 22 provisioned Grafana
   queries passed. Grafana Live returned 101. Falco now captures real events.
-- All 13 current repositories have successful scans of their default-branch
-  heads in the latest coverage audit. Pipeline revisions are mixed:
-  `afbda39` and `75e6986`. Repeat against the final shared pipeline revision.
+- Jenkins was upgraded from 2.555.3 to pinned **2.580.1 LTS / Java 25**;
+  all 97 managed plugins loaded and no installed-version advisory warning
+  remained in the official update-center check. Jenkins #395 / scan #306
+  completed on the new controller. The subsequent image removes its unused
+  SSH client; Git remains available. See [upgrade procedure](docs/JENKINS_UPGRADES.md).
+- The gateway now uses pinned Nginx **1.30.5**. TLS, HTTPS Git, Grafana Live,
+  authenticated routes, eight targets and 22 queries passed after recreation.
+  Only running gateway port 3000 is published; 17 former listeners were closed.
+- All 13 current repositories passed default-branch head coverage using shared
+  pipeline `83b5434` (Jenkins #379–391 / scans #289–301). Later changes must
+  retain their own exact-commit evidence.
   Every current repository is a real project requiring remediation review;
   none has been classified as intentionally vulnerable.
+  The owner confirmed the target repositories are currently used for testing;
+  no target application deployment was identified in this session.
 - Jenkins #346 / scan #268 accepted 13 reports with 3,820 finding records.
   The later #364 / scan #286 reported zero critical and 54 high across
   285 records. Those counts are historical scan records,
@@ -27,13 +37,17 @@ No application or test runs are performed on the laptop. See
 - The dashboard now polls summaries and fetches 50 findings per page;
   browser checks verified all tabs, page navigation and filtered search.
   The expanded suite passed **96 tests** at `ab6c0b0` on Kali.
-- Private backup `~/secureguard-backups/lab-20261001-091137` passed an isolated
-  restore: 122 table counts and eight volume archives matched. Full restored
-  service login/access remains a separate gate. Older snapshots are retained.
-- AI proposals require manual approval. PR #18 and sg-bench PR #1 were
-  rejected without merging; 21 proposed finding records were reopened.
-  PR #1 passed a head scan but failed input-format/password review.
-  No accepted real AI fix is claimed.
+- Private backup `~/secureguard-backups/lab-20261001-114129` passed an isolated
+  restore: 123 table counts and eight volume archives matched, followed by
+  authenticated restored Gitea/Jenkins/Grafana access. Writers/workers resumed;
+  older snapshots are retained. Full restored application workflows remain
+  beyond this core access drill.
+- AI proposals require manual approval. PR #18 and the original sg-bench
+  proposal were rejected; 21 proposed finding records were reopened.
+  PR #1 was corrected to retain only the reviewed SQL parameterization and
+  merged after SQLite behavior checks and Jenkins #392 / scan #302 on its
+  exact head. Other findings remain open. This was an AI-assisted fix with
+  manual correction, not evidence of fully automated remediation.
 - The user chose complete finding conversations for future PRs only. Leave
   the 50 older conversations unchanged; they still require normal review.
 
@@ -62,10 +76,17 @@ No application or test runs are performed on the laptop. See
   default-branch heads. Record the mixed pipeline revisions in evidence.
 - [x] Reconcile scope: ShadowPatch is historical; SIET-Hackathon is a current
   scanned target. Shared pipeline/rules come from VigilentOps/main.
-- [ ] Audit fresh coverage for all targets against the final shared pipeline
-  commit, recording target SHA, pipeline SHA, build, scan and delivery.
-- [ ] Verify temporary NVD key removal in a fresh live run and an actual
-  rejected-upload Jenkins run; do not infer these from a successful build.
+- [x] Audit all 13 target heads against shared pipeline `83b5434`, recording
+  target SHA, pipeline SHA, build and scan. Recheck changed targets after
+  later commits; do not describe this as coverage of a newer pipeline SHA.
+- [x] Observe NVD key removal after Dependency-Check in Jenkins #395, while
+  its SARIF still exists. A temporary Jenkins job's real malformed upload
+  returned 422, failed build 1 and scan #304, and stored zero findings/reports;
+  the fixture job was removed.
+- [x] Audit all 25 exact images referenced by existing Compose containers,
+  including stopped services, using Trivy and Dockle. Keep the full private
+  reports and database timestamp. Audit changed Jenkins/gateway images
+  separately; valid reports do not dispose of their remaining findings.
 - [ ] Extend image coverage beyond the first Dockerfile when repositories
   deploy multiple images; inventory intended artifacts before accepting scope.
 
@@ -93,10 +114,11 @@ No application or test runs are performed on the laptop. See
   rejected proposal findings open and retain the review evidence.
 - [x] Verify the new PR #1's 11 numbered parts cover all 179 stored findings
   exactly once. PR #18's earlier 220-part verification remains recorded.
-- [ ] Review every proposed interface change through relevant clients before
-  accepting a real fix.
-- [ ] Produce one accepted real fix with a reviewed diff, PR-head rescan and
-  client checks. Scanner silence alone is insufficient; never auto-merge.
+- [x] Review the accepted SQL patch's entire diff and exercise its SQLite
+  caller with normal IDs and injection attempts; preserve surrounding code.
+- [x] Produce one accepted AI-assisted fix with manual correction, a reviewed
+  diff, exact PR-head rescan and behavior checks. PR #1 head `652da8b` passed
+  Jenkins #392 / scan #302, then merged as `bbbb52f`. Other findings stay open.
 - [ ] Review live terminal task diagnostics and finding states after exhausted
   providers or unsafe proposals. Multi-worker/global quota coordination and
   duplicate task admission need additional design before scaling.
@@ -111,7 +133,7 @@ No application or test runs are performed on the laptop. See
   audit vulnerabilities. A fresh full scan is still required.
 - [x] Complete #364 / scan #286 after those changes: zero critical, 54 high.
   This result covers the existing pipeline scope, including one built image.
-- [ ] Verify final container hardening: remove unused runtime/bootstrap tools,
+- [x] Verify final container hardening: remove unused runtime/bootstrap tools,
   image health checks, unprivileged dashboard Nginx and limited workflow
   permissions. Rebuild, verify clients and inspect fresh scanner results.
 - [ ] Export the final complete scan and review grouping by advisory,
@@ -131,6 +153,9 @@ No application or test runs are performed on the laptop. See
   block public Jenkins triggers. All 16 former application listeners closed.
 - [x] Deploy native Jenkins user realm, matrix permissions and CSRF; anonymous
   Docker-network API access denied, metrics account cannot administer Jenkins.
+- [x] Upgrade Jenkins core, Java and compatible plugins after an isolated
+  restored-volume rehearsal and private pre-upgrade backup. Verify plugin
+  activation, advisories, native access and a successful real push/scan.
 - [x] Migrate all 13 hooks to private credentials; historical token rejected
   and private dry-run matched exactly one job without queuing work.
 - [x] Verify all eight targets, 22 provisioned Grafana queries, Live WebSocket,
@@ -148,10 +173,16 @@ No application or test runs are performed on the laptop. See
 - [x] Create a private consistent snapshot, retaining exact runtime image IDs.
 - [x] Restore the database and eight volume archives into disposable resources;
   compare all 122 table counts and archive contents; remove drill resources.
-- [ ] Rehearse full restored Gitea/Jenkins/Grafana access in an isolated stack.
-  Archive comparison alone does not establish application recovery.
-- [ ] Take a final snapshot covering the deployed native access configuration;
-  retain older snapshots and verify writers resume normally.
+- [x] Rehearse restored Gitea/Jenkins/Grafana access in an isolated stack;
+  verify native authentication, recovered inventory and disabled execution.
+  Full restored application workflows are a separate future exercise.
+- [x] Take a fresh snapshot covering the deployed native access configuration;
+  retain older snapshots and verify writers resume normally. Snapshot
+  `lab-20261001-114129` records checkout `572cfc4` and exact runtime image IDs.
+- [x] Retain Jenkins pre-upgrade volume/configuration backup
+  `~/secureguard-backups/pre-jenkins-upgrade-20261001-121746` and its old image.
+  Rehearse the upgraded core with snapshot credentials/security startup and
+  execution disabled. Preserve the old gateway image for gateway rollback.
 - [ ] Run Compose validation, builds, migrations, suite and health/client checks
   on the exact final release commit.
 - [ ] Complete final push → Jenkins → reports → database → dashboard acceptance

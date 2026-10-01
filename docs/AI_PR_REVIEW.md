@@ -34,3 +34,10 @@ pickle-to-JSON and plain SHA-256 password changes failed review. That PR was
 also closed, reopening 16 proposal records. This is evidence that a successful
 scan and preserved signatures do not prove a safe fix. See
 [the dated review record](ACCEPTANCE_2026-10-01.md).
+
+Later that day, PR #1 was corrected to keep only the SQL parameterization.
+All surrounding code matched the scanned base; SQLite normal-ID and injection
+checks passed on Kali. Exact-head Jenkins #392 / scan #302 reproduced no B608
+and introduced no Bandit/Semgrep findings. The reviewed correction was merged
+as `bbbb52f`. This demonstrates an AI-assisted fix with manual correction;
+the unrelated findings and PR #18 remain unresolved.

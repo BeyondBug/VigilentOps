@@ -1,7 +1,9 @@
 # Server acceptance progress — 1 October 2026
 
-This record is incomplete. Builds and tests run only on Kali; no runtime
-result from earlier commits proves the pending changes work.
+This is a chronological progress record, beginning with the initial inspection
+and ending with the later verified results below. Release acceptance remains
+incomplete. Builds and tests run only on Kali; results apply to their recorded
+commits and scope.
 
 | Check | Evidence | Result |
 | --- | --- | --- |
@@ -238,3 +240,177 @@ checks, runs dashboard Nginx as its unprivileged user, and limits GitHub
 workflow permissions to contents read. API HTTP image probes are disabled in
 worker services because those processes do not serve the API. These final
 container corrections require their own build/deployment/rescan results.
+
+The container changes built successfully on Kali, and all 96 tests passed
+again at `9b52794` and the documentation checkout `6aa46a2`. Migration rerun
+exited zero. Jenkins **#365** / scan **#287** completed at `6aa46a2` with
+**280 records, zero critical and 45 high**.
+
+The live dashboard check exposed a rootless startup failure: the new Nginx
+base uses `/run/nginx.pid`, while the initial adjustment expected
+`/var/run/nginx.pid`. Correction `83b5434` replaces the PID directive
+independently of that path. Its dashboard build, Nginx syntax and live startup
+passed. Dashboard UID is 101; API, CVE, proxy, dashboard and Jenkins were
+healthy, and both workers were running with their new images. All eight
+monitoring targets and 22 Grafana queries passed again. A Kali browser using
+an isolated imported lab CA verified all four tabs, pagination and search
+with zero JavaScript errors/failed requests. TLS verification remained enabled.
+
+GitHub, Kali and Gitea matched at
+`83b5434c8db1b7e7c21a2896efb8235b33443edd` before this documentation update.
+A real HTTPS Gitea push triggered its scan; test deliveries queued the other
+12 targets for fresh coverage of that exact shared pipeline revision.
+Results must be checked before accepting the final coverage gate.
+
+The owner clarified that the target repositories are currently used for
+testing. No target application deployment was identified in this session.
+This narrows runtime prioritization; it does not accept unresolved findings
+or establish that an undeployed project's vulnerable dependency is safe.
+
+### Shared-pipeline coverage and accepted SQL correction
+
+Jenkins **#379–391** / scans **#289–301** completed successfully for all 13
+current default-branch heads using shared pipeline
+`83b5434c8db1b7e7c21a2896efb8235b33443edd`. The strict coverage audit passed;
+its private record is `reports/coverage-final-code-20261001.md`. Earlier test
+deliveries through a localhost URL correctly failed the trusted-origin guard
+before creating scans. Retries used the configured public origin; the guard
+was retained. Subsequent commits require their own coverage evidence.
+
+The rejected sg-bench proposal was corrected on its existing branch to retain
+only the SQL parameterization in `get_user`. Every other AST statement and
+function matches base `85dffdf`. SQLite checks on Kali covered string/integer
+IDs, three injection payloads and preservation of the users table. The
+original B608 was reproduced, then absent from the corrected candidate.
+Jenkins **#392** / scan **#302** completed on exact head
+`652da8b0e04440a52c383a588bb7e4a3194d540d`; no new Bandit/Semgrep findings
+appeared. PR #1 was marked ready and merged after review as
+`bbbb52f9ef414ef618dd110baeed25840beb2e39`. This is an accepted **AI-assisted,
+manually corrected** fix. It does not validate the rejected deserialization,
+password or shell changes. Those findings remain open. Private evidence:
+`reports/sg-bench-sql-review/review.json`.
+
+Jenkins **#393** / scan **#303** subsequently completed on the merged default
+head `bbbb52f`. B608 and the three SQL Semgrep records were absent. Only the
+four reproduced SQL records from scan #283 were marked fixed after that
+verification. The other 175 records in scan #303 remain open.
+
+### Fresh recovery and deployed cache cleanup
+
+Private snapshot `~/secureguard-backups/lab-20261001-114129` records checkout
+`572cfc4` and the exact pre-cleanup runtime image IDs. Both workers finished
+their active work before stopping; the snapshot paused persistent writers
+and resumed them afterward. The isolated database/volume drill matched
+**123 table counts and eight archives**.
+
+The new core service-access drill initially exposed premature inventory
+polling and Grafana provisioning permissions under the private extraction
+umask. Both were corrected in the recovery helper. The completed drill
+recovered **13 Gitea repositories, one Grafana dashboard and one Jenkins job**
+with native authentication. Jenkins had zero executors, stayed quiet and
+denied anonymous API access. The disposable internal network had no published
+ports, Docker socket or outbound access; all drill resources were removed.
+Private result: `reports/restored-service-access-20261001.json`. This verifies
+core logins/inventory, not every restored workflow or datasource query.
+
+The cache-cleaned `c32027f` images then deployed after graceful worker
+shutdown and an idle Jenkins check; migrations exited zero. Live API, CVE,
+proxy, rootless dashboard and Jenkins were healthy; workers resumed. All
+eight Prometheus targets and 22 provisioned Grafana queries passed again.
+Compose validation and the 96-test suite passed on Kali at `f6b6cb6`.
+
+### Live failure handling and deployed image inventory
+
+A temporary Jenkins job copied the shared pipeline's actual Upload Reports
+stage at `83b5434`. Its malformed SARIF upload returned **422**; build 1 ended
+FAILURE, scan **#304** ended `failed`, and no findings or accepted reports
+were stored. The fixture job was deleted afterward. Private evidence:
+`reports/jenkins-upload-rejection.json`. This checks the actual rejected-upload
+path, independently of the earlier positive scans and Python fixtures.
+
+Jenkins **#395** was observed after Dependency-Check completed and before
+workspace cleanup: its temporary NVD key properties file was absent while the
+SARIF report was still present. No key contents were read. Private evidence:
+`reports/nvd-secret-removal-build395.json`. Historical provider-key rotation
+remains a separate unperformed action.
+
+The new deployed-image helper inventoried **25 exact image IDs** across all
+existing Compose containers, including stopped services. Both Trivy and
+Dockle reports passed validation for every ID. Scanner/report permission,
+Dockle reference and offline cache-path errors from earlier attempts were
+corrected before accepting the completed audit. The persistent Trivy feed
+was updated at `2026-10-01T01:24:14.992991033Z`; the combined private record
+is `reports/deployed-image-coverage.json`. These reports are separate private
+artifact audits, not orchestrator scan receipts or resolved findings.
+
+The private 13-repository triage inventory under
+`reports/triage/default-heads-20261001` recorded **130 critical and 2,215 high
+finding records**, not unique vulnerabilities. The completeness checker
+failed because records still need reviewed dispositions, evidence and real
+owners. Testing-only use does not authorize their acceptance.
+
+### Jenkins security upgrade
+
+The screenshot's controller was Jenkins 2.555.3 with older persistent plugins.
+The image now pins **2.580.1 LTS / Java 25** by registry digest; all **97**
+existing plugin names have compatible version pins. The official image's
+reference-plugin upgrade flags ensure newer managed versions reach the
+persistent home. See [Jenkins upgrades](JENKINS_UPGRADES.md).
+
+Before deployment, the new image passed an isolated restored-volume rehearsal,
+including the snapshot's native security startup script, authenticated service
+inventory, enabled-plugin activation and quiet Jenkins with zero executors.
+An idle pre-upgrade volume/private configuration backup was then taken at
+`~/secureguard-backups/pre-jenkins-upgrade-20261001-121746`; its checksums and
+archive readability passed. The old image is retained for coordinated recovery.
+
+Live core was **2.580.1**, Java **25.0.4.1**, all 97 plugin versions matched,
+and every enabled plugin was active. Evaluating official update-center warning
+patterns against installed versions found **zero applicable known warnings**.
+The Manage page had no security-warning block or Java 21 end-of-life notice.
+This is installed-version advisory evidence, not a clean container image claim.
+The shared declarative pipeline parser passed. Native network checks returned
+403 for anonymous API access, 200 for administrator API/metrics scrape, and
+403 for metrics-account administration. Private evidence:
+`reports/jenkins-lts-live-acceptance.json` and
+`reports/jenkins-native-access-after-upgrade.json`.
+
+A real HTTPS Gitea push at `a7f4dec` triggered Jenkins **#395**, which finished
+SUCCESS; scan **#306** completed with **342 records, zero critical and 45 high**.
+All eight targets and 22 Grafana queries passed after the controller upgrade.
+The 96-test suite also passed on Kali at `a7f4dec`.
+
+The first upgraded image's separate Trivy audit reported a critical advisory
+in its unused `openssh-client`. The controller uses the built-in node and
+accepted HTTP/HTTPS clone URLs, so `56993b7` removes that package while keeping
+Git. The exact rebuilt runtime image
+`sha256:bbed5a3a20a6` (full ID retained privately) deployed healthy with all
+97 plugin pins active. Both Trivy and Dockle accepted its reports; Trivy
+recorded **zero critical, 92 high, 155 medium, 159 low and 17 unknown**.
+The removed client's advisory was absent. Remaining image findings still
+require review. Private evidence: `reports/jenkins-no-ssh-audit-20261001`.
+
+### Gateway package update
+
+The gateway now pins stable **Nginx 1.30.5** by digest. Its exact candidate
+image `sha256:43d9d8c1f896` was also the deployed image after configuration
+syntax validation; the old image was retained under a rollback tag. Trivy
+reported **zero critical, one high and one unknown**; the previous OpenSSL
+advisory was absent. Dockle accepted the deployed image's report. These
+scanner labels do not establish exploitability: the OpenSSL vendor described
+the removed advisory as low severity and specific to 32-bit systems.
+
+After recreation, public-IP TLS verification, authenticated gateway routes,
+HTTP-to-HTTPS 308, HTTPS Git read and Grafana Live **101** passed. All eight
+targets and 22 panel queries passed. Running Compose containers publish only
+gateway **3000**; TCP checks found **17** old listeners closed. A stopped
+legacy SonarQube container retains historical port metadata but has no live
+listener. Private records: `reports/gateway-stable-route-acceptance.json`,
+`reports/gateway-monitoring-nginx-upgrade.json` and
+`reports/gateway-dockle-upgraded-20261001`.
+
+The version selections follow the official [Jenkins LTS download](https://www.jenkins.io/download/),
+[Java support policy](https://www.jenkins.io/doc/book/platform-information/support-policy-java/)
+and [Nginx stable release listing](https://nginx.org/en/download.html).
+The [OpenSSL vendor advisory](https://openssl-library.org/news/vulnerabilities/)
+provides the severity/platform qualification above.

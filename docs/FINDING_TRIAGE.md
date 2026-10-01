@@ -10,6 +10,11 @@ On 1 October, the project owner confirmed that all 13 current Gitea targets
 are real projects. Do not classify their findings as intentionally vulnerable
 lab examples or automatically accept them on that basis. `ShadowPatch` is
 historical scan scope; `SIET-Hackathon` is in the current repository inventory.
+The owner subsequently clarified that these target repositories are currently
+used for testing. No target application deployment was identified in this
+session. Prioritize the deployed SecureGuard services separately from target
+source/dependency findings, and verify actual runtime use before assigning
+exploitability. Testing scope does not automatically resolve or accept a finding.
 
 ## Review order
 

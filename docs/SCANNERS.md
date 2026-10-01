@@ -106,5 +106,31 @@ Dependency scanners still require trustworthy database/cache updates and
 outbound connectivity. Falco and Wazuh are runtime monitoring components,
 not substitutes for repository scans. Adding linters does not resolve the
 finding remediation, AI patch review or full service recovery. The 1 October
-audit found all 13 default-branch heads covered by completed scans on two
-recent pipeline revisions; exact final-revision coverage remains separate.
+audit subsequently found all 13 default-branch heads covered by completed
+scans using shared pipeline `83b5434` (#379–391 / scans #289–301). New commits
+need their own precise coverage evidence. The image stage still selects one
+Dockerfile; this does not establish coverage of every built/deployed image.
+
+## Exact deployed image audit
+
+Run on Kali after deployment with the scanner images and persistent Trivy
+database already available:
+
+```bash
+python3 scripts/scan_deployed_images.py --output reports/deployed-images-final
+```
+
+The helper inventories all existing Compose containers, including stopped
+services, groups their immutable image IDs and runs offline Trivy and Dockle.
+It records the database timestamp, scanner IDs, service mappings and private
+SARIF/logs. Report validation failures exit nonzero. Its temporary Dockle alias
+is verified against the exact image and removed afterward. It does not build
+source images, download a fresh database or upload findings into the API.
+Feed freshness, vendor applicability and finding dispositions require review.
+
+Use `--services jenkins gateway` for changed images, or `--tools trivy` to
+rerun a failed tool while retaining earlier evidence. Each output directory
+must be new. On 1 October, both tools produced accepted reports for 25 exact
+images; upgraded Jenkins and gateway images were then audited separately.
+This covers existing stack images, not every intended artifact in target
+repositories with multiple Dockerfiles.

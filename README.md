@@ -37,16 +37,19 @@ See [Architecture](docs/ARCHITECTURE.md) for the service map, repository layout,
 The lab has native Jenkins accounts/permissions, private hooks, report receipts,
 live Falco capture and a dashboard built with Vite/Node 24. The dashboard polls
 scan summaries and pages finding records. All 13 target repositories have
-completed scans at their current default-branch heads, using two recent shared
-pipeline revisions. Builds and 96 Python tests passed on Kali; eight monitoring
+completed scans using shared pipeline `83b5434` (builds #379–391); later changed
+heads have separate scan evidence. Jenkins now uses the pinned 2.580.1 LTS /
+Java 25 image and 97 managed plugin pins. Builds and 96 Python tests passed on Kali; eight monitoring
 targets and 22 Grafana queries passed. See [deployment procedure](docs/NEXT_SERVER_SESSION.md)
-for subsequent updates. [CHECKLIST.md](CHECKLIST.md) tracks remaining findings,
-AI review, full service recovery and final release acceptance; the lab is not
+for subsequent updates. [CHECKLIST.md](CHECKLIST.md) tracks finding dispositions,
+broader recovery workflows and final release acceptance; the lab is not
 yet complete.
 
 The AI [model pool](docs/MODEL_POOL.md) supports explicit NVIDIA backups,
-bounded attempts and route cooldowns. Model compatibility and accepted real
-fixes must still be demonstrated on Kali.
+bounded attempts and route cooldowns. Three routes passed a controlled server
+fixture. One SQL fix was manually corrected, reviewed and rescanned before
+merging; this does not establish that models can repair every finding.
+See [Jenkins upgrades](docs/JENKINS_UPGRADES.md) for plugin maintenance and recovery.
 
 ## Repository map
 
@@ -60,7 +63,7 @@ fixes must still be demonstrated on Kali.
 | `monitoring/` | Prometheus, Grafana, Falco, Wazuh, Loki, and Promtail configuration |
 | `wazuh-proxy/` | Internal Wazuh API proxy used by Grafana |
 | `proxy/` | HTTPS gateway; the only published application port |
-| `scripts/` | Host setup script |
+| `scripts/` | Setup, coverage audits, private triage, backups and server acceptance tools |
 | `tests/` | Python tests for parsing, API import, and remediation safeguards |
 | `docs/` | Deployment, architecture, validation, and review guides |
 

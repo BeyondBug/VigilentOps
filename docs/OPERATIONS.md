@@ -97,6 +97,13 @@ exposure. Native Jenkins authentication, limited metrics permissions, CSRF
 and credential-backed hooks passed live checks on 1 October. See
 [the acceptance record](ACCEPTANCE_2026-10-01.md).
 
+Maintain Jenkins core, Java and plugin pins together using
+[Jenkins upgrades](JENKINS_UPGRADES.md). The 1 October upgrade retained a
+private idle-controller snapshot at
+`~/secureguard-backups/pre-jenkins-upgrade-20261001-121746` and the old image;
+an isolated restored-volume rehearsal passed before deployment. An older core
+must use restored pre-upgrade state, not the upgraded live plugin directory.
+
 ## Prepared backup and isolated restore automation
 
 Run on Kali from the checkout with the full lab containers present:
@@ -104,6 +111,8 @@ Run on Kali from the checkout with the full lab containers present:
 ```bash
 python3 scripts/backup_lab.py
 python3 scripts/restore_lab_backup.py /absolute/path/to/the/printed/backup
+python3 scripts/verify_restored_services.py /absolute/path/to/the/printed/backup \
+  --output reports/restored-service-access.json
 ```
 
 The backup command refuses known running/queued Jenkins work or active,
@@ -134,3 +143,19 @@ creating Docker resources. Missing, corrupt or symlinked artifacts are rejected.
 Backup output must be outside the checkout. Use a quiet maintenance window:
 prevent new pushes, API writes and scheduled jobs while taking the snapshot.
 Idle checks are point-in-time checks; they do not lock out other operators.
+
+The service-access command requires a new manifest with per-service volume
+mounts and image IDs. It restores PostgreSQL and Gitea/Jenkins/Grafana into
+unique disposable volumes on a Docker internal network, with no published
+ports or Docker socket. Restored Jenkins has zero executors and stays quiet;
+outbound deliveries cannot reach the live stack. Snapshot credentials are
+read privately; failures retain restricted diagnostics before cleanup.
+Grafana's two explicit configuration mounts are readable by its unprivileged
+process, while their enclosing host temporary directory remains private.
+
+On 1 October, `lab-20261001-114129` passed both drills: 123 public table counts,
+eight archive comparisons, 13 restored Gitea repositories, one Grafana
+dashboard and one Jenkins job. Native authentication succeeded and anonymous
+Jenkins access was denied. Disposable resources were removed and live
+writers/workers resumed. This verifies core service access; it does not
+verify every application workflow or all restored Grafana datasource queries.
