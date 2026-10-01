@@ -62,6 +62,10 @@ def main():
         raise SystemExit('No complete model routes configured; no requests sent')
     os.umask(0o077)
     options.output.parent.mkdir(parents=True, exist_ok=True)
+    # Check the mounted output permissions before consuming provider quota.
+    with options.output.open('a'):
+        pass
+    options.output.chmod(0o600)
     results = []
     for route in routes:
         result = check_route(route)
