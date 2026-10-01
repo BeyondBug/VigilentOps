@@ -57,7 +57,11 @@ def main():
                 'commit': run(['git', 'rev-parse', 'HEAD'], text=True).stdout.strip(),
                 'postgres_image': postgres['Image'], 'archive_image': archiver['Image'],
                 'volumes': [], 'checksums': {},
-                'service_images': {item['Name'].lstrip('/'): item['Image'] for item in inspected}}
+                'service_images': {item['Name'].lstrip('/'): item['Image'] for item in inspected},
+                'service_mounts': {item['Name'].lstrip('/'): [
+                    {'source': mount['Name'], 'destination': mount['Destination']}
+                    for mount in item['Mounts'] if mount['Type'] == 'volume'
+                ] for item in inspected}}
     # Refuse to interrupt a running/queued pipeline. The helper authenticates
     # through the same HTTPS gateway and native Jenkins account.
     if 'sg-jenkins' in running:
