@@ -127,7 +127,7 @@ def parse_sarif(sarif_data: dict, tool: str) -> list[dict]:
                 "title":          (rule.get("shortDescription", {}).get("text") or rule.get("name") or
                                    result.get("message", {}).get("text", rule_id) or
                                    rule_id)[:500],
-                "description":    ('\n'.join(filter(None, [result.get("message", {}).get("text", ""),
+                "description":    '\n'.join(filter(None, [result.get("message", {}).get("text", ""),
                                    rule.get("fullDescription", {}).get("text", "")]))[:2000],
                 "file_path":      (unquote(loc.get("artifactLocation", {}).get("uri", ""))
                                    if finding_class == 'quality' else loc.get("artifactLocation", {}).get("uri", "")),
