@@ -101,10 +101,13 @@ No application or test runs are performed on the laptop. See
   validated fallback on Kali without real PR/database mutations.
 - [x] Verify synthetic model compatibility for three configured routes;
   record other routes' observed 429/timeout instead of assuming compatibility.
-- [ ] Deploy the seven-model OpenRouter free-only policy, verify the server
-  suite and runtime order, then configure a privately rotated key and check
-  free-route compatibility. Earlier direct-provider results do not validate
-  the new routes. Never use a paid variant as fallback.
+- [x] Deploy the seven-model OpenRouter free-only policy and pass 99 server
+  tests: reject paid/unapproved models, enforce zero prices, retain allowed
+  order and defer shared-key quota exhaustion after one request. Older
+  provider credentials are ignored.
+- [ ] Configure a privately rotated OpenRouter key and verify free-route
+  compatibility on Kali. No OpenRouter route is active without that key;
+  earlier direct-provider results do not validate the new routes.
 - [x] Require exact scan commit, trusted clone origin, private Git askpass,
   valid UTF-8, safe paths and preservation of public Python interfaces.
 - [x] Compare original/candidate Bandit results with suppression disabled;

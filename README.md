@@ -39,7 +39,8 @@ live Falco capture and a dashboard built with Vite/Node 24. The dashboard polls
 scan summaries and pages finding records. All 13 target repositories have
 completed scans using shared pipeline `83b5434` (builds #379–391); later changed
 heads have separate scan evidence. Jenkins now uses the pinned 2.580.1 LTS /
-Java 25 image and 97 managed plugin pins. Builds and 96 Python tests passed on Kali; eight monitoring
+Java 25 image and 97 managed plugin pins. The latest free-model policy passed
+99 Python tests on Kali; eight monitoring
 targets and 22 Grafana queries passed. See [deployment procedure](docs/NEXT_SERVER_SESSION.md)
 for subsequent updates. [CHECKLIST.md](CHECKLIST.md) tracks finding dispositions,
 broader recovery workflows and final release acceptance; the lab is not

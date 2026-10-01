@@ -446,3 +446,31 @@ Subsequent documentation changes do not change the recorded runtime scope.
 This checkpoint does not declare release completion: unresolved target and
 deployed-image findings, owner-backed dispositions, historical credential
 rotations and the remaining checklist gates still require work.
+
+### OpenRouter free-only policy
+
+The owner replaced the previous provider preference with an exclusive
+seven-model OpenRouter `:free` allowlist. The exact catalog IDs and ordering
+are in [Model pool](MODEL_POOL.md); all seven showed zero prompt/completion
+prices in the official catalog. The code fixes the endpoint, rejects paid or
+unapproved IDs, ignores old numbered/direct NVIDIA/legacy keys, and constrains
+prompt, completion and per-request prices to zero. No paid fallback or paid
+plugin is sent. Free account limits still apply to the combined usage.
+
+At `9eb0b6e`, API/worker/migration images built on Kali and **99 tests passed**,
+including exact allowlist ordering, no old-provider fallback, pre-request paid
+model rejection, zero-price request fields and a shared-account 429 that
+cools every same-key route after one HTTP attempt. Early suite attempts failed
+because Git pulled changed source files under a private umask, making them
+unreadable to the unprivileged container user. Tracked public source modes
+were corrected; ignored `.env` remained mode 0600. Those early failures are
+not accepted test results.
+
+The AI worker shut down gracefully without a forced kill or queue purge, and
+the API/worker were recreated with the new code. API health passed. Private
+evidence: `reports/openrouter-free-readable-tests.log` and
+`reports/openrouter-free-runtime.json`. At this checkpoint no replacement
+`OPENROUTER_API_KEY` was configured, so runtime routes were empty and no
+provider fixture was called. The key pasted into chat was not deployed.
+Activation and actual free-route compatibility remain pending a privately
+rotated key; previous direct-provider model checks do not satisfy that gate.
