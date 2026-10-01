@@ -414,3 +414,35 @@ The version selections follow the official [Jenkins LTS download](https://www.je
 and [Nginx stable release listing](https://nginx.org/en/download.html).
 The [OpenSSL vendor advisory](https://openssl-library.org/news/vulnerabilities/)
 provides the severity/platform qualification above.
+
+### Post-upgrade checkpoint
+
+At **`3bae893714598db146de101e047a51e9a4f9cfb0`**, Kali passed Compose
+validation, dashboard/service/Jenkins builds, migrations and all **96 tests**.
+GitHub, Gitea and the server checkout matched. A real HTTPS push triggered
+Jenkins **#396**, which finished SUCCESS with the cleaned controller image;
+scan **#307** completed on that exact target/shared pipeline commit. It stored
+**13 report receipts** and **342 findings: zero critical, 45 high, 120 medium,
+165 low, ten informational and two unknown**. This confirms HTTP/HTTPS Git
+and scanner execution after removing the unused SSH client.
+
+All eight monitoring targets and 22 panel queries passed again. The final
+private image inventory reconciled every existing container's exact image ID
+against matching accepted Trivy/Dockle reports, including the upgraded gateway
+and Jenkins: **25 image IDs**. Private records:
+`reports/acceptance-3bae893.json`,
+`reports/jenkins-final-image-pipeline.json`,
+`reports/gateway-monitoring-final-images.json` and
+`reports/deployed-image-coverage-final.json`.
+
+The refreshed private export
+`reports/triage/heads-after-jenkins-upgrade-20261001` matched all 13 current
+default-branch heads, including VigilentOps scan #307 and merged sg-bench
+scan #303. Totals remain **130 critical and 2,215 high records**. Each review
+file was preserved privately; completeness remains FAIL until actual reviews,
+owners and supported disposition evidence are supplied.
+
+Subsequent documentation changes do not change the recorded runtime scope.
+This checkpoint does not declare release completion: unresolved target and
+deployed-image findings, owner-backed dispositions, historical credential
+rotations and the remaining checklist gates still require work.

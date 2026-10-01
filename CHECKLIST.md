@@ -20,6 +20,9 @@ No application or test runs are performed on the laptop. See
   remained in the official update-center check. Jenkins #395 / scan #306
   completed on the new controller. The subsequent image removes its unused
   SSH client; Git remains available. See [upgrade procedure](docs/JENKINS_UPGRADES.md).
+  That cleaned image subsequently passed Jenkins **#396 / scan #307** at
+  `3bae893`; all 13 report receipts were stored. Its separate Trivy image
+  audit reported zero critical and 92 high records requiring review.
 - The gateway now uses pinned Nginx **1.30.5**. TLS, HTTPS Git, Grafana Live,
   authenticated routes, eight targets and 22 queries passed after recreation.
   Only running gateway port 3000 is published; 17 former listeners were closed.
@@ -136,7 +139,14 @@ No application or test runs are performed on the laptop. See
 - [x] Verify final container hardening: remove unused runtime/bootstrap tools,
   image health checks, unprivileged dashboard Nginx and limited workflow
   permissions. Rebuild, verify clients and inspect fresh scanner results.
-- [ ] Export the final complete scan and review grouping by advisory,
+- [x] Complete the post-upgrade server checkpoint at `3bae893`: Compose
+  validation, changed-service/Jenkins builds, migrations, 96 tests, real
+  HTTPS push and complete scan #307. This is an operational checkpoint;
+  security dispositions and the release decision remain open below.
+- [x] Export all 13 current default-head scans after the Jenkins upgrade to
+  private `reports/triage/heads-after-jenkins-upgrade-20261001`: 130 critical
+  and 2,215 high records still need review; the completeness checker fails.
+- [ ] Review grouping by advisory,
   package/version/image/path, including historical metadata gaps.
 - [ ] Resolve or explicitly disposition every critical/high/secret finding
   across intended repositories and deployed images; review reachability.
