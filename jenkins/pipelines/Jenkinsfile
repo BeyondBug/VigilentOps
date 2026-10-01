@@ -113,7 +113,7 @@ pipeline {
                     if (env.TARGET_REPO == 'http://sg-gitea:3000/BeyondBug/sietlms-moodle-.git') {
                         // Deliberately malformed/encrypted archive test data,
                         // not deployed dependencies. Keep all other files scanned.
-                        env.DEPCHECK_FIXTURE_EXCLUDE = '/src/public/lib/filestorage/tests/fixtures/*.zip'
+                        env.DEPCHECK_FIXTURE_EXCLUDE = '**/lib/filestorage/tests/fixtures/*.zip'
                         echo 'Dependency-Check excludes only Moodle filestorage ZIP test fixtures'
                     }
 
@@ -649,6 +649,10 @@ pipeline {
                 docker ps -aq --filter "label=secureguard.static-scan=true" \\
                   --filter "label=secureguard.build=$BUILD_TAG" | xargs -r docker rm -f
             '''
+            // Preserve private native evidence before workspace cleanup,
+            // including reports from a rejected scan. Management auth applies.
+            archiveArtifacts artifacts: 'reports/*.sarif,reports/*.json,semgrep-execution.log,gitleaks-execution.log',
+                allowEmptyArchive: true, fingerprint: true
             sh "docker rmi sg-target-scan:${BUILD_NUMBER} 2>/dev/null || true"
             cleanWs()
         }
