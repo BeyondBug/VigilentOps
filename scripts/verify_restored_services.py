@@ -61,6 +61,18 @@ def main():
             with tarfile.open(directory / 'private-config.tgz') as archive:
                 archive.extractall(private, filter='data')
             values = read_env(private / '.env')
+            # tar's data filter and the private umask create 0700 directories.
+            # The restored Grafana process runs as UID 472 and must be able
+            # to read its two explicit read-only mounts. The enclosing private
+            # temporary directory stays 0700; secrets elsewhere stay private.
+            for name in ('monitoring/grafana/provisioning', 'monitoring/grafana/dashboards'):
+                tree = private / name
+                if not tree.is_dir():
+                    raise ValueError('Snapshot lacks Grafana configuration: ' + name)
+                for item in (tree, *tree.rglob('*')):
+                    if item.is_symlink():
+                        raise ValueError('Grafana recovery configuration must not contain symbolic links')
+                    item.chmod(0o755 if item.is_dir() else 0o644)
             if any(not values.get(key) for key in ('GITEA_TOKEN', 'PROXY_AUTH_USER', 'PROXY_AUTH_PASSWORD', 'GRAFANA_ADMIN_PASSWORD')):
                 raise ValueError('Snapshot lacks required private service credentials')
             bootstrap = private / 'secrets/jenkins'
