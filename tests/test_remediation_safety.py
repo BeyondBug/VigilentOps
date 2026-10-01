@@ -64,6 +64,22 @@ class RemediationSafetyTests(unittest.TestCase):
         self.assertFalse(preserves_python_interface(original, original.replace('fetch(url', 'fetch(target')))
         self.assertFalse(preserves_python_interface(original, 'pass\n'))
 
+    def test_pickle_to_json_requires_client_migration_review_even_when_scanner_is_silent(self):
+        original = 'from pickle import loads as decode\ndef load(blob):\n    return decode(blob)\n'
+        candidate = 'import json as serializer\ndef load(blob):\n    return serializer.loads(blob.decode())\n'
+        valid, reason = validates_security_change(original, candidate, [])
+        self.assertFalse(valid)
+        self.assertIn('client/data review', reason)
+
+    def test_password_fast_digest_substitution_is_rejected_without_blocking_file_checksums(self):
+        original = 'from hashlib import md5 as digest\ndef hash_password(pw):\n    return digest(pw.encode()).hexdigest()\n'
+        candidate = original.replace('md5', 'sha256')
+        valid, reason = validates_security_change(original, candidate, [])
+        self.assertFalse(valid)
+        self.assertIn('password KDF', reason)
+        self.assertTrue(validates_security_change(original.replace('(pw)', '(data)').replace('pw.encode()', 'data.encode()'),
+                                                candidate.replace('(pw)', '(data)').replace('pw.encode()', 'data.encode()'), [])[0])
+
     def test_candidate_preserves_optionality_method_binding_types_and_class_contract(self):
         original = ('class Client(Base):\n'
                     '    @staticmethod\n'

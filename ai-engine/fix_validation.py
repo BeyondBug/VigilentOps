@@ -53,6 +53,9 @@ def _bandit_results(content: str) -> list[dict]:
 
 def validates_security_change(original: str, proposed: str, findings: list[dict]) -> tuple[bool, str]:
     """Reject ineffective Bandit fixes and newly introduced medium/high rules."""
+    contract_reason = _unsafe_contract_change(original, proposed)
+    if contract_reason:
+        return False, contract_reason
     target_rules = {str(item.get("rule_id") or "") for item in findings
                     if str(item.get("scanner") or "").lower() == "bandit"}
     target_rules = {rule for rule in target_rules if re.fullmatch(r"B\d{3}", rule)}
@@ -75,6 +78,57 @@ def validates_security_change(original: str, proposed: str, findings: list[dict]
     if significant(after) - significant(before):
         return False, "Candidate introduces additional medium/high Bandit findings"
     return True, "Targeted Bandit rules absent; runtime behavior remains unverified"
+
+
+def _unsafe_contract_change(original: str, proposed: str) -> str | None:
+    """Conservative checks for two observed unsafe model substitutions.
+
+    These are review gates, not a general proof of behavior or cryptography.
+    Input-format and password-hash migrations need client/data review.
+    """
+    def functions(content):
+        tree = ast.parse(content)
+        aliases = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for item in node.names:
+                    aliases[item.asname or item.name] = item.name
+            elif isinstance(node, ast.ImportFrom):
+                for item in node.names:
+                    aliases[item.asname or item.name] = f'{node.module}.{item.name}'
+        def name(node):
+            if isinstance(node, ast.Name):
+                return aliases.get(node.id, node.id)
+            if isinstance(node, ast.Attribute):
+                return name(node.value) + '.' + node.attr
+            return ''
+        found = {}
+        def collect(nodes, prefix=''):
+            for node in nodes:
+                if isinstance(node, ast.ClassDef):
+                    collect(node.body, prefix + node.name + '.')
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    calls = {name(item.func) for item in ast.walk(node) if isinstance(item, ast.Call)}
+                    parameters = {item.arg.lower() for item in [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]}
+                    found[prefix + node.name] = (calls, parameters)
+                else:
+                    collect(list(ast.iter_child_nodes(node)), prefix)
+        collect(tree.body)
+        return found
+    try:
+        before, after = functions(original), functions(proposed)
+    except SyntaxError:
+        return 'Candidate syntax unavailable for contract review'
+    for function, (calls, parameters) in before.items():
+        replacement = after.get(function, (set(), set()))[0]
+        if calls & {'pickle.load', 'pickle.loads'} and not replacement & {'pickle.load', 'pickle.loads'}:
+            if replacement & {'json.load', 'json.loads'}:
+                return 'Pickle-to-JSON input migration requires explicit client/data review'
+        password_input = parameters & {'pw', 'password', 'passwd', 'passphrase'}
+        if password_input and calls & {'hashlib.md5', 'hashlib.sha1'}:
+            if replacement & {'hashlib.sha224', 'hashlib.sha256', 'hashlib.sha384', 'hashlib.sha512'}:
+                return 'Fast digest is not a password KDF; hash migration requires explicit review'
+    return None
 
 
 def preserves_python_interface(original: str, proposed: str) -> bool:

@@ -26,6 +26,11 @@ OUTPUT RULES:
 - Preserve parameter optionality, type annotations, class bases and decorators.
 - Change a default value only when needed for the reported security issue.
 - Do not invent credentials, APIs, dependencies, or environment variables.
+- Do not replace pickle input with JSON without a reviewed client/data migration.
+- Do not replace password hashing with a fast digest such as SHA-256. A password
+  KDF and existing-hash migration require a reviewed storage/login contract.
+- Removing shell=True is insufficient if untrusted arguments can become program
+  options; validate inputs and preserve the supported command/output behavior.
 - If a safe fix is uncertain, return the unchanged file so the reviewer can handle it.
 - Return only the complete Python file in a single ```python code block."""
 
@@ -94,10 +99,10 @@ STRICT RULES:
 6. Preserve all existing functionality — only change security-relevant lines
 7. Use parameterized queries for SQL injection
 8. Use subprocess with shell=False and list args for command injection
-9. Replace weak crypto (md5/sha1) with bcrypt or hashlib.sha256
-10. Replace pickle with json for deserialization
-11. Replace hardcoded secrets with os.environ.get()
-12. For requirements.txt: bump vulnerable packages to latest safe versions
+9. Preserve cryptographic intent; password KDF/storage migrations require explicit review
+10. Preserve deserialization formats; pickle-to-JSON requires explicit client/data migration
+11. Do not invent environment variables for credentials; preserve reviewed configuration contracts
+12. For requirements.txt: use verified minimum patched versions with compatibility review
 
 OUTPUT RULES (violating any = failure):
 - Output ONLY raw source code — zero other text
