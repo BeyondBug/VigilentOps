@@ -153,15 +153,14 @@ pipeline {
                     def requiredReports = ['semgrep', 'gitleaks', 'trivy-deps', 'grype', 'osv', 'dep-check', 'syft-sbom', 'hadolint', 'shellcheck']
                     if (env.HAS_PYTHON == 'true') requiredReports.add('bandit')
                     if (env.SNYK_TOKEN?.trim()) requiredReports.add('snyk')
-                    env.REQUIRED_REPORTS = groovy.json.JsonOutput.toJson(requiredReports)
+                    env.REQUIRED_REPORTS = writeJSON(returnText: true, json: requiredReports)
                     def pipelineCommit = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
-                    def body = groovy.json.JsonOutput.toJson([
+                    writeJSON file: 'scan-payload.json', json: [
                         repo_url: env.TARGET_REPO, commit_sha: checkedOutCommit,
                         branch: env.TARGET_BRANCH, repo_name: env.REPO_FULLNAME,
                         required_reports: requiredReports,
                         pipeline_commit: pipelineCommit,
-                    ])
-                    writeFile file: 'scan-payload.json', text: body
+                    ]
                     def resp = sh(script: '''set +x
                         curl -sf -X POST "$ORCHESTRATOR/api/scans" \\
                         -H "X-API-Key: $SG_API_KEY" \\
@@ -546,7 +545,7 @@ pipeline {
                     if (fileExists("${REPORTS_DIR}/image-built.marker")) {
                         requiredReports.addAll(['dockle', 'trivy-image'])
                     }
-                    writeFile file: 'report-contract.json', text: groovy.json.JsonOutput.toJson([required_reports: requiredReports])
+                    writeJSON file: 'report-contract.json', json: [required_reports: requiredReports]
                     sh '''set +x
                         curl -sf -X PATCH "$ORCHESTRATOR/api/scans/$SCAN_RUN_ID" \\
                           -H "X-API-Key: $SG_API_KEY" -H 'Content-Type: application/json' \\
