@@ -64,6 +64,7 @@ def main():
             name = 'sg-image-audit-' + uuid.uuid4().hex[:16]
             command = ['docker', 'run', '--rm', '--name', name, '--network', 'none',
                        '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+                       '--user', str(os.getuid()), '--group-add', str(Path('/var/run/docker.sock').stat().st_gid),
                        '--cpus', '2', '--memory', '4g', '--pids-limit', '512',
                        '-v', '/var/run/docker.sock:/var/run/docker.sock',
                        '-v', str(directory) + ':/reports']
@@ -73,7 +74,15 @@ def main():
                             '--skip-java-db-update', '--cache-backend', 'memory', '--timeout', '15m',
                             '--format', 'sarif', '--output', '/reports/trivy.sarif', image]
             else:
-                command += [scanners[tool], '-f', 'sarif', '-o', '/reports/dockle.sarif', image]
+                # Dockle requires a named Docker reference rather than a bare
+                # image ID. Create a unique local alias, verify its exact ID,
+                # and remove only that alias when this scanner finishes.
+                alias = name + ':scan'
+                subprocess.run(['docker', 'image', 'tag', image, alias], check=True,
+                               capture_output=True)
+                if docker_json(['image', 'inspect', alias])[0]['Id'] != image:
+                    raise ValueError('Temporary image alias does not match the inventoried image ID')
+                command += [scanners[tool], '-f', 'sarif', '-o', '/reports/dockle.sarif', alias]
             try:
                 with (directory / (tool + '.log')).open('w') as log:
                     process = subprocess.run(command, stdout=log, stderr=log, timeout=960)
@@ -87,6 +96,8 @@ def main():
                 record['reports'][tool] = {'status': 'failed', 'diagnostic': str(error)}
             finally:
                 subprocess.run(['docker', 'rm', '-f', name], capture_output=True)
+                if tool == 'dockle':
+                    subprocess.run(['docker', 'image', 'rm', alias], capture_output=True)
             print(image[:19], tool, record['reports'][tool]['status'], flush=True)
         (output / 'inventory.json').write_text(json.dumps(metadata, indent=2) + '\n')
     print('Image scope:', len(groups), 'Container scope:', sum(map(len, groups.values())))
