@@ -1,15 +1,14 @@
 # Stage 1 — build
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 
-RUN npm ci --legacy-peer-deps
+RUN npm ci
 
 COPY . .
 ARG PUBLIC_URL=/dashboard
 ENV PUBLIC_URL=${PUBLIC_URL}
-ENV GENERATE_SOURCEMAP=false
 RUN npm run build
 
 # Stage 2 — serve with nginx

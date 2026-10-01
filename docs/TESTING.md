@@ -69,7 +69,12 @@ docker compose exec -T cve-intel python -c "import urllib.request; print(urllib.
 ```
 
 The dashboard uses `dashboard/package-lock.json` and `npm ci` for reproducible
-dependency installation.
+dependency installation. Its Vite 8 build uses Node 24 and serves the same
+`/dashboard/` gateway path. JSX sources use `.jsx`; the HTML entry point is
+`dashboard/index.html`. API overrides use `VITE_API_URL` and
+`VITE_CVE_INTEL_URL`; the default is the gateway path. Set `PUBLIC_URL` during
+the Docker build to change the asset base. Recreate the dashboard and verify
+its generated assets, API requests and all tabs on Kali after a build change.
 
 Prepare gateway TLS/login before startup. After moving the lab to HTTPS port
 3000, verify login, assets, Grafana data and Gitea/Jenkins webhooks through

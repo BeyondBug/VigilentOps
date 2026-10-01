@@ -4,20 +4,18 @@
   "dependencies": {
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "react-scripts": "5.0.1",
-    "recharts": "2.12.0",
-    "ajv": "8.12.0",
-    "ajv-keywords": "5.1.0"
+    "recharts": "2.12.0"
+  },
+  "devDependencies": {
+    "vite": "8.3.1",
+    "@vitejs/plugin-react": "6.1.1"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build"
+    "start": "vite --host 127.0.0.1",
+    "build": "vite build"
   },
   "browserslist": {
     "production": [">0.2%", "not dead", "not op_mini all"],
     "development": ["last 1 chrome version", "last 1 firefox version"]
-  },
-  "eslintConfig": {
-    "extends": ["react-app"]
   }
 }

@@ -1,4 +1,4 @@
-export const API = process.env.REACT_APP_API_URL || process.env.PUBLIC_URL || "";
+export const API = import.meta.env.VITE_API_URL || import.meta.env.BASE_URL.replace(/\/$/, "");
 export const POLL_MS = 15000; // re-fetch every 15s
 
 function normalizeFinding(finding) {
@@ -26,4 +26,4 @@ export async function fetchHealth() {
   return r.ok;
 }
 
-export const CVE_INTEL = process.env.REACT_APP_CVE_INTEL_URL || `${API}/cve-intel`;
+export const CVE_INTEL = import.meta.env.VITE_CVE_INTEL_URL || `${API}/cve-intel`;
