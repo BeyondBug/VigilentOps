@@ -46,6 +46,27 @@ retains deprecated gRPC for this exporter. Falco 0.44 removes gRPC, so upgrading
 beyond this version needs a replacement event transport first; see the
 [0.44 release notes](https://github.com/falcosecurity/falco/releases/tag/0.44.0).
 
+- A longer isolated Falco check captured two actual opens of the dedicated
+  `/tmp/secureguard-falco-check` file. This confirms modern eBPF capture;
+  deployed exporter/Prometheus acceptance remains separate.
+- Native Hadolint and ShellCheck scans of the Kali checkout produced valid
+  adapter reports: five Dockerfiles/14 records and one shell file/one record.
+- The configured model fixture passed for `openai/gpt-oss-20b`,
+  `poolside/laguna-xs-2.1` and `nvidia/nemotron-3-ultra-550b-a55b`.
+  `gemini-3.6-flash` returned HTTP 429; `google/gemma-4-31b-it` timed out.
+  These are observed route outcomes, not evidence that the failed models are
+  permanently incompatible or that a passed model fixes arbitrary findings.
+  An initial report permission error was corrected; the final private report
+  records the completed bounded rerun. The fixture now checks output access
+  before sending requests.
+
+The first full backup run failed at a root-owned archive permission step;
+its cleanup restarted services. Correction `ef96a71` precreates archives
+with operator ownership. The subsequent consistent backup completed at
+`~/secureguard-backups/lab-20261001-091137` with eight volume archives and a
+database dump. Restore verification remains pending. The failed earlier
+snapshot is not accepted recovery evidence.
+
 Prepared changes include scanner version selection and digest inventory,
 report completion before AI, receipt coverage in scan details, generic API
 failures, and notification delivery outcomes without raw source/descriptions.

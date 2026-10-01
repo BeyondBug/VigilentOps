@@ -92,6 +92,14 @@ requests fail both at the gateway and directly on the Docker network. The
 All eight Prometheus targets and Grafana queries must work after this change.
 Use [Testing](TESTING.md) and [Gateway](GATEWAY.md) for the wider checks.
 
+```bash
+python3 scripts/check_gateway_monitoring.py --output reports/gateway-monitoring-final.json
+```
+
+This verifies gateway authentication, all configured Prometheus targets and
+every provisioned Grafana query's data frames. Browser rendering, WebSocket
+and real event/scan checks remain separate.
+
 ## 4. Push Gitea and migrate hooks in order
 
 Trust the lab CA for the existing HTTPS remote:
