@@ -15,6 +15,7 @@ app.conf.update(
     task_time_limit=60 * 60,
     task_soft_time_limit=55 * 60,
     broker_connection_retry_on_startup=True,
+    worker_prefetch_multiplier=1,
 )
 
 

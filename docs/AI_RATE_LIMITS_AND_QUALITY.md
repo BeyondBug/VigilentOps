@@ -7,6 +7,11 @@ finding. See [AI PR review](AI_PR_REVIEW.md) for the release decision.
 
 ## Rate limits
 
+The worker reserves one task per execution slot (`worker_prefetch_multiplier=1`)
+so a single worker does not hold four additional proposals while other work
+waits. This is not a global provider quota: configured concurrency and each
+provider's account limits still apply.
+
 If a later file exhausts provider availability after earlier files have passed
 the candidate gates, the worker publishes those earlier changes as a `WIP:`
 proposal. It reports the count of deferred files in the PR and task result;
