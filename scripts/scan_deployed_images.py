@@ -21,6 +21,8 @@ def main():
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--tools', nargs='+', choices=('trivy', 'dockle'), default=['trivy', 'dockle'],
                         help='Rerun a failed tool separately while retaining earlier evidence')
+    parser.add_argument('--services', nargs='+', default=[],
+                        help='Audit changed Compose services only; omitted means every existing container')
     args = parser.parse_args()
     os.umask(0o077)
     output = args.output.resolve()
@@ -30,6 +32,12 @@ def main():
     if not ids:
         raise ValueError('No Compose containers found; deploy the intended stack before scanning')
     inventory = docker_json(['inspect', *ids])
+    if args.services:
+        available = {item['Config']['Labels']['com.docker.compose.service'] for item in inventory}
+        if not set(args.services) <= available:
+            raise ValueError('Requested Compose service is absent from the deployed inventory')
+        inventory = [item for item in inventory
+                     if item['Config']['Labels']['com.docker.compose.service'] in args.services]
     groups = {}
     for item in inventory:
         image = item['Image']
@@ -45,6 +53,7 @@ def main():
     metadata = {'created_at': datetime.now(timezone.utc).isoformat(),
                 'checkout': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
                 'scope': 'Exact images of existing Compose containers, including stopped services; no source image builds',
+                'selected_services': args.services or 'all existing Compose containers',
                 'scanner_images': scanners, 'images': []}
     # Retain the feed timestamp. Offline scanning prevents implicit downloads;
     # freshness and applicability still require review in the acceptance record.
