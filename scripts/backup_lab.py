@@ -90,6 +90,9 @@ def main():
                           for mount in item['Mounts'] if mount['Type'] == 'volume'})
         for index, volume in enumerate(volumes):
             archive = f'volume-{index}.tgz'
+            # Root must read volume contents, but keep the output owned by the
+            # invoking operator so host-side permission/checksum steps work.
+            (directory / archive).touch(mode=0o600)
             run(['docker', 'run', '--rm', '--user', '0', '--network', 'none', '--entrypoint', 'tar',
                  '-v', volume + ':/source:ro', '-v', str(directory) + ':/backup',
                  archiver['Image'], '-czf', '/backup/' + archive, '-C', '/source', '.'])
