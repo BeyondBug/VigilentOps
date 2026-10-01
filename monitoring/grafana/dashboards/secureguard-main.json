@@ -1027,8 +1027,8 @@
         "kind": "Panel",
         "spec": {
           "id": 18,
-          "title": "Falco Container (kernel driver unsupported on Kali)",
-          "description": "",
+          "title": "Falco Container",
+          "description": "Container liveness only. Confirm event capture and exporter delivery separately; a running container alone does not establish sensor coverage.",
           "links": [],
           "data": {
             "kind": "QueryGroup",

@@ -53,10 +53,13 @@ def main():
             return error.code, None
 
     checks = []
+    authenticated_paths = {'/dashboard/': '/dashboard/',
+                           '/jenkins/': '/jenkins/api/json',
+                           '/prometheus/': '/prometheus/api/v1/status/buildinfo'}
     for path in ('/dashboard/', '/jenkins/', '/prometheus/'):
         status, _ = request(path)
         checks.append({'check': 'anonymous ' + path, 'pass': status == 401, 'http_status': status})
-        status, _ = request(path, gateway)
+        status, _ = request(authenticated_paths[path], gateway)
         checks.append({'check': 'authenticated ' + path, 'pass': status == 200, 'http_status': status})
     status, _ = request('/jenkins/generic-webhook-trigger/invoke', gateway)
     checks.append({'check': 'public webhook blocked', 'pass': status == 404, 'http_status': status})
