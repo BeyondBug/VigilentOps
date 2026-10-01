@@ -21,7 +21,7 @@ services:
 
   # The only published application port. Optional upstreams resolve at runtime.
   gateway:
-    image: nginx:1.28-alpine
+    image: nginx:1.30.5-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
     container_name: sg-gateway
     ports:
       - "${GATEWAY_BIND_ADDRESS:-0.0.0.0}:3000:3000"

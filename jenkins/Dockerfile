@@ -15,6 +15,7 @@ RUN apt-get update -qq && \
       > /etc/apt/sources.list.d/docker.list && \
     apt-get update -qq && \
     apt-get install -y -qq docker-ce-cli && \
+    apt-get purge -y -qq openssh-client && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
