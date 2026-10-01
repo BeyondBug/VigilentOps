@@ -13,13 +13,24 @@ function normalizeFinding(finding) {
 
 // ── Top-level fetch helpers ───────────────────────────────────────────────────
 export async function fetchScans() {
-  const r = await fetch(`${API}/api/scans?limit=100`);
+  const r = await fetch(`${API}/api/scans?limit=100&summary_only=true`);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   const scans = await r.json();
   return scans.map(scan => ({
     ...scan,
     findings: (scan.findings || []).map(normalizeFinding),
   }));
+}
+export async function fetchFindings({ scanId, page = 0, severity = "", scanner = "", search = "", signal }) {
+  const params = new URLSearchParams({ limit: "50", offset: String(page * 50) });
+  if (scanId != null) params.set("scan_id", String(scanId));
+  if (severity) params.set("severity", severity);
+  if (scanner) params.set("scanner", scanner);
+  if (search) params.set("search", search);
+  const response = await fetch(`${API}/api/findings?${params}`, { signal });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const data = await response.json();
+  return { ...data, findings: data.findings.map(normalizeFinding) };
 }
 export async function fetchHealth() {
   const r = await fetch(`${API}/health`);

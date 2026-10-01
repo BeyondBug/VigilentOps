@@ -176,3 +176,37 @@ class ApiReportContractTests(unittest.TestCase):
                 response = self.client.get(path)
                 self.assertEqual(response.status_code, 503)
                 self.assertNotIn('fixture-private-password', response.text)
+
+    def test_finding_pages_filter_literal_search_and_preserve_summary_totals(self):
+        with self.sessions() as session:
+            session.add_all([
+                Finding(scan_run_id=self.scan, scanner='bandit', severity='HIGH', title='literal 50%_value', rule_id='B602'),
+                Finding(scan_run_id=self.scan, scanner='bandit', severity='LOW', title='ordinary', fix_status='pr_opened'),
+                Finding(scan_run_id=self.scan, scanner='osv', severity='HIGH', title='dependency'),
+            ])
+            session.commit()
+        first = self.client.get('/api/findings?limit=2').json()
+        second = self.client.get('/api/findings?limit=2&offset=2').json()
+        self.assertEqual(first['total'], 3)
+        self.assertEqual(len(first['findings']), 2)
+        self.assertEqual(len(second['findings']), 1)
+        self.assertTrue({row['id'] for row in first['findings']}.isdisjoint(row['id'] for row in second['findings']))
+        self.assertEqual(first['scanners'], ['bandit', 'osv'])
+        self.assertEqual(self.client.get('/api/findings', params={'search': '%_'}).json()['total'], 1)
+        self.assertEqual(self.client.get('/api/findings?severity=HIGH&scanner=bandit').json()['total'], 1)
+        summary = self.client.get('/api/scans?summary_only=true').json()[0]
+        self.assertEqual(summary['findings'], [])
+        self.assertEqual(summary['scanner_counts'], {'bandit': 2, 'osv': 1})
+        self.assertEqual(summary['severity_counts'], {'HIGH': 2, 'LOW': 1})
+        self.assertEqual(summary['proposed_finding_count'], 1)
+
+    def test_finding_pages_validate_bounds_and_recent_scan_scope(self):
+        for params in ({'limit': 201}, {'offset': -1}, {'scan_id': 0}, {'severity': 'invalid'}, {'search': 'x' * 201}):
+            self.assertEqual(self.client.get('/api/findings', params=params).status_code, 422)
+        self.assertEqual(self.client.get('/api/findings?scan_id=999999').status_code, 404)
+        with self.sessions() as session:
+            session.add(Finding(scan_run_id=self.scan, title='old finding', severity='HIGH'))
+            session.add_all([ScanRun(repo_url='http://sg-gitea:3000/BeyondBug/example.git', commit_sha='b' * 40) for _ in range(100)])
+            session.commit()
+        self.assertEqual(self.client.get('/api/findings').json()['total'], 0)
+        self.assertEqual(self.client.get(f'/api/findings?scan_id={self.scan}').json()['total'], 1)

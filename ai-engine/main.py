@@ -6,7 +6,8 @@ import json
 import re
 from datetime import datetime
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Query
+from sqlalchemy import func, case, or_
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -261,10 +262,22 @@ async def get_scans(limit: int = 100, summary_only: bool = False):
                 .all()
             )
             ids = [row.id for row in results]
-            by_scan, by_report = {}, {}
+            by_scan, by_report, aggregates = {}, {}, {}
             if ids:
                 for report in db.query(ScanReport).filter(ScanReport.scan_run_id.in_(ids)).order_by(ScanReport.tool).all():
                     by_report.setdefault(report.scan_run_id, []).append(report.to_dict())
+                for scan_id, scanner, severity, count, proposed in db.query(
+                    Finding.scan_run_id, Finding.scanner, Finding.severity, func.count(Finding.id),
+                    func.sum(case((or_(Finding.fix_status == 'pr_opened',
+                                       (Finding.pr_url.isnot(None)) & (Finding.pr_url != '')), 1), else_=0)),
+                ).filter(Finding.scan_run_id.in_(ids)).group_by(
+                    Finding.scan_run_id, Finding.scanner, Finding.severity,
+                ).all():
+                    item = aggregates.setdefault(scan_id, {'scanner_counts': {}, 'severity_counts': {}, 'proposed_finding_count': 0})
+                    tool, level = scanner or 'unknown', severity or 'UNKNOWN'
+                    item['scanner_counts'][tool] = item['scanner_counts'].get(tool, 0) + count
+                    item['severity_counts'][level] = item['severity_counts'].get(level, 0) + count
+                    item['proposed_finding_count'] += int(proposed or 0)
                 if not summary_only:
                     for finding in db.query(Finding).filter(Finding.scan_run_id.in_(ids)).order_by(Finding.id).all():
                         by_scan.setdefault(finding.scan_run_id, []).append(finding.to_dict())
@@ -274,11 +287,60 @@ async def get_scans(limit: int = 100, summary_only: bool = False):
                 if not summary_only:
                     item["findings"] = by_scan.get(row.id, [])
                 item['reports'] = by_report.get(row.id, [])
+                item.update(aggregates.get(row.id, {'scanner_counts': {}, 'severity_counts': {}, 'proposed_finding_count': 0}))
                 payload.append(item)
             return payload
     except Exception as e:
         log.error('Scan list unavailable: %s', type(e).__name__)
         raise HTTPException(status_code=503, detail="Database unavailable") from e
+
+
+@app.get('/api/findings')
+async def get_findings(
+    scan_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
+    severity: str = Query(default='', max_length=10),
+    scanner: str = Query(default='', max_length=100),
+    search: str = Query(default='', max_length=200),
+):
+    """Page findings from one scan or the 100 most recent scan records."""
+    if severity and severity not in {'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'UNKNOWN'}:
+        raise HTTPException(status_code=422, detail='Invalid finding severity')
+    try:
+        with get_db_session() as db:
+            query = db.query(Finding, ScanRun).join(ScanRun, ScanRun.id == Finding.scan_run_id)
+            if scan_id is not None:
+                if not db.query(ScanRun.id).filter_by(id=scan_id).first():
+                    raise HTTPException(status_code=404, detail='Scan not found')
+                query = query.filter(Finding.scan_run_id == scan_id)
+            else:
+                recent_ids = db.query(ScanRun.id).order_by(ScanRun.started_at.desc(), ScanRun.id.desc()).limit(100)
+                query = query.filter(Finding.scan_run_id.in_(recent_ids))
+            total_in_scope = query.count()
+            scanners = sorted({name or 'unknown' for (name,) in query.with_entities(Finding.scanner).distinct().all()})
+            if severity:
+                query = query.filter(Finding.severity == severity)
+            if scanner:
+                query = query.filter(func.coalesce(Finding.scanner, 'unknown') == scanner)
+            if search:
+                escaped = search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+                pattern = '%' + escaped + '%'
+                query = query.filter(or_(Finding.title.ilike(pattern, escape='\\'),
+                                         Finding.rule_id.ilike(pattern, escape='\\'),
+                                         Finding.file_path.ilike(pattern, escape='\\')))
+            total = query.count()
+            findings = [{**finding.to_dict(), 'repo': scan.repo_name,
+                         'scan_id': scan.id, 'scan_time': scan.to_dict()['created_at']}
+                        for finding, scan in query.order_by(ScanRun.id.desc(), Finding.id).offset(offset).limit(limit).all()]
+            return {'findings': findings, 'total': total, 'total_in_scope': total_in_scope,
+                    'scanners': scanners, 'limit': limit, 'offset': offset,
+                    'scope': 'scan' if scan_id is not None else 'recent_100_scans'}
+    except HTTPException:
+        raise
+    except Exception as error:
+        log.error('Finding page unavailable: %s', type(error).__name__)
+        raise HTTPException(status_code=503, detail='Finding data unavailable')
 
 
 @app.get("/api/scans/{scan_id}")

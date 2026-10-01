@@ -7,14 +7,11 @@ export default function Overview({ scans }) {
   const totalFindings = scans.reduce((s, r) => s + (r.total_findings || 0), 0);
   const totalCritical = scans.reduce((s, r) => s + (r.critical_count || 0), 0);
   const totalHigh     = scans.reduce((s, r) => s + (r.high_count || 0), 0);
-  const proposedFindings = scans.reduce((s, r) => {
-    const findings = r.findings || [];
-    return s + findings.filter(f => f.fix_status === "pr_opened" || f.pr_url).length;
-  }, 0);
+  const proposedFindings = scans.reduce((s, r) => s + (r.proposed_finding_count || 0), 0);
 
   // Last 10 scans for area chart
-  const trendData = [...scans].slice(-10).map((r, i) => ({
-    name:     `#${i + 1}`,
+  const trendData = scans.slice(0, 10).reverse().map(r => ({
+    name:     `#${r.id}`,
     critical: r.critical_count || 0,
     high:     r.high_count || 0,
     total:    r.total_findings || 0,
@@ -23,9 +20,8 @@ export default function Overview({ scans }) {
   // Findings by tool (pie)
   const toolMap = {};
   scans.forEach(r => {
-    (r.findings || []).forEach(f => {
-      const t = f.tool || "unknown";
-      toolMap[t] = (toolMap[t] || 0) + 1;
+    Object.entries(r.scanner_counts || {}).forEach(([tool, count]) => {
+      toolMap[tool] = (toolMap[tool] || 0) + count;
     });
   });
   const pieData = Object.entries(toolMap).map(([name, value]) => ({ name, value }));
@@ -34,9 +30,8 @@ export default function Overview({ scans }) {
   // Severity breakdown bar
   const sevMap = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0, INFO: 0, UNKNOWN: 0 };
   scans.forEach(r => {
-    (r.findings || []).forEach(f => {
-      const s = (f.severity || "").toUpperCase();
-      if (s in sevMap) sevMap[s]++;
+    Object.entries(r.severity_counts || {}).forEach(([severity, count]) => {
+      if (severity in sevMap) sevMap[severity] += count;
     });
   });
   const sevData = Object.entries(sevMap).map(([name, count]) => ({ name, count }));
@@ -48,8 +43,8 @@ export default function Overview({ scans }) {
     <div style={{ animation: "fadeIn 0.3s ease" }}>
       {/* Stat cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
-        <StatCard label="TOTAL SCANS"     value={totalScans}    icon="⬡" color={T.accent} sub="all time" />
-        <StatCard label="TOTAL FINDINGS"  value={totalFindings} icon="⚠" color={T.text}  sub="across all scans" />
+        <StatCard label="RECENT SCANS"     value={totalScans}    icon="⬡" color={T.accent} sub="latest 100 scans" />
+        <StatCard label="FINDING RECORDS"  value={totalFindings} icon="⚠" color={T.text}  sub="across latest 100 scans" />
         <StatCard label="CRITICAL"        value={totalCritical} icon="🔴" color={SEV_COLOR.CRITICAL} sub="scanner severity" />
         <StatCard label="HIGH"            value={totalHigh}     icon="🟠" color={SEV_COLOR.HIGH}     sub="scanner severity" />
         <StatCard label="FINDINGS WITH PR" value={proposedFindings} icon="🤖" color={T.green} sub="review required" />

@@ -1,27 +1,22 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { T, SEV_COLOR } from "../theme";
 import { FilterGroup, FindingCard, EmptyState } from "../components";
+import useFindings from "../useFindings";
+import FindingPage from "../FindingPage";
 
 export default function FindingsTab({ scans }) {
   const [sevFilter, setSevFilter] = useState("ALL");
   const [toolFilter, setToolFilter] = useState("ALL");
   const [search, setSearch] = useState("");
-
-  const allFindings = scans.flatMap(s =>
-    (s.findings || []).map(f => ({ ...f, repo: s.repo_name, scan_id: s.id, scan_time: s.created_at }))
-  );
-
-  const tools = ["ALL", ...new Set(allFindings.map(f => f.tool || "unknown"))];
+  const [page, setPage] = useState(0);
+  const result = useFindings({ page, severity: sevFilter === "ALL" ? "" : sevFilter,
+    scanner: toolFilter === "ALL" ? "" : toolFilter, search, revision: scans });
+  useEffect(() => {
+    if (!result.loading && !result.error && page > 0 && page * 50 >= result.total) setPage(0);
+  }, [result.loading, result.error, result.total, page]);
+  const changeFilter = setter => value => { setter(value); setPage(0); };
+  const tools = ["ALL", ...result.scanners];
   const sevs  = ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"];
-
-  const filtered = allFindings.filter(f => {
-    const sev  = (f.severity || "").toUpperCase();
-    const tool = f.tool || "unknown";
-    const text = `${f.message || ""} ${f.rule_id || ""} ${f.file || ""}`.toLowerCase();
-    return (sevFilter  === "ALL" || sev  === sevFilter) &&
-           (toolFilter === "ALL" || tool === toolFilter) &&
-           (search === "" || text.includes(search.toLowerCase()));
-  });
 
   return (
     <div style={{ animation: "fadeIn 0.3s ease" }}>
@@ -34,30 +29,35 @@ export default function FindingsTab({ scans }) {
         <input
           placeholder="Search findings…"
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          maxLength={200}
+          aria-label="Search findings"
+          onChange={e => changeFilter(setSearch)(e.target.value)}
           style={{
             background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6,
             padding: "7px 12px", color: T.text, fontFamily: T.font, fontSize: 12,
             outline: "none", flex: "1 1 200px",
           }}
         />
-        <FilterGroup label="Severity" options={sevs} value={sevFilter} onChange={setSevFilter} colorMap={SEV_COLOR} />
-        <FilterGroup label="Scanner"  options={tools} value={toolFilter} onChange={setToolFilter} />
+        <FilterGroup label="Severity" options={sevs} value={sevFilter} onChange={changeFilter(setSevFilter)} colorMap={SEV_COLOR} />
+        <FilterGroup label="Scanner"  options={tools} value={toolFilter} onChange={changeFilter(setToolFilter)} />
       </div>
 
       {/* Count */}
       <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.font, marginBottom: 12, letterSpacing: 1 }}>
-        SHOWING {filtered.length} / {allFindings.length} FINDINGS
+        Latest 100 scans · {result.total_in_scope.toLocaleString()} finding records in scope
       </div>
 
       {/* Findings list */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {filtered.length === 0 ? (
+        {result.error ? <EmptyState message={`Unable to load findings: ${result.error}`} /> : result.loading ? (
+          <EmptyState message="Loading findings…" />
+        ) : result.findings.length === 0 ? (
           <EmptyState message="No findings match the current filters." />
-        ) : filtered.map((f, i) => (
-          <FindingCard key={i} finding={f} showRepo />
+        ) : result.findings.map(f => (
+          <FindingCard key={f.id} finding={f} showRepo />
         ))}
       </div>
+      <FindingPage page={page} total={result.total} loading={result.loading} onChange={setPage} />
     </div>
   );
 }

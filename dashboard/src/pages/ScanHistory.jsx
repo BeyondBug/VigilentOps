@@ -1,9 +1,14 @@
 import { useState } from "react";
 import { T, SEV_COLOR } from "../theme";
 import { SectionHeader, KVRow, FindingCard, EmptyState } from "../components";
+import useFindings from "../useFindings";
+import FindingPage from "../FindingPage";
 
 export default function ScanHistory({ scans }) {
   const [selected, setSelected] = useState(null);
+  const [page, setPage] = useState(0);
+  const result = useFindings({ scanId: selected, page, revision: scans, enabled: selected != null });
+  const select = id => { setSelected(id); setPage(0); };
 
   const scan = scans.find(s => s.id === selected);
 
@@ -12,14 +17,14 @@ export default function ScanHistory({ scans }) {
       {/* Scan list */}
       <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}` }}>
-          <SectionHeader title="ALL SCANS" count={scans.length} />
+          <SectionHeader title="LATEST SCANS" count={scans.length} />
         </div>
         {scans.length === 0 ? (
           <div style={{ padding: 40 }}><EmptyState message="No scans yet. Push code to Gitea to trigger a scan." /></div>
         ) : (
           <div style={{ overflowY: "auto", maxHeight: "calc(100vh - 200px)" }}>
             {scans.map(s => (
-              <div key={s.id} onClick={() => setSelected(s.id === selected ? null : s.id)} style={{
+              <div key={s.id} onClick={() => select(s.id === selected ? null : s.id)} style={{
                 padding: "14px 20px", borderBottom: `1px solid ${T.border}`,
                 cursor: "pointer", background: s.id === selected ? `${T.accent}08` : "transparent",
                 borderLeft: s.id === selected ? `2px solid ${T.accent}` : "2px solid transparent",
@@ -92,11 +97,12 @@ export default function ScanHistory({ scans }) {
               </div>
             </div>
             <div style={{ fontFamily: T.font, fontSize: 11, color: T.textDim, marginBottom: 8, letterSpacing: 1 }}>
-              FINDINGS ({(scan.findings || []).length})
+              FINDINGS ({result.total})
             </div>
-            {(scan.findings || []).map((f, i) => (
-              <FindingCard key={i} finding={f} />
-            ))}
+            {result.error ? <EmptyState message={`Unable to load findings: ${result.error}`} />
+              : result.loading ? <EmptyState message="Loading findings…" />
+              : result.findings.map(f => <FindingCard key={f.id} finding={f} />)}
+            <FindingPage page={page} total={result.total} loading={result.loading} onChange={setPage} />
           </div>
         </div>
       )}
