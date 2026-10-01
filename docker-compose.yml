@@ -314,7 +314,7 @@ services:
 
   # ── Falco (kernel syscall + container runtime monitoring) ──
   falco:
-    image: falcosecurity/falco:0.39.2
+    image: falcosecurity/falco:0.43.0
     container_name: sg-falco
     privileged: true
     security_opt:
@@ -322,6 +322,7 @@ services:
       - seccomp:unconfined
     pid: host
     environment:
+      - SKIP_DRIVER_LOADER=true
       - FALCO_GRPC_ENABLED=true
       - FALCO_GRPC_BIND_ADDRESS=unix:///var/run/falco/falco.sock
     volumes:

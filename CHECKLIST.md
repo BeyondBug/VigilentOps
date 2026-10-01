@@ -103,7 +103,10 @@ Kali. Follow [Next server session](docs/NEXT_SERVER_SESSION.md).
   record a real accepted PR-head fix before relying on a route's patch quality.
 - [x] Prepare administrator-only PR-head scanning without queuing another AI fix.
 - [x] Prepare a server-only controlled Celery/HTTP retry and fallback fixture.
-- [ ] Run the expanded Python suite and controlled failure fixture on Kali.
+- [x] Run the expanded Python suite and controlled failure fixture on Kali:
+  90 tests passed on corrected checkout `9e3dfff`; controlled RETRY/FAILURE,
+  invalid-output rejection and validated fallback passed. Final deployed
+  commit and real PR acceptance still require checks.
 - [ ] Review/correct or explicitly reject PR #18; generate one fresh real PR.
 - [ ] Verify correct repository/base/head and every promised numbered part;
   review the whole diff and changed interfaces through real clients.
@@ -143,6 +146,9 @@ Kali. Follow [Next server session](docs/NEXT_SERVER_SESSION.md).
 - [ ] Recheck all Grafana panels, eight targets, WebSocket and HTTPS Git after
   deployment. Credentials must not appear in logs or public PR comments.
 - [x] Correct the inspected Falco `nodriver` configuration to modern eBPF.
+- [x] Prepare Falco 0.43.0 with its container plugin and remove the invalid
+  `outputs` property; brief Kali initialization diagnostic passed. It captured
+  zero events in that short run, so event/exporter acceptance remains open.
 - [ ] Verify Falco remains running and captures a controlled event through its
   exporter and Grafana. Startup/capture has not been established; BTF exists
   on this Kali host, but kernel/permission compatibility needs a live check.

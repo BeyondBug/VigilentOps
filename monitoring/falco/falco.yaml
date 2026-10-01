@@ -1,6 +1,14 @@
 engine:
   kind: modern_ebpf
 
+load_plugins: [container]
+plugins:
+  - name: container
+    library_path: libcontainer.so
+    init_config:
+      label_max_len: 100
+      with_size: false
+
 rules_files:
   - /etc/falco/falco_rules.yaml
   - /etc/falco/falco_rules.local.yaml
@@ -12,10 +20,6 @@ json_include_output_property: true
 log_stderr: true
 log_syslog: false
 log_level: info
-
-outputs:
-  rate: 1
-  max_burst: 1000
 
 syslog_output:
   enabled: false
