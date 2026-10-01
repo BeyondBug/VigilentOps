@@ -62,6 +62,7 @@ def main():
             path = directory / (tool + '.sarif')
             path.touch(mode=0o600)
             name = 'sg-image-audit-' + uuid.uuid4().hex[:16]
+            alias = None
             command = ['docker', 'run', '--rm', '--name', name, '--network', 'none',
                        '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
                        '--user', str(os.getuid()), '--group-add', str(Path('/var/run/docker.sock').stat().st_gid),
@@ -78,12 +79,13 @@ def main():
                 # image ID. Create a unique local alias, verify its exact ID,
                 # and remove only that alias when this scanner finishes.
                 alias = name + ':scan'
-                subprocess.run(['docker', 'image', 'tag', image, alias], check=True,
-                               capture_output=True)
-                if docker_json(['image', 'inspect', alias])[0]['Id'] != image:
-                    raise ValueError('Temporary image alias does not match the inventoried image ID')
                 command += [scanners[tool], '-f', 'sarif', '-o', '/reports/dockle.sarif', alias]
             try:
+                if alias:
+                    subprocess.run(['docker', 'image', 'tag', image, alias], check=True,
+                                   capture_output=True)
+                    if docker_json(['image', 'inspect', alias])[0]['Id'] != image:
+                        raise ValueError('Temporary image alias does not match the inventoried image ID')
                 with (directory / (tool + '.log')).open('w') as log:
                     process = subprocess.run(command, stdout=log, stderr=log, timeout=960)
                 if process.returncode:
@@ -91,12 +93,12 @@ def main():
                 count = _sarif(path)
                 record['reports'][tool] = {'status': 'accepted', 'path': str(path.relative_to(output)),
                                           'finding_records': count}
-            except (ValueError, subprocess.TimeoutExpired) as error:
+            except (ValueError, subprocess.TimeoutExpired, subprocess.CalledProcessError) as error:
                 failed = True
                 record['reports'][tool] = {'status': 'failed', 'diagnostic': str(error)}
             finally:
                 subprocess.run(['docker', 'rm', '-f', name], capture_output=True)
-                if tool == 'dockle':
+                if alias:
                     subprocess.run(['docker', 'image', 'rm', alias], capture_output=True)
             print(image[:19], tool, record['reports'][tool]['status'], flush=True)
         (output / 'inventory.json').write_text(json.dumps(metadata, indent=2) + '\n')
