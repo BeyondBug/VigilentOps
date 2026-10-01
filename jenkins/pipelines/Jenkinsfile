@@ -63,7 +63,7 @@ pipeline {
                         if (!(image instanceof String) || !(image ==~ /^[a-z0-9][a-z0-9.\/_-]*:[A-Za-z0-9][A-Za-z0-9_.-]*(@sha256:[a-f0-9]{64})?$/) || image.endsWith(':latest')) {
                             error('Scanner images require explicit version references')
                         }
-                        env["SCANNER_${tool.toUpperCase()}_IMAGE"] = image
+                        env.setProperty("SCANNER_${tool.toUpperCase()}_IMAGE", image)
                     }
                     def requestedRepo = (params.REVIEW_AI_PR ? params.REVIEW_REPO_URL : (env.REPO_URL ?: '')).trim()
                     if (!requestedRepo) error('REPO_URL is required')

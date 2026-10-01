@@ -79,6 +79,7 @@ without receipts/metadata until a new scan supplies them.
 docker compose stop orchestrator celery-worker cve-intel cve-worker
 docker compose run --rm --no-deps migrate
 docker compose --profile ci --profile monitoring up -d --build
+docker compose up -d --force-recreate --no-deps gateway
 docker compose ps
 docker exec sg-gateway nginx -t
 docker compose logs --tail=100 migrate orchestrator jenkins
@@ -91,6 +92,9 @@ requests fail both at the gateway and directly on the Docker network. The
 `sg-metrics` account may read metrics, but must not administer Jenkins.
 All eight Prometheus targets and Grafana queries must work after this change.
 Use [Testing](TESTING.md) and [Gateway](GATEWAY.md) for the wider checks.
+Recreate the gateway after pulling its individual bind-mounted config: Git
+can replace the host file's inode, leaving a running container attached to
+the previous config. An Nginx reload alone does not refresh that mount.
 
 ```bash
 python3 scripts/check_gateway_monitoring.py --output reports/gateway-monitoring-final.json
