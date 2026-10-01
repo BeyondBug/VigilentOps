@@ -1,12 +1,21 @@
 """Explicit model routes and bounded, process-local cooldowns. No API discovery."""
 
 import hashlib
-import re
 import time
-from urllib.parse import urlsplit
 
 
 MAX_ROUTES = 32
+OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+# User-approved free variants; catalog presence is not remediation acceptance.
+OPENROUTER_FREE_MODELS = (
+    'nvidia/nemotron-3-ultra-550b-a55b:free',
+    'poolside/laguna-s-2.1:free',
+    'nvidia/nemotron-3.5-lightning:free',
+    'cohere/north-mini-code:free',
+    'qwen/qwen3.8-27b:free',
+    'google/gemma-4-26b-a4b-it:free',
+    'google/gemma-4-31b-it:free',
+)
 
 
 def bounded_integer(environment, name, default, minimum, maximum):
@@ -20,46 +29,24 @@ def bounded_integer(environment, name, default, minimum, maximum):
 
 
 def load_model_pool(environment):
-    """Numbered routes first, explicit NVIDIA allowlist second, legacy last."""
-    routes = []
-    indices = sorted({int(match.group(1)) for key in environment
-                      if (match := re.fullmatch(r'MODEL_([1-9][0-9]*)', key))})
-    for index in indices:
-        model = environment.get(f'MODEL_{index}', '').strip()
-        key = environment.get(f'API_KEY_{index}', '').strip()
-        url = environment.get(f'API_URL_{index}', '').strip()
-        if model and key and url:
-            routes.append({'model': model, 'key': key, 'url': url})
-    nim_models = environment.get('NVIDIA_NIM_MODELS', '').strip()
-    nim_key = environment.get('NVIDIA_NIM_API_KEY', '').strip()
-    if nim_models and nim_key:
-        for model in nim_models.split(','):
-            if model.strip():
-                routes.append({'model': model.strip(), 'key': nim_key,
-                               'url': 'https://integrate.api.nvidia.com/v1/chat/completions'})
-    if not routes:
-        for prefix, model, url in (
-            ('PRIMARY', 'moonshotai/kimi-k3', 'https://api.moonshot.cn/v1/chat/completions'),
-            ('SECONDARY', 'deepseek-ai/deepseek-v4-flash-0731', 'https://api.deepseek.com/chat/completions'),
-            ('FALLBACK', 'meta/muse-glimmer-30b', 'https://api.together.xyz/v1/chat/completions'),
-        ):
-            key = environment.get(f'{prefix}_API_KEY', '').strip()
-            if key:
-                routes.append({'model': environment.get(f'{prefix}_MODEL', model).strip(),
-                               'key': key, 'url': environment.get(f'{prefix}_API_URL', url).strip()})
-    unique = {}
-    for route in routes:
-        parsed = urlsplit(route['url'])
-        if (parsed.scheme not in {'https', 'http'} or not parsed.hostname or parsed.username
-                or parsed.password or parsed.query or parsed.fragment
-                or not parsed.path.endswith('/chat/completions')):
-            raise ValueError('Model endpoint must be a chat-completions URL without embedded credentials/query/fragment')
-        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9/_.:-]{0,199}', route['model']):
-            raise ValueError('Model identifier contains unsupported characters')
-        unique.setdefault(route_identity(route), route)
-    if len(unique) > MAX_ROUTES:
-        raise ValueError(f'Configure at most {MAX_ROUTES} distinct model routes')
-    return list(unique.values())
+    """Only the seven approved OpenRouter free models; no other provider fallback."""
+    configured = environment.get('OPENROUTER_MODELS', ','.join(OPENROUTER_FREE_MODELS))
+    models = list(dict.fromkeys(model.strip() for model in configured.split(',') if model.strip()))
+    if any(model not in OPENROUTER_FREE_MODELS for model in models):
+        raise ValueError('OPENROUTER_MODELS must contain only approved free model IDs')
+    key = environment.get('OPENROUTER_API_KEY', '').strip()
+    if not key:
+        return []
+    return [{'model': model, 'key': key, 'url': OPENROUTER_URL} for model in models]
+
+
+def completion_options(model, api_url):
+    """Price constraints for production routes; local transport fixtures remain generic."""
+    if api_url != OPENROUTER_URL:
+        return {}
+    if model not in OPENROUTER_FREE_MODELS:
+        raise ValueError('OpenRouter model is outside the approved free allowlist')
+    return {'provider': {'max_price': {'prompt': 0, 'completion': 0, 'request': 0}}}
 
 
 def route_identity(route):

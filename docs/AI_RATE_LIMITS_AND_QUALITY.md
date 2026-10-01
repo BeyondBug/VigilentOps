@@ -19,8 +19,8 @@ their findings remain open. If no file has an acceptable change, normal
 bounded Celery deferral still applies. A partial proposal does not schedule
 an automatic follow-up or establish that the proposed fixes work.
 
-- Configure only models with a real `MODEL_n`, `API_URL_n`, and private
-  `API_KEY_n` in the server's `.env`. Order them by preference. The example
+- Configure `OPENROUTER_API_KEY` and order the approved `:free` IDs in
+  `OPENROUTER_MODELS` in the server's `.env`. Other providers are disabled. The example
   keys are blank, so a copied example does not call a provider accidentally.
 - The lab starts one AI worker process by default
   (`AI_WORKER_CONCURRENCY=1`). Increase this only after measuring the actual
@@ -37,8 +37,10 @@ an automatic follow-up or establish that the proposed fixes work.
   is pushed before the full proposal is assembled, so this retry starts from
   the scan commit. A task that still cannot call a model ends in failure and
   leaves findings open for a later manual rerun.
-- Multiple configured models on one provider may share a quota. Put an
-  independent provider second if continuity matters. Watch the worker logs
+- All selected free models share OpenRouter account limits. An OpenRouter 429
+  with `X-RateLimit-Remaining: 0` defers immediately and cools every route using
+  the same key, instead of retrying each model. Cooldowns remain process-local;
+  restart resets them. Provider-specific 429s retain model fallback. Watch the worker logs
   for `rate limited`, `retry`, and final Celery failure; do not infer AI
   success from the Jenkins build, which only queues the task.
 
@@ -97,15 +99,15 @@ it checks deferred 429 exhaustion and invalid-output fallback without database
 changes or PR publication. The fixture passed on Kali on 1 October. It does
 not establish real-provider or real-patch acceptance.
 
-## Expanded model pool
+## Historical pool and current free allowlist
 
-Numbered routes now support indices above nine, up to 32 distinct routes.
-An explicit `NVIDIA_NIM_MODELS` list can share `NVIDIA_NIM_API_KEY`. The worker
-skips cooling routes, bounds attempts per file and rejects explicitly truncated,
+The earlier pool supported numbered and direct NVIDIA routes. Those credentials
+are now ignored: only the seven approved OpenRouter free variants are permitted.
+The worker skips cooling routes, bounds attempts per file and rejects explicitly truncated,
 filtered, refusal or tool-call responses. Cooldowns are process-local and
 reset on restart; keep the single-worker lab default. Configuration, limitations
 and the Kali-only synthetic compatibility check are in [Model pool](MODEL_POOL.md).
-On 1 October three configured routes passed synthetic compatibility checks;
+Before this provider change, three routes passed synthetic compatibility checks;
 other routes returned an observed 429 or timeout. See the dated acceptance
 record for the exact models. Compatibility does not prove patch correctness.
 

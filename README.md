@@ -45,9 +45,10 @@ for subsequent updates. [CHECKLIST.md](CHECKLIST.md) tracks finding dispositions
 broader recovery workflows and final release acceptance; the lab is not
 yet complete.
 
-The AI [model pool](docs/MODEL_POOL.md) supports explicit NVIDIA backups,
-bounded attempts and route cooldowns. Three routes passed a controlled server
-fixture. One SQL fix was manually corrected, reviewed and rescanned before
+The AI [model pool](docs/MODEL_POOL.md) now permits only seven approved
+OpenRouter `:free` variants, with zero-price constraints, bounded attempts and
+route cooldowns. Earlier direct-provider compatibility checks do not validate
+these new routes. One SQL fix was manually corrected, reviewed and rescanned before
 merging; this does not establish that models can repair every finding.
 See [Jenkins upgrades](docs/JENKINS_UPGRADES.md) for plugin maintenance and recovery.
 

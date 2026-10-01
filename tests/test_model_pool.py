@@ -2,35 +2,68 @@
 
 import sys
 import unittest
+import httpx
 from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'ai-engine'))
 import fix_engine
-from model_pool import load_model_pool, RouteCooldowns
+from model_pool import load_model_pool, RouteCooldowns, OPENROUTER_FREE_MODELS, OPENROUTER_URL
 
 
 class ModelPoolTests(unittest.TestCase):
-    def test_numbered_routes_after_nine_and_nim_allowlist_are_ordered_and_deduplicated(self):
-        endpoint = 'https://integrate.api.nvidia.com/v1/chat/completions'
-        models = load_model_pool({'MODEL_12': 'example/twelve', 'API_KEY_12': 'secret', 'API_URL_12': endpoint,
-                                 'MODEL_2': 'example/two', 'API_KEY_2': 'secret', 'API_URL_2': endpoint,
-                                 'NVIDIA_NIM_API_KEY': 'secret',
-                                 'NVIDIA_NIM_MODELS': 'example/two, example/backup'})
-        self.assertEqual([route['model'] for route in models], ['example/two', 'example/twelve', 'example/backup'])
+    def test_only_approved_openrouter_routes_are_loaded_despite_old_provider_credentials(self):
+        models = load_model_pool({'OPENROUTER_API_KEY': 'fixture-key',
+                                 'MODEL_1': 'openai/gpt-4o', 'API_KEY_1': 'old-key',
+                                 'API_URL_1': OPENROUTER_URL, 'NVIDIA_NIM_API_KEY': 'old-key',
+                                 'NVIDIA_NIM_MODELS': 'example/other', 'PRIMARY_API_KEY': 'old-key'})
+        self.assertEqual([route['model'] for route in models], list(OPENROUTER_FREE_MODELS))
+        self.assertTrue(all(route['url'] == OPENROUTER_URL and route['key'] == 'fixture-key' for route in models))
+
+    def test_subset_order_and_duplicate_removal_do_not_add_other_models(self):
+        first, second = OPENROUTER_FREE_MODELS[:2]
+        routes = load_model_pool({'OPENROUTER_API_KEY': 'key', 'OPENROUTER_MODELS': f'{second}, {first},{second}'})
+        self.assertEqual([route['model'] for route in routes], [second, first])
+        self.assertEqual(load_model_pool({'OPENROUTER_API_KEY': 'key', 'OPENROUTER_MODELS': ''}), [])
 
     def test_empty_credentials_disable_provider_calls(self):
-        self.assertEqual(load_model_pool({'NVIDIA_NIM_MODELS': 'example/model', 'NVIDIA_NIM_API_KEY': ''}), [])
+        self.assertEqual(load_model_pool({'OPENROUTER_API_KEY': '', 'NVIDIA_NIM_API_KEY': 'old-key',
+                                         'PRIMARY_API_KEY': 'old-key'}), [])
 
-    def test_endpoint_and_pool_size_are_validated_without_leaking_keys(self):
-        for endpoint in ('https://sensitive-secret@provider.example/v1/chat/completions',
-                         'https://provider.example/v1/chat/completions?key=sensitive-secret'):
+    def test_paid_unapproved_and_secret_like_model_ids_are_rejected_without_leaking_values(self):
+        for model in ('openai/gpt-4o', OPENROUTER_FREE_MODELS[0].removesuffix(':free'),
+                      'example/not-approved:free', 'sensitive-secret'):
             with self.assertRaises(ValueError) as caught:
-                load_model_pool({'MODEL_1': 'example/model', 'API_KEY_1': 'sensitive-secret', 'API_URL_1': endpoint})
+                load_model_pool({'OPENROUTER_API_KEY': 'sensitive-secret', 'OPENROUTER_MODELS': model})
             self.assertNotIn('sensitive-secret', str(caught.exception))
-        with self.assertRaisesRegex(ValueError, '32'):
-            load_model_pool({'NVIDIA_NIM_API_KEY': 'secret',
-                             'NVIDIA_NIM_MODELS': ','.join(f'example/model-{n}' for n in range(33))})
+
+    def test_openrouter_http_request_enforces_zero_prices_and_rejects_paid_models_before_http(self):
+        model = OPENROUTER_FREE_MODELS[0]
+        response = httpx.Response(200, json={'choices': [{'message': {'content': "print('safe')\n"},
+                                                         'finish_reason': 'stop'}]},
+                                  request=httpx.Request('POST', OPENROUTER_URL))
+        with patch.object(fix_engine.httpx, 'post', return_value=response) as request:
+            self.assertEqual(fix_engine.call_llm('fixture', model, OPENROUTER_URL, 'key'), "print('safe')\n")
+        self.assertEqual(request.call_args.kwargs['json']['provider']['max_price'],
+                         {'prompt': 0, 'completion': 0, 'request': 0})
+        with patch.object(fix_engine.httpx, 'post') as request:
+            with self.assertRaises(ValueError):
+                fix_engine.call_llm('fixture', 'openai/gpt-4o', OPENROUTER_URL, 'key')
+        request.assert_not_called()
+
+    def test_openrouter_exhausted_account_quota_defers_without_retrying_all_models(self):
+        routes = load_model_pool({'OPENROUTER_API_KEY': 'key'})
+        response = httpx.Response(429, headers={'Retry-After': '120', 'X-RateLimit-Remaining': '0'},
+                                  request=httpx.Request('POST', OPENROUTER_URL))
+        with patch.object(fix_engine, 'MODELS', routes), \
+             patch.object(fix_engine, 'MODEL_COOLDOWNS', RouteCooldowns()), \
+             patch.object(fix_engine.httpx, 'post', return_value=response) as request, \
+             patch.object(fix_engine.time, 'sleep') as sleep:
+            with self.assertRaises(fix_engine.RateLimitDeferred):
+                fix_engine.try_with_fallback('app.py', "print('old')\n", [])
+            self.assertTrue(all(fix_engine.MODEL_COOLDOWNS.remaining(route) > 0 for route in routes))
+        request.assert_called_once()
+        sleep.assert_not_called()
 
     def test_cooldown_expires_and_does_not_extend_shorter_retry(self):
         pool = RouteCooldowns()

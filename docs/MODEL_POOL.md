@@ -1,45 +1,76 @@
 # AI model pool
 
-Deployed on Kali on 1 October. Three configured routes passed synthetic
-compatibility checks; two other routes returned an observed 429 or timeout.
-See [dated evidence](ACCEPTANCE_2026-10-01.md) for models and limitations.
+The owner selected **OpenRouter only**, restricted to the seven free variants
+below. All seven appeared in the [official catalog](https://openrouter.ai/api/v1/models)
+with zero prompt/completion prices on 1 October 2026. Catalog presence does
+not establish account access, availability or acceptable fixes. Earlier
+direct-provider compatibility results do not validate these new routes.
 The pool improves proposal availability within the existing Python SAST scope.
 It does not promise every finding can be fixed or every proposed patch works.
 
 ## Private configuration
 
-Numbered `MODEL_n`, `API_KEY_n`, `API_URL_n` entries are tried in numeric order.
-Indices above nine now work. Up to 32 distinct routes are allowed. Incomplete
-entries are ignored; duplicates with the same endpoint, model and key are
-removed. Endpoints must be chat-completions URLs without embedded credentials,
-query strings or fragments. Legacy PRIMARY/SECONDARY/FALLBACK entries are used
-only when neither numbered nor NVIDIA pool routes are complete.
+| Priority | Model | Exact API ID |
+| --- | --- | --- |
+| 1 | NVIDIA Nemotron 3 Ultra | `nvidia/nemotron-3-ultra-550b-a55b:free` |
+| 2 | Poolside Laguna S 2.1 | `poolside/laguna-s-2.1:free` |
+| 3 | NVIDIA Nemotron 3.5 Lightning | `nvidia/nemotron-3.5-lightning:free` |
+| 4 | Cohere North Mini Code | `cohere/north-mini-code:free` |
+| 5 | Qwen3.8 27B | `qwen/qwen3.8-27b:free` |
+| 6 | Google Gemma 4 26B A4B | `google/gemma-4-26b-a4b-it:free` |
+| 7 | Google Gemma 4 31B | `google/gemma-4-31b-it:free` |
 
-An optional explicit NVIDIA allowlist shares one private key:
+Set the key privately in the server's `.env`. Select an ordered subset if
+desired; omitting `OPENROUTER_MODELS` selects the table order, while an
+explicitly empty list disables calls. Duplicates are removed and any other
+model ID, including paid variants, is rejected without logging its value.
 
 ```dotenv
-NVIDIA_NIM_API_KEY=<private-key>
-NVIDIA_NIM_MODELS=<verified-model-id>,<another-verified-model-id>
+OPENROUTER_API_KEY=<private-replacement-key>
+OPENROUTER_MODELS=nvidia/nemotron-3-ultra-550b-a55b:free,poolside/laguna-s-2.1:free
 AI_MAX_MODEL_ROUTES_PER_FILE=4
 AI_MODEL_FAILURE_COOLDOWN_SECONDS=60
 AI_WORKER_CONCURRENCY=1
 ```
 
-Replace placeholders before enabling. The NVIDIA list is appended after the
-numbered routes and uses `https://integrate.api.nvidia.com/v1/chat/completions`.
-The hosted endpoint and chat model catalog are described in NVIDIA's
-[LLM API reference](https://docs.api.nvidia.com/nim/reference/llm-apis).
-Select IDs actually available to your account. Catalog presence does not
-establish code quality, entitlement or enough context for a project file.
-The worker does not automatically enroll the entire catalog.
+An absent/empty `OPENROUTER_API_KEY` disables calls, even if old provider keys
+remain. Numbered routes, direct NVIDIA and PRIMARY/SECONDARY/FALLBACK variables
+are ignored. The endpoint is fixed to
+`https://openrouter.ai/api/v1/chat/completions`. The project configures no paid
+fallback, plugins or automatic top-up. Requests set `provider.max_price` to
+zero for prompt, completion and per-request pricing; see
+[price constraints](https://openrouter.ai/docs/guides/routing/provider-selection#max-price).
 
-Put the strongest validated routes first and include an independent provider
-early if available. Account/provider limits may affect several NVIDIA models;
-switching models does not establish additional quota. Confirm actual limits
-in your account as directed by NVIDIA's
-[NIM FAQ](https://forums.developer.nvidia.com/t/nvidia-nim-faq/300317).
-Keep all numbered keys, legacy keys and `NVIDIA_NIM_API_KEY` blank to disable
-external model calls. Source selected for remediation goes to configured providers.
+Free routes have per-minute/account-wide daily limits and availability can
+change. Inspect `GET /api/v1/key` privately for the account quota; see
+[OpenRouter limits](https://openrouter.ai/docs/api-reference/limits).
+Changing models or generating more keys does not create another account quota.
+Source selected for remediation goes to OpenRouter and its providers.
+
+Revoke any key pasted into chat and create its replacement in OpenRouter.
+Enter the replacement privately on Kali, avoiding shell history:
+
+```bash
+cd ~/secureguard
+python3 - <<'PY'
+from getpass import getpass
+from pathlib import Path
+import os
+os.umask(0o077)
+key = getpass('New OpenRouter key: ')
+if not key.strip() or any(c in key for c in '\r\n'):
+    raise SystemExit('Invalid key')
+path = Path('.env')
+lines = [line for line in path.read_text().splitlines()
+         if not line.startswith('OPENROUTER_API_KEY=')]
+path.write_text('\n'.join(lines + ['OPENROUTER_API_KEY=' + key]) + '\n')
+path.chmod(0o600)
+print('Private key updated; no key printed')
+PY
+```
+
+Gracefully stop/recreate the worker to load a changed key. Preserve queued
+tasks and let active work finish; do not kill workers or purge the queue.
 
 ## Attempts, cooldowns and acceptance
 
@@ -49,10 +80,13 @@ external model calls. Source selected for remediation goes to configured provide
 - A rate-limited route cools for its bounded `Retry-After` interval. Empty or
   unavailable responses cool for the configured failure interval. Cooling
   routes are skipped without consuming the per-file route budget.
+- An OpenRouter 429 with `X-RateLimit-Remaining: 0` defers immediately and
+  cools all routes sharing its key. Provider-specific limits without that
+  platform signal retain normal model fallback.
 - When cooling/unavailable routes remain and no candidate passes, Celery can
   defer until the earliest cooldown expires. Retries remain capped at five.
   Invalid code alone produces no proposal; it does not become a successful fix.
-- Cooldowns are per model/endpoint/key **inside one worker process**, reset on
+- Cooldowns, including the shared-key platform response, are **inside one worker process**, reset on
   restart and are not shared across workers. Keep the lab at one worker until
   shared quota scheduling is implemented and measured.
 - Explicit truncation, content filtering, refusal, tool-call requests and
@@ -76,13 +110,14 @@ synthetic example to each configured provider, one request per route:
 
 ```bash
 mkdir -p reports
-docker run --rm --env-file .env \
+docker run --rm --env-file .env --user "$(id -u):$(id -g)" \
   -v "$PWD":/repo:ro -v "$PWD/reports":/reports \
   secureguard-orchestrator python /repo/scripts/check_model_pool.py \
-  --output /reports/model-pool-check.json
+  --output /reports/openrouter-model-check.json
 ```
 
-The private report records model ID, HTTP status, elapsed time and fixture
+This consumes one request per selected model from the free quota. The private
+report records model ID, HTTP status, elapsed time and fixture
 result. It omits API keys, raw responses, proposed code and real repository
 content. Non-200 responses and failed syntax/interface/Bandit checks fail the
 command; adjust the allowlist after reviewing those results privately.

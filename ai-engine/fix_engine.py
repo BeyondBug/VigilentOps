@@ -25,7 +25,7 @@ from llm_response import extract_llm_content
 from fix_validation import parses_ok, preserves_python_interface, validates_security_change, unsafe_contract_change
 from fix_prompts import build_primary_prompt
 from pr_findings import build_finding_comments
-from model_pool import load_model_pool, bounded_integer, RouteCooldowns
+from model_pool import load_model_pool, bounded_integer, RouteCooldowns, completion_options, OPENROUTER_URL
 from repo_security import canonical_repo_url
 
 import httpx
@@ -142,8 +142,9 @@ GENERATED_LOCKFILES = {
 class RateLimitDeferred(Exception):
     """Usable routes are cooling or unavailable; retry the Celery task later."""
 
-    def __init__(self, retry_after: int):
+    def __init__(self, retry_after: int, shared_quota: bool = False):
         self.retry_after = retry_after
+        self.shared_quota = shared_quota
         super().__init__(f"Model routes temporarily unavailable; retry in {retry_after}s")
 
 
@@ -169,6 +170,8 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
     """Return model output, or an empty string when the request fails."""
     if not api_key or api_key.strip() == "":
         return ""
+    # Validate before HTTP; a paid/unknown OpenRouter variant cannot be sent.
+    options = completion_options(model, api_url)
 
     max_attempts = 3
     for attempt in range(max_attempts):
@@ -181,6 +184,7 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": max_tokens,
                     "temperature": 0.1,
+                    **options,
                 },
                 timeout=45.0
             )
@@ -192,6 +196,9 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
             status = e.response.status_code
             if status in (429, 500, 502, 503, 504):
                 delay = _retry_delay(e.response.headers.get("Retry-After"), attempt)
+                if (status == 429 and api_url == OPENROUTER_URL
+                        and e.response.headers.get('X-RateLimit-Remaining') == '0'):
+                    raise RateLimitDeferred(delay, shared_quota=True) from e
                 if attempt < max_attempts - 1 and delay <= 60:
                     log.warning("Model API HTTP %s; retrying in %ss", status, delay)
                     time.sleep(delay)
@@ -248,6 +255,11 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
             content = call_llm(prompt + validation_feedback, m, u, k, max_tokens)
         except RateLimitDeferred as exc:
             MODEL_COOLDOWNS.defer(m_conf, exc.retry_after)
+            if exc.shared_quota:
+                for route in MODELS:
+                    if route['url'] == u and route['key'] == k:
+                        MODEL_COOLDOWNS.defer(route, exc.retry_after)
+                log.warning('OpenRouter account quota exhausted; cooling configured routes')
             deferred.append(exc.retry_after)
             log.warning("Model %s rate limited; trying next configured model", m)
             continue

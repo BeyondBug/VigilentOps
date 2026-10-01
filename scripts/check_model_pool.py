@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'ai-engine'))
 import httpx
-from model_pool import load_model_pool
+from model_pool import load_model_pool, completion_options
 from llm_response import extract_llm_content
 from fix_validation import parses_ok, preserves_python_interface, validates_security_change
 
@@ -27,7 +27,8 @@ def check_route(route):
     try:
         response = httpx.post(route['url'], headers={'Authorization': 'Bearer ' + route['key']},
                               json={'model': route['model'], 'messages': [{'role': 'user', 'content': PROMPT}],
-                                    'temperature': 0.1, 'max_tokens': 512}, timeout=45)
+                                    'temperature': 0.1, 'max_tokens': 512,
+                                    **completion_options(route['model'], route['url'])}, timeout=45)
         result['http_status'] = response.status_code
         if response.status_code != 200:
             result['reason'] = f'HTTP {response.status_code}; inspect entitlement/quota privately'

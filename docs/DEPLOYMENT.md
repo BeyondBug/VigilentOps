@@ -27,26 +27,27 @@ Existing lab installations store Gitea tables in `secureguard`, so
 `GITEA_DB_NAME=secureguard` is the compatibility default. A new installation may
 use a separate database only after creating it and migrating Gitea deliberately.
 
-For a configured OpenAI-compatible remediation endpoint, set the matching
-`MODEL_n`, `API_KEY_n`, and `API_URL_n` values in `.env`. For example:
+For remediation, set the private OpenRouter key and an ordered subset of the
+seven approved free variants in `.env`. For example:
 
 ```dotenv
-MODEL_1=<supported-model-id>
-API_KEY_1=<secret>
-API_URL_1=<provider-chat-completions-url>
+OPENROUTER_API_KEY=<private-replacement-key>
+OPENROUTER_MODELS=nvidia/nemotron-3-ultra-550b-a55b:free,poolside/laguna-s-2.1:free
 ```
 
 Source files selected for remediation are sent to the configured model provider.
-Leave **all** numbered, legacy and NVIDIA API keys empty if repository data
+Leave `OPENROUTER_API_KEY` empty if repository data
 must not leave the lab. In that case, the AI worker
 skips proposal generation.
 `AI_WORKER_CONCURRENCY` defaults to 1 for the lab. See
 [AI rate limits and patch quality](AI_RATE_LIMITS_AND_QUALITY.md) before
 increasing it or trusting a proposed patch.
 
-The optional NVIDIA allowlist and route cooldown/budget settings are described
-in [Model pool](MODEL_POOL.md). Model IDs and access must be verified on Kali;
-no model discovery or provider requests run on the laptop.
+The approved IDs and cooldown/budget settings are described in
+[Model pool](MODEL_POOL.md). Older numbered, direct NVIDIA and legacy provider
+configuration is ignored. Paid variants and other model IDs are rejected.
+Model access and compatibility must be verified on Kali; no provider requests
+or tests run on the laptop.
 
 ## Start and verify
 
