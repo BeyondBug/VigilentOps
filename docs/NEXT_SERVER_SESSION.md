@@ -1,7 +1,7 @@
 # Next Kali session
 
-These changes are prepared in GitHub. The server became unavailable on
-30 September; the new security, API, AI and recovery changes have **not**
+These changes are prepared in GitHub. SSH connectivity returned on 1 October;
+the new security, API, AI and recovery changes have **not**
 passed a deployment or test run. Run every command below on Kali. Record the
 exact hashes and results in a dated acceptance report. Do not run them on the
 laptop. Keep raw logs, exports, credentials and backups off Git.
@@ -49,6 +49,7 @@ docker compose build --pull jenkins
 docker compose build dashboard migrate orchestrator celery-worker cve-intel wazuh-proxy
 docker pull hadolint/hadolint:v2.15.1-debian
 docker pull koalaman/shellcheck:v0.11.0
+python3 scripts/record_scanner_images.py --pull --output reports/scanner-images-20261001.json
 ```
 
 Prepare the private files **before** recreating Jenkins or Prometheus. Do not
@@ -64,6 +65,9 @@ docker run --rm --network none -v "$PWD":/repo:ro -w /repo \
 
 A failure is a deployment stop; fix it before continuing. No result from the
 older 33-test run establishes that this expanded suite passes.
+Keep the old scanner images and dependency caches. The version manifest
+includes Dependency-Check 13; verify cache compatibility and native SARIF
+before accepting a scan. The digest inventory proves availability only.
 
 ## 3. Migrate and deploy
 
@@ -141,6 +145,10 @@ commit. Investigate `PENDING` rows. Confirm the API stores each accepted report,
 including zero findings, and rejects incomplete completion, malformed output,
 conflicting uploads and uploads to finalized scans. Review package/version,
 image, severity and advisory mappings from representative native reports.
+Reports are finalized before enrichment and AI. A later enrichment/AI failure
+may fail Jenkins while the accepted scan remains complete; record both results.
+Verify notification delivery failures are visible, disabled channels are
+explicit, and scan details distinguish no input from zero findings.
 
 ## 6. AI and finding review
 

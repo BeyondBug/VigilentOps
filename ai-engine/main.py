@@ -94,7 +94,7 @@ async def startup():
 
             print(f"Metrics replayed from DB on startup")
     except Exception as e:
-        print(f"Metric replay warning: {e}")
+        log.error('Metric replay failed: %s', type(e).__name__)
 
 
 # ── Helpers ───────────────────────────────────────────────────
@@ -138,10 +138,6 @@ def save_findings_to_db(db, scan_run_id: int, findings: list[dict]):
             fixed_version  = f.get("fixed_version"),
             image          = f.get("image"),
         ))
-        findings_total.labels(
-            severity=sev,
-            scanner=f.get("scanner", "unknown")
-        ).inc()
 
     # Update scan_run counters
     scan = db.query(ScanRun).filter_by(id=scan_run_id).first()
@@ -170,13 +166,25 @@ async def gitea_webhook(request: Request):
     if not verify_signature(payload_bytes, sig):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    payload    = json.loads(payload_bytes)
+    try:
+        payload = json.loads(payload_bytes)
+    except (ValueError, UnicodeError):
+        raise HTTPException(status_code=400, detail='Invalid webhook JSON')
+    if not isinstance(payload, dict) or not isinstance(payload.get('repository'), dict):
+        raise HTTPException(status_code=422, detail='Invalid webhook repository')
     repo_url   = payload.get("repository", {}).get("clone_url", "")
     commit_sha = payload.get("after", "")
     repo_name  = payload.get("repository", {}).get("full_name", "unknown")
 
-    if not repo_url or not commit_sha:
+    if not isinstance(repo_url, str) or not isinstance(commit_sha, str) or not re.fullmatch(r'[0-9a-fA-F]{40}', commit_sha):
         raise HTTPException(status_code=400, detail="Missing repo_url or commit")
+    from repo_security import canonical_repo_url
+    try:
+        canonical_repo_url(repo_url)
+    except ValueError:
+        raise HTTPException(status_code=422, detail='Webhook repository is not a trusted Gitea URL')
+    if not isinstance(repo_name, str):
+        raise HTTPException(status_code=422, detail='Invalid repository name')
 
     return {"status": "received", "repo": repo_name, "commit": commit_sha[:8]}
 
@@ -195,7 +203,7 @@ async def create_scan(request: Request):
     repo_url   = body.get("repo_url")
     commit_sha = body.get("commit_sha")
     branch     = body.get("branch", "main")
-    from fix_engine import canonical_repo_url
+    from repo_security import canonical_repo_url
     if not isinstance(repo_url, str):
         raise HTTPException(status_code=422, detail='repo_url must be a configured Gitea clone URL')
     try:
@@ -237,7 +245,7 @@ async def create_scan(request: Request):
         return {"id": scan_id, "status": "created", "repo": repo_name}
 
     except Exception as e:
-        print(f"DB error in create_scan: {e}")
+        log.error('Scan registration failed: %s', type(e).__name__)
         raise HTTPException(status_code=503, detail="Database unavailable") from e
 
 
@@ -252,16 +260,24 @@ async def get_scans(limit: int = 100, summary_only: bool = False):
                 .limit(max(1, min(limit, 500)))
                 .all()
             )
+            ids = [row.id for row in results]
+            by_scan, by_report = {}, {}
+            if ids:
+                for report in db.query(ScanReport).filter(ScanReport.scan_run_id.in_(ids)).order_by(ScanReport.tool).all():
+                    by_report.setdefault(report.scan_run_id, []).append(report.to_dict())
+                if not summary_only:
+                    for finding in db.query(Finding).filter(Finding.scan_run_id.in_(ids)).order_by(Finding.id).all():
+                        by_scan.setdefault(finding.scan_run_id, []).append(finding.to_dict())
             payload = []
             for row in results:
                 item = row.to_dict()
                 if not summary_only:
-                    findings = db.query(Finding).filter_by(scan_run_id=row.id).all()
-                    item["findings"] = [finding.to_dict() for finding in findings]
+                    item["findings"] = by_scan.get(row.id, [])
+                item['reports'] = by_report.get(row.id, [])
                 payload.append(item)
             return payload
     except Exception as e:
-        print(f"DB error in get_scans: {e}")
+        log.error('Scan list unavailable: %s', type(e).__name__)
         raise HTTPException(status_code=503, detail="Database unavailable") from e
 
 
@@ -300,7 +316,11 @@ async def update_scan(scan_id: int, request: Request):
             raise HTTPException(status_code=422, detail='No scan update supplied')
         with get_db_session() as db:
             scan = db.query(ScanRun).filter_by(id=int(scan_id)).with_for_update().first()
+            finalized_now = False
             if scan:
+                if (status == 'failed' and scan.finished_at is not None
+                        and scan.status in {'complete', 'pr_opened', 'ai_fixed'}):
+                    raise HTTPException(status_code=409, detail='Accepted scan reports cannot be invalidated by a later workflow failure')
                 if expected is not None:
                     if scan.finished_at is not None and set(expected) != set(scan.required_reports or []):
                         raise HTTPException(status_code=409, detail='Finalized report contract cannot be changed')
@@ -316,11 +336,13 @@ async def update_scan(scan_id: int, request: Request):
                         raise HTTPException(status_code=409, detail='Missing scanner reports: ' + ', '.join(sorted(missing)))
                 if status is not None and scan.finished_at is None:
                     scan.finished_at = datetime.utcnow()
-                    scans_active.dec()
+                    finalized_now = True
                 if status is not None and (status == "failed" or scan.status not in {"pr_opened", "ai_fixed"}):
                     scan.status = status
             else:
                 raise HTTPException(status_code=404, detail="Scan not found")
+        if finalized_now:
+            scans_active.dec()
         return {"status": "updated"}
     except HTTPException:
         raise
@@ -376,6 +398,14 @@ async def upload_report(scan_id: int, tool: str, request: Request):
                 not_applicable = tool in {'osv', 'hadolint', 'shellcheck'} and any(run.get('properties', {}).get('coverage') == 'not_applicable' for run in data.get('runs', []))
                 db.add(ScanReport(scan_run_id=scan_id, tool=tool, sha256=digest,
                                   finding_count=len(findings), coverage='not_applicable' if not_applicable else 'analyzed'))
+        if not existing:
+            # Metrics reflect committed records, never a rolled-back insert.
+            from collections import Counter as FindingCounts
+            for (severity, scanner), count in FindingCounts(
+                ((finding.get('severity') or 'MEDIUM').upper(), finding.get('scanner', 'unknown'))
+                for finding in findings
+            ).items():
+                findings_total.labels(severity=severity, scanner=scanner).inc(count)
     except HTTPException:
         raise
     except Exception:
@@ -432,6 +462,8 @@ async def fix_scan(scan_id: str, request: Request):
             raise HTTPException(status_code=404, detail="Scan not found")
         if scan.status == 'failed':
             raise HTTPException(status_code=409, detail='Cannot remediate a failed scan')
+        if scan.finished_at is None or scan.status not in {'complete', 'pr_opened', 'ai_fixed'}:
+            raise HTTPException(status_code=409, detail='Finalize a successful scan before queuing remediation')
         received = {report.tool for report in db.query(ScanReport).filter_by(scan_run_id=scan.id).all()}
         if set(scan.required_reports or REQUIRED_TOOLS) - received:
             raise HTTPException(status_code=409, detail='Accept all required reports before queuing remediation')
@@ -444,34 +476,36 @@ async def fix_scan(scan_id: str, request: Request):
 
 
 @app.post("/api/scans/{scan_id}/notify")
-async def notify_scan(scan_id: str, request: Request):
-    """Notification trigger."""
+async def notify_scan(scan_id: int, request: Request):
+    """Report delivery outcomes; no raw findings or exception text leave the API."""
     try:
         with get_db_session() as db:
-            scan = db.query(ScanRun).filter_by(id=int(scan_id)).first()
+            scan = db.query(ScanRun).filter_by(id=scan_id).first()
             if not scan:
-                return {"status": "error", "reason": "scan not found"}
-            
-            repo_name = scan.repo_url.rstrip("/").removesuffix(".git").split("/")[-1] if scan.repo_url else "Unknown Repo"
-            
-            # Get critical findings for this scan
+                raise HTTPException(status_code=404, detail='Scan not found')
+            if scan.finished_at is None or scan.status == 'failed':
+                raise HTTPException(status_code=409, detail='Notifications require an accepted scan')
+            repo_name = scan.repo_name or scan._extract_repo_name()
+            commit = scan.commit_sha
             findings = db.query(Finding).filter(
-                Finding.scan_run_id == int(scan_id),
-                Finding.severity.in_(["HIGH", "CRITICAL"])
-            ).all()
-            
-            if findings:
-                criticals = [f.to_dict() for f in findings]
-                from notifier import Notifier
-                notifier = Notifier()
-                notifier.send_alert(repo_name, scan.commit_sha or "HEAD", criticals)
-                
-    except Exception as e:
-        print(f"Notification error: {e}")
-        return {"status": "error", "reason": str(e)}
-
-    return {"status": "notified", "scan_id": scan_id}
-
+                Finding.scan_run_id == scan_id, Finding.severity.in_(['HIGH', 'CRITICAL'])
+            ).order_by(Finding.id).all()
+            criticals = [finding.to_dict() for finding in findings]
+    except HTTPException:
+        raise
+    except Exception as error:
+        log.error('Notification scan read failed: %s', type(error).__name__)
+        raise HTTPException(status_code=503, detail='Notification data unavailable')
+    if not criticals:
+        return {'status': 'no_high_findings', 'scan_id': scan_id, 'deliveries': {}}
+    from notifier import Notifier
+    deliveries = Notifier().send_alert(repo_name, commit, criticals)
+    if not deliveries:
+        return {'status': 'notifications_disabled', 'scan_id': scan_id, 'deliveries': {}}
+    if not all(deliveries.values()):
+        return JSONResponse(status_code=502, content={
+            'status': 'delivery_failed', 'scan_id': scan_id, 'deliveries': deliveries})
+    return {'status': 'notified', 'scan_id': scan_id, 'deliveries': deliveries}
 
 
 @app.get("/api/cves")
@@ -491,26 +525,27 @@ async def get_cve_findings(limit: int = 100):
                   AND f.cve_id != ''
                 ORDER BY f.cvss_score DESC NULLS LAST, f.severity DESC
                 LIMIT :limit
-            """), {"limit": limit}).fetchall()
+            """), {"limit": max(1, min(limit, 500))}).fetchall()
 
             return [
                 {
                     "cve_id":       r.cve_id,
                     "severity":     r.severity,
-                    "cvss_score":   float(r.cvss_score) if r.cvss_score else None,
+                    "cvss_score":   float(r.cvss_score) if r.cvss_score is not None else None,
                     "title":        r.title,
                     "file_path":    r.file_path,
                     "scanner":      r.scanner,
                     "fix_status":   r.fix_status,
                     "pr_url":       r.pr_url,
-                    "confidence":   float(r.pr_confidence) if r.pr_confidence else None,
+                    "confidence":   float(r.pr_confidence) if r.pr_confidence is not None else None,
                     "repo":         r.repo_name,
                     "scan_id":      r.scan_id,
                 }
                 for r in rows
             ]
     except Exception as e:
-        return {"error": str(e)}
+        log.error('CVE findings unavailable: %s', type(e).__name__)
+        raise HTTPException(status_code=503, detail='CVE findings unavailable')
 
 @app.get("/health")
 async def health():
@@ -520,7 +555,8 @@ async def health():
             db.execute(text("SELECT 1"))
         db_status = "ok"
     except Exception as e:
-        db_status = f"error: {e}"
+        log.error('Database health check failed: %s', type(e).__name__)
+        db_status = 'unavailable'
 
     payload = {
         "status":    "ok" if db_status == "ok" else "error",

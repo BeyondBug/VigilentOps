@@ -30,6 +30,29 @@ retroactively. Optional and skipped image scans must be stated in acceptance.
 
 ## Added static linters
 
+### Shared image versions
+
+The pipeline reads [images.json](../scanners/images.json). Selected published
+versions are listed below; tags remain mutable, so record registry digests on
+Kali with `scripts/record_scanner_images.py`. Updating a tag requires a fresh
+report-contract run, including cache compatibility. These are selected
+versions, not a claim that every tool is at its latest release.
+
+| Image | Selected version | Official tags |
+| --- | --- | --- |
+| semgrep/semgrep | 1.178.0 | [Semgrep](https://hub.docker.com/r/semgrep/semgrep/tags) |
+| aquasec/trivy | 0.73.0 | [Trivy](https://hub.docker.com/r/aquasec/trivy/tags) |
+| bridgecrew/checkov | 3.3.17 | [Checkov](https://hub.docker.com/r/bridgecrew/checkov/tags) |
+| owasp/dependency-check | 13.0.0 | [Dependency-Check](https://hub.docker.com/r/owasp/dependency-check/tags) |
+| anchore/grype | v0.119.0 | [Grype](https://hub.docker.com/r/anchore/grype/tags) |
+| anchore/syft | v1.52.0 | [Syft](https://hub.docker.com/r/anchore/syft/tags) |
+| goodwithtech/dockle | v0.4.15 | [Dockle](https://hub.docker.com/r/goodwithtech/dockle/tags) |
+
+Gitleaks v8.18.2 and OSV-Scanner v2.4.0 retain their existing version tags.
+Bandit uses the pinned Python package version in the pipeline. Optional Snyk,
+helper Python images and several service base images still use broader tags;
+the manifest does not pin the whole stack to immutable digests.
+
 The adapter [run_static_scans.py](../scripts/run_static_scans.py) uses
 `hadolint/hadolint:v2.15.1-debian` and `koalaman/shellcheck:v0.11.0`.
 These are version tags; record deployed image digests during acceptance and

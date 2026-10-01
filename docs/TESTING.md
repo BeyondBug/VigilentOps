@@ -1,5 +1,12 @@
 # Testing
 
+The 1 October follow-up requires checking report finalization before AI,
+rejection of late failed-status updates, receipt coverage in scan details and
+generic API failures. Notification tests mock all external sends and verify
+delivery outcomes and description/source omission; do not send test messages
+to real recipients. Pre-pull the selected scanner versions and record digests
+using [Next server session](NEXT_SERVER_SESSION.md), then verify native reports.
+
 Run these checks on the Linux lab server after pulling the GitHub branch. Do
 not run the application, builds, or tests on the development device.
 Use [the server acceptance record](SERVER_ACCEPTANCE.md) to capture the exact

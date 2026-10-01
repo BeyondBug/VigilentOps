@@ -140,6 +140,18 @@ class RemediationSafetyTests(unittest.TestCase):
         findings.assert_not_called()
         clone.assert_not_called()
 
+    def test_source_resolution_rejects_git_metadata_and_repository_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / '.git').mkdir()
+            (root / '.git/config').write_text('private configuration')
+            (root / 'app.py').write_text('pass\n')
+            (root / 'alias.py').symlink_to(root / 'app.py')
+            (root / 'metadata.py').symlink_to(root / '.git/config')
+            for path in ('.git/config', 'alias.py', 'metadata.py'):
+                self.assertIsNone(fix_engine.find_file_in_repo(directory, path))
+            self.assertEqual(fix_engine.find_file_in_repo(directory, 'file:///src/app.py'), root / 'app.py')
+
     def test_non_utf8_source_is_not_lossily_rewritten_or_sent_to_a_model(self):
         repo = tempfile.mkdtemp()
         Path(repo, 'app.py').write_bytes(b'# coding: latin-1\nvalue = "\xff"\n')

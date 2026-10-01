@@ -26,6 +26,7 @@ from fix_validation import parses_ok, preserves_python_interface, validates_secu
 from fix_prompts import build_primary_prompt
 from pr_findings import build_finding_comments
 from model_pool import load_model_pool, bounded_integer, RouteCooldowns
+from repo_security import canonical_repo_url
 
 import httpx
 import psycopg2
@@ -285,8 +286,14 @@ def find_file_in_repo(repo_path: str, file_path: str) -> Optional[Path]:
         file_path = unquote(parsed.path)
     if file_path.startswith("/src/"):
         file_path = file_path[len("/src/"):]
-    p = (Path(repo_path) / file_path.lstrip("/")).resolve()
     root = Path(repo_path).resolve()
+    candidate = root / file_path.lstrip('/')
+    # Do not follow repository-controlled links into Git metadata or other files.
+    if candidate.is_symlink() or any(parent.is_symlink() for parent in candidate.parents if parent != root and root in parent.parents):
+        return None
+    p = candidate.resolve()
+    if root in p.parents and '.git' in p.relative_to(root).parts:
+        return None
     if p.is_file() and root in p.parents:
         return p
     log.warning(f"SKIP: cannot resolve {file_path} under repo root")
@@ -301,7 +308,11 @@ def apply_file_fix(repo_path: str, file_path: str,
         log.warning(f"File not found in repo: {file_path}")
         return False
 
-    original = fpath.read_text(errors="ignore")
+    try:
+        original = fpath.read_text(encoding='utf-8')
+    except UnicodeDecodeError:
+        log.warning('REJECT %s: source cannot be decoded as UTF-8', file_path)
+        return False
     if original.strip() == fixed_content.strip():
         log.info(f"No changes in {file_path}")
         return False
@@ -309,11 +320,14 @@ def apply_file_fix(repo_path: str, file_path: str,
     # Hard gates
     if not parses_ok(file_path, fixed_content):
         return False
+    if file_path.endswith('.py') and not preserves_python_interface(original, fixed_content):
+        log.warning('REJECT %s: patch changes an existing Python interface', file_path)
+        return False
     if len(fixed_content.splitlines()) < len(original.splitlines()) * 0.7:
         log.warning(f"REJECT {file_path}: patch removes >30% of lines")
         return False
 
-    fpath.write_text(fixed_content)
+    fpath.write_text(fixed_content, encoding='utf-8')
     log.info(f"Fixed: {fpath}")
     return True
 
@@ -321,26 +335,6 @@ def apply_file_fix(repo_path: str, file_path: str,
 # ── Requirements.txt special handling ────────────────────────
 
 # ── Git operations ────────────────────────────────────────────
-
-def canonical_repo_url(repo_url: str) -> str:
-    parsed = urlparse(repo_url)
-    allowed_hosts = {
-        h.strip() for h in os.getenv(
-            "GITEA_ALLOWED_HOSTS", "sg-gitea,gitea,localhost"
-        ).split(",") if h.strip()
-    }
-    try:
-        valid_port = parsed.port == 3000
-    except ValueError:
-        valid_port = False
-    parts = parsed.path.strip('/').removesuffix('.git').split('/')
-    if (parsed.scheme not in ('http', 'https') or parsed.hostname not in allowed_hosts
-            or not valid_port or parsed.username or parsed.password or parsed.query or parsed.fragment
-            or len(parts) != 2 or any(part in {'.', '..'} for part in parts)
-            or not re.fullmatch(r'/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git', parsed.path)):
-        raise ValueError('Repository URL is outside the configured Gitea clone origin/path')
-    # All Git traffic stays within the canonical private Docker Gitea service.
-    return 'http://sg-gitea:3000' + parsed.path
 
 
 def authenticated_git(arguments: list[str], **kwargs):
@@ -564,6 +558,9 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
             if not fpath:
                 continue
             canonical_path = fpath.relative_to(Path(tmpdir).resolve()).as_posix()
+            if fpath.suffix.lower() != '.py':
+                log.warning('Skipping %s: resolved file is outside Python remediation scope', file_path)
+                continue
             group = candidate_files.setdefault(
                 canonical_path, {"findings": [], "source_paths": set()}
             )

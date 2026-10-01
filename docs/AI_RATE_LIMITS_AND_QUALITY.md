@@ -104,3 +104,6 @@ is preserved, because a security fix can require a different default; reviewers
 must still assess the behavior change. Non-UTF-8 source is skipped instead of
 silently dropping undecodable bytes. Those findings stay open for manual work.
 These follow-up checks were prepared without running tests on the laptop.
+File resolution also rejects symlinks and `.git` metadata. The final write
+boundary repeats interface checks and uses strict UTF-8, so callers cannot
+bypass the proposal validation through the file writer.

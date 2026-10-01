@@ -1,4 +1,10 @@
 import os, httpx, smtplib
+import logging
+import ssl
+
+log = logging.getLogger("notifications")
+# HTTPX INFO request logs include credential-bearing webhook/bot URLs.
+logging.getLogger('httpx').setLevel(logging.WARNING)
 from email.mime.text import MIMEText
 
 class Notifier:
@@ -25,49 +31,53 @@ class Notifier:
 
     def send_alert(self, repo: str, commit: str, critical_findings: list):
         if not critical_findings:
-            return
+            return {}
 
         top_finding = critical_findings[0]
-        msg = f"""🚨 *SecureGuard Alert*
-
-*Repo:* `{repo}`
-*Commit:* `{commit[:8]}`
-*Critical findings:* {len(critical_findings)}
-
-Top finding:
-- *{top_finding.get('rule_id', 'unknown')}*
-- CVSS: {top_finding.get('cvss_score', 'N/A')}
-- {top_finding.get('description', '')[:100]}
-
-        AI remediation has been queued for review."""
+        # External notifications carry identifiers only, never source snippets/descriptions.
+        msg = (f"SecureGuard security alert\nRepo: {repo}\nCommit: {commit[:8]}\n"
+               f"High/critical finding records: {len(critical_findings)}\n"
+               f"Scanner: {top_finding.get('scanner', 'unknown')}\n"
+               f"Rule: {top_finding.get('rule_id', 'unknown')}\n"
+               f"Severity: {top_finding.get('severity', 'UNKNOWN')}\n"
+               "Review details in the authenticated dashboard. AI proposals require review and validation.")
+        results = {}
 
         if self.telegram_token and self.telegram_chat:
-            self._send_telegram(msg)
+            results["telegram"] = self._send_telegram(msg)
         if self.slack_webhook:
-            self._send_slack(msg)
+            results["slack"] = self._send_slack(msg)
         if self.twilio_sid and self.twilio_auth and self.twilio_to:
-            self._send_whatsapp(msg)
+            results["whatsapp"] = self._send_whatsapp(msg)
         if self.jira_url and self.jira_token:
-            self._create_jira_ticket(repo, top_finding)
+            results["jira"] = self._create_jira_ticket(repo, top_finding)
         if self.smtp_host and self.admin_email:
-            self._send_email(repo, msg)
+            results["email"] = self._send_email(repo, msg)
+
+        return results
 
     def _send_telegram(self, message: str):
         try:
-            with httpx.Client() as client:
-                client.post(
+            with httpx.Client(timeout=15) as client:
+                response = client.post(
                     f"https://api.telegram.org/bot{self.telegram_token}/sendMessage",
-                    json={"chat_id": self.telegram_chat, "text": message, "parse_mode": "Markdown"}
+                    json={"chat_id": self.telegram_chat, "text": message}
                 )
+            response.raise_for_status()
+            return True
         except Exception as e:
-            print(f"Telegram error: {e}")
+            log.error("Telegram delivery failed: %s", type(e).__name__)
+            return False
 
     def _send_slack(self, message: str):
         try:
-            with httpx.Client() as client:
-                client.post(self.slack_webhook, json={"text": message})
+            with httpx.Client(timeout=15) as client:
+                response = client.post(self.slack_webhook, json={"text": message})
+            response.raise_for_status()
+            return True
         except Exception as e:
-            print(f"Slack error: {e}")
+            log.error("Slack delivery failed: %s", type(e).__name__)
+            return False
 
     def _send_whatsapp(self, message: str):
         try:
@@ -77,13 +87,16 @@ Top finding:
                 "To": self.twilio_to,
                 "Body": message
             }
-            with httpx.Client() as client:
-                client.post(
+            with httpx.Client(timeout=15) as client:
+                response = client.post(
                     f"https://api.twilio.com/2010-04-01/Accounts/{self.twilio_sid}/Messages.json",
                     auth=auth, data=data
                 )
+            response.raise_for_status()
+            return True
         except Exception as e:
-            print(f"WhatsApp error: {e}")
+            log.error("WhatsApp delivery failed: %s", type(e).__name__)
+            return False
 
     def _create_jira_ticket(self, repo: str, finding: dict):
         try:
@@ -92,14 +105,20 @@ Top finding:
                 "fields": {
                     "project": {"key": self.jira_key},
                     "summary": f"Security Alert: {finding.get('rule_id', 'Vuln')} in {repo}",
-                    "description": finding.get("description", "No description provided."),
+                    "description": (f"Scanner: {finding.get('scanner', 'unknown')}\n"
+                                    f"Rule: {finding.get('rule_id', 'unknown')}\n"
+                                    f"Severity: {finding.get('severity', 'UNKNOWN')}\n"
+                                    "Review the restricted dashboard for details; no source or credentials copied."),
                     "issuetype": {"name": "Task"}
                 }
             }
-            with httpx.Client() as client:
-                client.post(f"{self.jira_url}/rest/api/2/issue", auth=auth, json=payload)
+            with httpx.Client(timeout=15) as client:
+                response = client.post(f"{self.jira_url}/rest/api/2/issue", auth=auth, json=payload)
+            response.raise_for_status()
+            return True
         except Exception as e:
-            print(f"Jira error: {e}")
+            log.error("Jira delivery failed: %s", type(e).__name__)
+            return False
 
     def _send_email(self, subject: str, body: str):
         try:
@@ -107,9 +126,14 @@ Top finding:
             msg["Subject"] = f"[SecureGuard] Critical vulnerability in {subject}"
             msg["From"] = self.smtp_user
             msg["To"] = self.admin_email
-            with smtplib.SMTP(self.smtp_host, int(os.getenv("SMTP_PORT", 587))) as s:
-                s.starttls()
-                s.login(self.smtp_user, self.smtp_pass)
-                s.send_message(msg)
+            with smtplib.SMTP(self.smtp_host, int(os.getenv("SMTP_PORT", 587)), timeout=15) as s:
+                s.starttls(context=ssl.create_default_context())
+                if self.smtp_user:
+                    s.login(self.smtp_user, self.smtp_pass)
+                if s.send_message(msg):
+                    log.error("Email delivery failed: recipient refused")
+                    return False
+            return True
         except Exception as e:
-            print(f"Email error: {e}")
+            log.error("Email delivery failed: %s", type(e).__name__)
+            return False

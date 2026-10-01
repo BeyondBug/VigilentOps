@@ -142,3 +142,37 @@ class ApiReportContractTests(unittest.TestCase):
         self.assertEqual({report['tool'] for report in reports}, REQUIRED_TOOLS)
         self.assertEqual(self.client.patch(f'/api/scans/{self.scan}', headers=self.headers,
                          json={'required_reports': sorted(REQUIRED_TOOLS | {'bandit'})}).status_code, 409)
+
+    def test_all_reports_without_finalization_cannot_queue_ai(self):
+        for tool in REQUIRED_TOOLS:
+            body = {'spdxVersion': 'SPDX-2.3', 'packages': []} if tool == 'syft-sbom' else {'version': '2.1.0', 'runs': [{'results': []}]}
+            self.assertEqual(self.upload(tool, body).status_code, 200)
+        with patch('tasks.run_ai_fix.delay') as queue:
+            self.assertEqual(self.client.post(f'/api/scans/{self.scan}/fix', headers=self.headers).status_code, 409)
+        queue.assert_not_called()
+
+    def test_accepted_scan_survives_a_later_workflow_failure(self):
+        for tool in REQUIRED_TOOLS:
+            body = {'spdxVersion': 'SPDX-2.3', 'packages': []} if tool == 'syft-sbom' else {'version': '2.1.0', 'runs': [{'results': []}]}
+            self.assertEqual(self.upload(tool, body).status_code, 200)
+        path = f'/api/scans/{self.scan}'
+        self.assertEqual(self.client.patch(path, headers=self.headers, json={'status': 'complete'}).status_code, 200)
+        self.assertEqual(self.client.patch(path, headers=self.headers, json={'status': 'failed'}).status_code, 409)
+        self.assertEqual(self.client.get(path).json()['status'], 'complete')
+
+    def test_scan_list_includes_no_file_receipts_without_loading_findings_in_summary_mode(self):
+        body = {'version': '2.1.0', 'runs': [{'results': [],
+            'properties': {'coverage': 'not_applicable', 'scanned_file_count': 0},
+            'invocations': [{'executionSuccessful': True, 'exitCode': 0}]}]}
+        self.assertEqual(self.upload('hadolint', body).status_code, 200)
+        for path in ('/api/scans', '/api/scans?summary_only=true'):
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json()[0]['reports'][0]['coverage'], 'not_applicable')
+
+    def test_health_and_cve_errors_do_not_return_private_exception_details(self):
+        with patch.object(self.main, 'get_db_session', side_effect=RuntimeError('fixture-private-password')):
+            for path in ('/health', '/api/cves'):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 503)
+                self.assertNotIn('fixture-private-password', response.text)

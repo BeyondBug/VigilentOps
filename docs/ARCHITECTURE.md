@@ -41,6 +41,7 @@ sequenceDiagram
     CI->>CI: Clone target and run scanner stages
     CI->>API: POST /api/scans/{id}/reports/{tool}
     API->>DB: Parse and save findings
+    CI->>API: PATCH status=complete after all required reports
     CI->>API: POST /api/scans/{id}/enrich
     API->>CVE: Queue enrichment
     CI->>API: POST /api/scans/{id}/fix
@@ -49,7 +50,7 @@ sequenceDiagram
     CI->>API: POST /api/scans/{id}/notify
 ```
 
-The `/api/scans/{id}/enrich` and `/fix` endpoints **queue** work; their HTTP responses do not prove the workers completed successfully. Jenkins completes its pipeline independently of the AI PR. The direct `/webhook/gitea` API route checks a Gitea signature and acknowledges the event; the Jenkins webhook is what starts the scanner pipeline.
+The `/api/scans/{id}/enrich` and `/fix` endpoints **queue** work; their HTTP responses do not prove the workers completed successfully. Jenkins completes its pipeline independently of the AI PR. Accepted reports are finalized before enrichment and AI; a downstream workflow failure may fail Jenkins while the scan remains complete. Notification responses distinguish disabled channels, no high findings, successful delivery and delivery failure. External messages omit raw finding descriptions and source. The direct `/webhook/gitea` API route checks a Gitea signature and acknowledges the event; the Jenkins webhook is what starts the scanner pipeline.
 
 Report upload validates Bandit JSON, SARIF 2.1.0, or Syft SPDX according to the tool name. Invalid shapes and unknown scan IDs are rejected; a valid report may still contain zero findings. Dockle SARIF is parsed into image-configuration findings. Syft supplies an SBOM inventory and does not create vulnerability records. The database stores scan runs, findings, CVE data, and alert records. The dashboard reads scans from the orchestrator; the coverage audit uses `GET /api/scans?summary_only=true` to avoid transferring every historical finding. Grafana reads metrics and configured data sources.
 

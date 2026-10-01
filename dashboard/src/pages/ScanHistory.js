@@ -61,11 +61,35 @@ export default function ScanHistory({ scans }) {
           <div style={{ padding: 20, overflowY: "auto", maxHeight: "calc(100vh - 200px)" }}>
             <div style={{ marginBottom: 20 }}>
               <KVRow label="Repo"    value={scan.repo_name} />
+              <KVRow label="Status" value={scan.status || 'unknown'} />
+              <KVRow label="Branch" value={scan.branch || 'unknown'} />
               <KVRow label="Commit"  value={(scan.commit_sha || "").slice(0, 16)} mono />
+              <KVRow label="Pipeline" value={scan.pipeline_commit || 'Not recorded'} mono />
               <KVRow label="Time"    value={scan.created_at ? new Date(scan.created_at).toLocaleString() : "N/A"} />
               <KVRow label="Total"   value={scan.total_findings} />
               <KVRow label="Critical" value={<span style={{ color: SEV_COLOR.CRITICAL, fontWeight: 700 }}>{scan.critical_count}</span>} />
               <KVRow label="High"    value={<span style={{ color: SEV_COLOR.HIGH, fontWeight: 700 }}>{scan.high_count}</span>} />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <SectionHeader title="SCANNER COVERAGE" count={(scan.reports || []).length} />
+              {(scan.reports || []).length === 0 && (
+                <div style={{ color: T.textDim, fontSize: 12, marginTop: 8 }}>
+                  No accepted report receipts recorded. Older scans require a fresh run to establish coverage.
+                </div>
+              )}
+              {(scan.reports || []).map(report => (
+                <KVRow key={report.tool} label={report.tool} value={
+                  report.coverage === 'not_applicable'
+                    ? 'Not applicable — supported input absent'
+                    : `${report.finding_count} findings — report accepted`
+                } />
+              ))}
+              {(scan.required_reports || []).filter(tool => !(scan.reports || []).some(report => report.tool === tool)).map(tool => (
+                <KVRow key={tool} label={tool} value={<span style={{ color: T.red }}>Required report missing</span>} />
+              ))}
+              <div style={{ color: T.textDim, fontSize: 11, marginTop: 8 }}>
+                Zero findings or unsupported input does not prove the repository is vulnerability-free.
+              </div>
             </div>
             <div style={{ fontFamily: T.font, fontSize: 11, color: T.textDim, marginBottom: 8, letterSpacing: 1 }}>
               FINDINGS ({(scan.findings || []).length})

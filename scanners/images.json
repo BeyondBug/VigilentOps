@@ -1,0 +1,11 @@
+{
+  "semgrep": "semgrep/semgrep:1.178.0",
+  "trivy": "aquasec/trivy:0.73.0",
+  "checkov": "bridgecrew/checkov:3.3.17",
+  "dockle": "goodwithtech/dockle:v0.4.15",
+  "depcheck": "owasp/dependency-check:13.0.0",
+  "grype": "anchore/grype:v0.119.0",
+  "syft": "anchore/syft:v1.52.0",
+  "gitleaks": "zricethezav/gitleaks:v8.18.2",
+  "osv": "ghcr.io/google/osv-scanner:v2.4.0"
+}

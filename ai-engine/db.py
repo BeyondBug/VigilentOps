@@ -100,12 +100,14 @@ class Finding(Base):
             "scanner":     self.scanner,
             "rule_id":     self.rule_id,
             "cve_id":      self.cve_id,
+            "cwe_id":      self.cwe_id,
             "severity":    self.severity,
             "cvss_score":  self.cvss_score,
             "title":       self.title,
             "description": self.description,
             "file_path":   self.file_path,
             "line_start":  self.line_start,
+            "line_end":    self.line_end,
             "finding_class": self.finding_class,
             "package": self.package,
             "installed_version": self.installed_version,
@@ -132,7 +134,8 @@ class ScanReport(Base):
 
     def to_dict(self):
         return {'tool': self.tool, 'sha256': self.sha256,
-                'finding_count': self.finding_count, 'coverage': self.coverage}
+                'finding_count': self.finding_count, 'coverage': self.coverage,
+                'received_at': self.received_at.isoformat() if self.received_at else None}
 
 
 @contextmanager

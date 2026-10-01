@@ -1,8 +1,9 @@
 # Project completion checklist
 
-Status: **code prepared; lab acceptance incomplete**, 30 September 2026.
-This is a self-hosted lab reference implementation. The server is currently
-unavailable. Edit/push on the laptop; run all builds, tests and live checks on
+Status: **code prepared; lab acceptance incomplete**, 1 October 2026.
+This is a self-hosted lab reference implementation. SSH to the server at
+`10.20.29.248` was verified today; its clean checkout is still at `7bcfd0c`.
+Edit/push on the laptop; run all builds, tests and live checks on
 Kali. Follow [Next server session](docs/NEXT_SERVER_SESSION.md).
 
 ## Evidence and handoff
@@ -42,6 +43,17 @@ Kali. Follow [Next server session](docs/NEXT_SERVER_SESSION.md).
 
 ## 1. Scanner execution and trustworthy coverage
 
+- [x] Prepare a central version manifest for nine scanner images and a private
+  server image digest inventory. This is not a compatibility test or immutable
+  pinning of every service image.
+- [x] Finalize accepted reports before enrichment/AI; reject later attempts to
+  mark an accepted scan failed because a downstream workflow failed.
+- [x] Display accepted report receipts and explicit not-applicable coverage in
+  scan details; batch receipt/finding reads for the scan list.
+- [x] Prepare generic API failure responses and notification outcome reporting;
+  omit raw finding descriptions/source from external notifications.
+- [ ] Verify the new versioned images, completion sequence, notification
+  failures and report coverage display on Kali.
 - [x] Add explicit OSV exit-128 `not_applicable` coverage; reject other execution
   errors and require native output for exit 0/1.
 - [x] Increase bounded Trivy source/image timeouts; fail image scanner errors.

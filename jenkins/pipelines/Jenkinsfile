@@ -56,6 +56,15 @@ pipeline {
         stage('Prepare') {
             steps {
                 script {
+                    def scannerImages = readJSON(file: 'scanners/images.json', returnPojo: true)
+                    def expectedScanners = ['semgrep', 'trivy', 'checkov', 'dockle', 'depcheck', 'grype', 'syft', 'gitleaks', 'osv'] as Set
+                    if (scannerImages.keySet() != expectedScanners) error('Shared scanner image manifest is incomplete')
+                    scannerImages.each { tool, image ->
+                        if (!(image instanceof String) || !(image ==~ /^[a-z0-9][a-z0-9.\/_-]*:[A-Za-z0-9][A-Za-z0-9_.-]*(@sha256:[a-f0-9]{64})?$/) || image.endsWith(':latest')) {
+                            error('Scanner images require explicit version references')
+                        }
+                        env["SCANNER_${tool.toUpperCase()}_IMAGE"] = image
+                    }
                     def requestedRepo = (params.REVIEW_AI_PR ? params.REVIEW_REPO_URL : (env.REPO_URL ?: '')).trim()
                     if (!requestedRepo) error('REPO_URL is required')
                     def reviewBranch = params.REVIEW_AI_PR && (env.TARGET_BRANCH ==~ /^secureguard\/scan-[0-9]+-fixes$/)
@@ -192,7 +201,7 @@ pipeline {
                 sh """
                     docker run --rm \
                       -v trivy-cache:/root/.cache/trivy \
-                      aquasec/trivy:latest image \
+                      ${env.SCANNER_TRIVY_IMAGE} image \
                         --download-db-only \
                         --timeout 25m \
                         --db-repository docker.io/aquasec/trivy-db \
@@ -226,7 +235,7 @@ pipeline {
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
                               -v ${env.HOST_RULES}:/shared-rules:ro \
-                              returntocorp/semgrep:latest semgrep \
+                              ${env.SCANNER_SEMGREP_IMAGE} semgrep \
                                 --config=/shared-rules \
                                 --config=auto \
                                 --sarif \
@@ -274,7 +283,7 @@ pipeline {
                             docker run --rm \
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
-                              zricethezav/gitleaks:v8.18.2 detect \
+                              ${env.SCANNER_GITLEAKS_IMAGE} detect \
                                 --source=/src \
                                 --report-format=sarif \
                                 --report-path=/reports/gitleaks.sarif \
@@ -297,7 +306,7 @@ pipeline {
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
                               -v trivy-cache:/root/.cache/trivy \
-                              aquasec/trivy:latest fs \
+                              ${env.SCANNER_TRIVY_IMAGE} fs \
                                 --timeout 25m \
                                 --skip-db-update \
                                 --format sarif \
@@ -323,7 +332,7 @@ pipeline {
                             docker run --rm \
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
-                              bridgecrew/checkov:latest \
+                              ${env.SCANNER_CHECKOV_IMAGE} \
                                 -d /src \
                                 -o sarif \
                                 --soft-fail --output-file-path /reports > ${WORKSPACE}/checkov-execution.log 2>&1
@@ -385,8 +394,8 @@ pipeline {
                                 DIR=\$(dirname "\$DOCKERFILE")
                                 if docker build -t sg-target-scan:${BUILD_NUMBER} "\$DIR"; then
                                     touch ${REPORTS_DIR}/image-built.marker
-                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports goodwithtech/dockle:latest -f sarif -o /reports/dockle.sarif sg-target-scan:${BUILD_NUMBER}
-                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports -v trivy-cache:/root/.cache/trivy aquasec/trivy:latest image --timeout 30m --skip-db-update --cache-backend memory --format sarif --output /reports/trivy-image.sarif sg-target-scan:${BUILD_NUMBER}
+                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports ${env.SCANNER_DOCKLE_IMAGE} -f sarif -o /reports/dockle.sarif sg-target-scan:${BUILD_NUMBER}
+                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports -v trivy-cache:/root/.cache/trivy ${env.SCANNER_TRIVY_IMAGE} image --timeout 30m --skip-db-update --cache-backend memory --format sarif --output /reports/trivy-image.sarif sg-target-scan:${BUILD_NUMBER}
                                 else
                                     echo "WARNING: target image build failed; image scanners skipped"
                                 fi
@@ -443,7 +452,7 @@ pipeline {
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
                               -v depcheck-cache:/usr/share/dependency-check/data \
-                              owasp/dependency-check:latest \
+                              ${env.SCANNER_DEPCHECK_IMAGE} \
                                 "\$@" \
                                 --scan /src \
                                 --format SARIF \
@@ -477,7 +486,7 @@ pipeline {
                               -e GRYPE_CHECK_FOR_APP_UPDATE=false \
                               -e GRYPE_DB_UPDATE_AVAILABLE_TIMEOUT=20s \
                               -e GRYPE_DB_UPDATE_DOWNLOAD_TIMEOUT=3m \
-                              anchore/grype:latest \
+                              ${env.SCANNER_GRYPE_IMAGE} \
                                 dir:/src \
                                 -o sarif > ${REPORTS_DIR}/grype.sarif
 
@@ -497,7 +506,7 @@ pipeline {
                             docker run --rm \
                               -v ${env.HOST_SOURCE}:/src \
                               -v ${env.HOST_REPORTS}:/reports \
-                              ghcr.io/google/osv-scanner:v2.4.0 \
+                              ${env.SCANNER_OSV_IMAGE} \
                                 scan source --recursive --format sarif \
                                 --output-file /reports/osv.sarif /src || OSV_EXIT=\$?
                             docker run --rm -v ${env.HOST_REPORTS}:/reports \
@@ -517,7 +526,7 @@ pipeline {
                         sh """
                             set -eu
                             echo "Running Syft SBOM Generator via HOST path: ${env.HOST_SOURCE}"
-                            docker run --rm -v ${env.HOST_SOURCE}:/src -v ${env.HOST_REPORTS}:/reports anchore/syft:latest dir:/src -o spdx-json=/reports/syft-sbom.json
+                            docker run --rm -v ${env.HOST_SOURCE}:/src -v ${env.HOST_REPORTS}:/reports ${env.SCANNER_SYFT_IMAGE} dir:/src -o spdx-json=/reports/syft-sbom.json
                             ls -lh ${REPORTS_DIR}/syft-sbom.json 2>/dev/null && echo "Syft OK" || echo "WARNING: Syft no output"
                         """
                     }
@@ -577,6 +586,17 @@ pipeline {
             }
         }
 
+        stage('Accept Scan Reports') {
+            steps {
+                sh '''set +x
+                    set -eu
+                    curl --retry 3 -sf -X PATCH "$ORCHESTRATOR/api/scans/$SCAN_RUN_ID" \\
+                      -H "X-API-Key: $SG_API_KEY" -H 'Content-Type: application/json' \\
+                      -d '{"status":"complete"}'
+                '''
+            }
+        }
+
         stage('CVE Enrichment') {
             steps {
                 sh """
@@ -614,7 +634,7 @@ pipeline {
                     curl -sf -X POST ${ORCHESTRATOR}/api/scans/${env.SCAN_RUN_ID}/notify \
                       -H "X-API-Key: \$SG_API_KEY" \
                       -H 'Content-Type: application/json' \
-                      -d '{"build_url":"${env.BUILD_URL}"}' || true
+                      -d '{"build_url":"${env.BUILD_URL}"}' || echo "WARNING: notification delivery failed; inspect configured channels"
                     echo "Done — Scan #${env.SCAN_RUN_ID}"
                 """
             }
