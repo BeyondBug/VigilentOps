@@ -176,7 +176,19 @@ print(json.dumps(checks))
                                      *[argument for key in environment if key.startswith('RESTORE_') for argument in ('-e', key)],
                                      '-i', metadata['archive_image'], '-'], env=environment, input=client_code,
                                     text=True, capture_output=True, timeout=300)
-            client.check_returncode()
+            if client.returncode:
+                # Retain bounded diagnostics privately before disposing the
+                # restored containers. Never print credentials or raw logs.
+                diagnostics = args.output.with_suffix('.failure.log')
+                diagnostics.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                with diagnostics.open('w') as handle:
+                    handle.write(client.stderr[-16000:])
+                    for name in containers[:-1]:
+                        logs = subprocess.run(['docker', 'logs', '--tail', '100', name],
+                                              text=True, capture_output=True)
+                        handle.write('\n' + name + '\n' + logs.stdout + logs.stderr)
+                diagnostics.chmod(0o600)
+                raise RuntimeError('Restored service access failed; private diagnostics: ' + str(diagnostics))
             result.update(json.loads(client.stdout))
             result['elapsed_seconds'] = round(time.monotonic() - started, 1)
             args.output.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
