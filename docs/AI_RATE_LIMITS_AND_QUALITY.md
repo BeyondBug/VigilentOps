@@ -7,6 +7,13 @@ finding. See [AI PR review](AI_PR_REVIEW.md) for the release decision.
 
 ## Rate limits
 
+If a later file exhausts provider availability after earlier files have passed
+the candidate gates, the worker publishes those earlier changes as a `WIP:`
+proposal. It reports the count of deferred files in the PR and task result;
+their findings remain open. If no file has an acceptable change, normal
+bounded Celery deferral still applies. A partial proposal does not schedule
+an automatic follow-up or establish that the proposed fixes work.
+
 - Configure only models with a real `MODEL_n`, `API_URL_n`, and private
   `API_KEY_n` in the server's `.env`. Order them by preference. The example
   keys are blank, so a copied example does not call a provider accidentally.

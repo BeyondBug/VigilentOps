@@ -6,6 +6,11 @@ review, not a count of distinct exploitable vulnerabilities. The export
 groups by advisory/rule and path as a starting point; confirm affected package,
 version, container image, and exploit conditions before merging records.
 
+On 1 October, the project owner confirmed that all 13 current Gitea targets
+are real projects. Do not classify their findings as intentionally vulnerable
+lab examples or automatically accept them on that basis. `ShadowPatch` is
+historical scan scope; `SIET-Hackathon` is in the current repository inventory.
+
 ## Review order
 
 1. Confirm secrets first. Revoke exposed credentials and remove the active

@@ -2,6 +2,7 @@
 
 import os
 import sys
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -209,6 +210,34 @@ class RemediationSafetyTests(unittest.TestCase):
         self.assertTrue(payload["title"].startswith("WIP:"))
         self.assertIn("unverified", payload["body"])
         self.assertNotIn("vulnerabilities fixed", payload["body"])
+
+    def test_later_rate_limit_preserves_proposal_and_leaves_deferred_files_open(self):
+        repo = tempfile.mkdtemp()
+        subprocess.run(['git', 'init', '-q', repo], check=True, capture_output=True)
+        for name in ('first.py', 'second.py', 'third.py'):
+            Path(repo, name).write_text('pass\n')
+        findings = [{'id': number, 'file_path': name, 'scanner': 'bandit',
+                     'branch': 'main', 'severity': 'HIGH', 'finding_class': 'sast'}
+                    for number, name in enumerate(('first.py', 'second.py', 'third.py'), 1)]
+        with (
+            patch.object(fix_engine, 'MODELS', [{'model': 'fixture', 'key': 'test', 'url': 'http://unused'}]),
+            patch.object(fix_engine, 'get_all_findings', return_value=findings),
+            patch.object(fix_engine, 'get_scan_findings', return_value=findings),
+            patch.object(fix_engine, 'get_scan_reports', return_value=[]),
+            patch.object(fix_engine, 'clone_repo', return_value=repo),
+            patch.object(fix_engine, 'try_with_fallback', side_effect=[
+                ("print('candidate')\n", 'fixture'), fix_engine.RateLimitDeferred(90)]) as model,
+            patch.object(fix_engine, 'commit_and_push', return_value=True),
+            patch.object(fix_engine, 'open_pr', return_value=('http://gitea/pr/1', True)) as publish,
+            patch.object(fix_engine, 'mark_pr_opened') as mark,
+        ):
+            result = fix_engine.run_ai_fix_engine(1, 'http://sg-gitea:3000/owner/repo.git', 'sha')
+        self.assertEqual(model.call_count, 2)
+        self.assertEqual(result['files_changed'], 1)
+        self.assertEqual(result['deferred_file_count'], 2)
+        self.assertEqual(result['provider_retry_after'], 90)
+        self.assertEqual(mark.call_args.args[2], ['first.py'])
+        self.assertEqual(publish.call_args.kwargs['deferred_file_count'], 2)
 
     def test_conversation_contains_every_tool_finding_and_redacts_secrets(self):
         findings = [

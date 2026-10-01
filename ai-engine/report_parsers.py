@@ -88,6 +88,14 @@ def _metadata(rule, result, run):
         severity = ('CRITICAL' if score >= 9 else 'HIGH' if score >= 7 else 'MEDIUM' if score >= 4 else 'LOW') if score is not None else None
     package = properties.get('package') or properties.get('packageName') or _label(text, 'Package')
     installed = properties.get('installed_version') or properties.get('installedVersion') or _label(text, 'Installed Version') or _label(text, 'Version')
+    # OSV SARIF embeds the artifact coordinates in its result message,
+    # including scoped npm names containing another '@'.
+    osv_package = re.search(r"Package '([^'\r\n]+)' is vulnerable to ", message)
+    if osv_package:
+        name, separator, version = osv_package.group(1).rpartition('@')
+        if separator and name and version:
+            package = package or name
+            installed = installed or version
     fixed = properties.get('fixed_version') or properties.get('fixedVersion') or _label(text, 'Fixed Version') or _label(text, 'Fix Version')
     return {
         'severity': severity or {'error': 'HIGH', 'warning': 'MEDIUM', 'note': 'LOW', 'none': 'INFO'}.get(result.get('level', 'warning'), 'MEDIUM'),

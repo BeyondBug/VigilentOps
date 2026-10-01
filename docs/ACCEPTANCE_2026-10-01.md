@@ -77,3 +77,60 @@ quality still require separate checks. See [Next server session](NEXT_SERVER_SES
 Do not merge PR #18 unchanged or mark the lab complete until repository
 coverage, finding dispositions, reviewed AI fixes, recovery and exact commit
 parity have evidence. Credentials and raw logs remain private.
+
+## Deployed checks and fresh scans
+
+The corrected images were rebuilt, migrations 002/003 exited successfully,
+and the CI/monitoring stack was recreated. Native Jenkins now uses its private
+user realm, matrix permissions and CSRF protection. Direct Docker-network
+checks returned 403 for anonymous API access, 200 for the administrator and
+metrics scrape, and 403 when the metrics account attempted administration.
+All 13 hooks were migrated to the private credential. A dry run rejected the
+historical token with 404 and matched exactly one job with the new token;
+neither request queued work.
+
+Gateway recreation was required to replace a stale individual configuration
+bind mount after Git replaced its inode. The authenticated monitoring checker
+then passed all 22 provisioned queries with nonempty data frames and no
+datasource errors; all eight Prometheus targets were up. Grafana Live returned
+101. Docker inspection found only gateway port 3000 published, and TCP checks
+found all 16 former application listeners closed.
+
+Falco 0.43.0 and its exporter remain running. A harmless shell invocation in
+the dashboard container generated the custom shell rule; the Prometheus
+`falco_events` query returned that rule and five other rule series. This
+replaces the earlier unsupported-driver limitation with live event evidence.
+
+The new backup at `~/secureguard-backups/lab-20261001-091137` passed an isolated
+restore: 122 database table counts matched and all eight restored volumes
+matched their archives. Disposable resources were removed. This does not
+establish restored service login/access; that broader drill remains open.
+
+Jenkins #344/#345 exposed sandbox restrictions on dynamic environment writes
+and direct Groovy JSON serialization. The pipeline uses supported environment
+assignment and `writeJSON` steps. At `afbda39`, real Gitea push build **#346**
+finished SUCCESS; scan **#268** completed with **3,820 findings** and 13 accepted
+report receipts, including Hadolint/ShellCheck. Severity records: six critical,
+314 high, 2,382 medium, 1,105 low, 11 informational and two unknown. These
+records are not dispositions or a count of distinct vulnerabilities. The
+private triage export is `reports/triage/scan-268`.
+
+All 13 repository reruns were queued through Gitea test deliveries. Early
+results include successful current scans of Acdemy, Moondream,
+Netflix-Hystrix, Netflix-zuul, Portfolio, Range, SIET-Hackathon and SIET-WEBSITE.
+The full terminal coverage audit remains pending.
+
+The real scan #268 AI task entered RETRY after provider deferral; no accepted
+real PR fix has been established. Three configured routes passed synthetic
+compatibility, which does not guarantee availability on a larger real file.
+
+## Next security corrections
+
+Scan #268 reports AnyIO 4.9.0 in the two Python requirement sets. The
+[reviewed AnyIO advisory](https://github.com/advisories/GHSA-82r6-8w77-94w6)
+identifies 4.14.2 as patched for CVE-2026-63374. Code now pins that version
+for the API, CVE service and Wazuh proxy; rebuild and rescan are required.
+The CVE Dockerfile no longer installs unused GCC/libpq development packages
+and requires binary wheels. OSV artifact package/version extraction and
+partial AI proposal handling are prepared with regression checks. These
+latest corrections have not yet passed the server suite or deployment.

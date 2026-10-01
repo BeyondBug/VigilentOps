@@ -11,6 +11,14 @@ from fix_validation import parses_ok
 
 
 class ReportParserTests(unittest.TestCase):
+    def test_osv_artifact_coordinates_include_scoped_package_names(self):
+        for artifact, name, version in [('anyio@4.9.0', 'anyio', '4.9.0'),
+                                         ('@example/client@1.2.3', '@example/client', '1.2.3')]:
+            report = {'runs': [{'results': [{'ruleId': 'CVE-2026-63374',
+                'message': {'text': f"Package '{artifact}' is vulnerable to 'CVE-2026-63374'."}}]}]}
+            finding = parse_sarif(report, 'osv')[0]
+            self.assertEqual((finding['package'], finding['installed_version']), (name, version))
+
     def test_report_shape_rejects_unparsed_json(self):
         with self.assertRaises(ValueError):
             validate_report_shape({"message": "scanner failed"}, "osv")

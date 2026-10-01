@@ -416,7 +416,8 @@ def commit_and_push(tmpdir: str, repo_url: str,
 
 def open_pr(repo_url: str, branch_name: str, scan_run_id: int,
              fixed_files: list[dict], model_used: str,
-             finding_comments: list[str], base_branch: str = "main") -> tuple[Optional[str], bool]:
+             finding_comments: list[str], base_branch: str = "main",
+             deferred_file_count: int = 0) -> tuple[Optional[str], bool]:
     parts     = repo_url.rstrip("/").removesuffix(".git").split("/")
     owner     = parts[-2] if len(parts) >= 2 else "BeyondBug"
     repo_name = parts[-1] if parts else "ShadowPatch"
@@ -449,6 +450,9 @@ comments covering every stored scanner finding from scan #{scan_run_id}.
 Check that all parts are present before review. The proposed code change
 addresses only selected Python SAST findings; other findings are not addressed
 by this proposal.
+
+Files left for a later attempt after provider deferral: {deferred_file_count}.
+Their findings remain open; this PR does not claim a complete remediation.
 
 ### Before marking ready to merge
 - [ ] Review every changed line and the original scanner findings.
@@ -547,6 +551,8 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
     fixed_files   = []
     summary_lines = []
     model_failures = 0
+    deferred_file_count = 0
+    provider_retry_after = None
 
     try:
         candidate_files: dict[str, dict] = {}
@@ -567,7 +573,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
             group["findings"].extend(findings)
             group["source_paths"].add(file_path)
 
-        for file_path, group in candidate_files.items():
+        for file_number, (file_path, group) in enumerate(candidate_files.items()):
             findings = group["findings"]
             log.info("Processing %s — %s findings", file_path, len(findings))
             fpath = Path(tmpdir) / file_path
@@ -584,10 +590,21 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                 continue
 
             # Call LLM with fallback
-            fixed_content, model_used = try_with_fallback(
-                file_path, file_content, findings,
-                max_tokens=min(8192, max(2048, len(file_content.split()) * 3)),
-            )
+            try:
+                fixed_content, model_used = try_with_fallback(
+                    file_path, file_content, findings,
+                    max_tokens=min(8192, max(2048, len(file_content.split()) * 3)),
+                )
+            except RateLimitDeferred as error:
+                if not fixed_files:
+                    raise
+                # Keep already validated changes when a later file exhausts
+                # the available routes. Unprocessed findings stay open.
+                deferred_file_count = len(candidate_files) - file_number
+                provider_retry_after = error.retry_after
+                log.warning('Publishing a partial proposal; %s files deferred for provider availability',
+                            deferred_file_count)
+                break
 
             if not fixed_content:
                 model_failures += 1
@@ -657,6 +674,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
             repo_url, branch_name, scan_run_id,
             fixed_files, model_used, finding_comments,
             base_branch=branch_ref,
+            deferred_file_count=deferred_file_count,
         )
         if pr_url:
             if comments_complete:
@@ -672,6 +690,8 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                 "pr_url":          pr_url,
                 "model":           model_used,
                 "findings_published": comments_complete,
+                "deferred_file_count": deferred_file_count,
+                "provider_retry_after": provider_retry_after,
                 "reason": None if comments_complete else "PR finding comments are incomplete",
             }
         return {"status": "error", "reason": "PR creation failed"}
