@@ -13,7 +13,8 @@ RUN apt-get update -qq && \
       > /etc/apt/sources.list.d/docker.list && \
     apt-get update -qq && \
     apt-get install -y -qq docker-ce-cli && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
 USER jenkins
 

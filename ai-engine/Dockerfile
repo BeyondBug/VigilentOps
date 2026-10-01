@@ -5,7 +5,8 @@ WORKDIR /app
 RUN apt-get update && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \

@@ -3,7 +3,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get upgrade -y --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
 RUN pip install --no-cache-dir fastapi==0.142.2 uvicorn[standard]==0.54.0 httpx==0.28.1 anyio==4.14.2 \
     && pip uninstall -y setuptools wheel
