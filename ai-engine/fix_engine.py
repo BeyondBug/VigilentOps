@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 from collections import defaultdict
 
-from llm_response import extract_llm_content
+from llm_response import extract_llm_content, LLMProviderError
 from fix_validation import parses_ok, preserves_python_interface, validates_security_change, unsafe_contract_change
 from fix_prompts import build_primary_prompt
 from pr_findings import build_finding_comments
@@ -142,10 +142,14 @@ GENERATED_LOCKFILES = {
 class RateLimitDeferred(Exception):
     """Usable routes are cooling or unavailable; retry the Celery task later."""
 
-    def __init__(self, retry_after: int, shared_quota: bool = False):
+    def __init__(self, retry_after: int, shared_quota: bool = False, route_offset: int = 0):
         self.retry_after = retry_after
         self.shared_quota = shared_quota
+        self.route_offset = route_offset
         super().__init__(f"Model routes temporarily unavailable; retry in {retry_after}s")
+
+    def __reduce__(self):
+        return (type(self), (self.retry_after, self.shared_quota, self.route_offset))
 
 
 def _retry_delay(value: str | None, attempt: int) -> int:
@@ -192,18 +196,21 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
 
             return extract_llm_content(r.json())
 
-        except httpx.HTTPStatusError as e:
-            status = e.response.status_code
+        except (httpx.HTTPStatusError, LLMProviderError) as e:
+            response = e.response if isinstance(e, httpx.HTTPStatusError) else r
+            status = response.status_code if isinstance(e, httpx.HTTPStatusError) else e.status_code
+            if isinstance(e, LLMProviderError):
+                log.warning('Model provider error body: status=%s category=%s', status, e.error_type)
             if status in (429, 500, 502, 503, 504):
-                delay = _retry_delay(e.response.headers.get("Retry-After"), attempt)
+                delay = _retry_delay(response.headers.get("Retry-After"), attempt)
                 if (status == 429 and api_url == OPENROUTER_URL
-                        and e.response.headers.get('X-RateLimit-Remaining') == '0'):
+                        and response.headers.get('X-RateLimit-Remaining') == '0'):
                     raise RateLimitDeferred(delay, shared_quota=True) from e
                 if attempt < max_attempts - 1 and delay <= 60:
                     log.warning("Model API HTTP %s; retrying in %ss", status, delay)
                     time.sleep(delay)
                     continue
-                if status == 429:
+                if status == 429 or delay > 60:
                     raise RateLimitDeferred(delay) from e
             # Provider error bodies may echo request content or credentials.
             log.error("Model API HTTP %s", status)
@@ -221,7 +228,8 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
 
 
 
-def try_with_fallback(file_path: str, file_content: str, findings: list[dict], max_tokens: int = 4096) -> tuple[str, str]:
+def try_with_fallback(file_path: str, file_content: str, findings: list[dict], max_tokens: int = 4096,
+                      route_offset: int = 0) -> tuple[str, str]:
     prompt = build_primary_prompt(file_path, file_content, findings)
 
     if len(prompt) > MAX_PROMPT_CHARS:
@@ -231,7 +239,11 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
     deferred = []
     validation_feedback = ""
     attempted = 0
-    for i, m_conf in enumerate(MODELS):
+    start = route_offset % len(MODELS) if MODELS else 0
+    next_route = start
+    ordered_routes = [(index, MODELS[index]) for index in
+                      list(range(start, len(MODELS))) + list(range(start))]
+    for position, (i, m_conf) in enumerate(ordered_routes):
         m = m_conf["model"]
         k = m_conf["key"]
         u = m_conf["url"]
@@ -249,6 +261,7 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
             log.warning('Per-file model route budget exhausted (%s)', MAX_MODEL_ROUTES_PER_FILE)
             break
         attempted += 1
+        next_route = (i + 1) % len(MODELS)
 
         log.info(f"Trying model {i+1}/{len(MODELS)}: {m}")
         try:
@@ -280,11 +293,11 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
             validation_feedback = "\nPREVIOUS CANDIDATE REJECTED: " + reason + "\nAddress the original cause without suppressing checks.\n"
         if content:
             log.warning("Model %s returned unchanged, invalid, or overly shortened code", m)
-        if i < len(MODELS) - 1:
+        if position < len(ordered_routes) - 1:
             log.warning("Model %s returned no usable content; trying next model", m)
 
     if deferred:
-        raise RateLimitDeferred(min(deferred))
+        raise RateLimitDeferred(min(deferred), route_offset=next_route)
     return "", ""
 
 
@@ -529,7 +542,7 @@ Their findings remain open; this PR does not claim a complete remediation.
 # ── Main ──────────────────────────────────────────────────────
 
 def run_ai_fix_engine(scan_run_id: int, repo_url: str,
-                       commit_sha: str) -> dict:
+                       commit_sha: str, route_offset: int = 0) -> dict:
     log.info(f"AI Fix Engine v3 — scan #{scan_run_id}")
 
     if not MODELS:
@@ -609,6 +622,7 @@ def run_ai_fix_engine(scan_run_id: int, repo_url: str,
                 fixed_content, model_used = try_with_fallback(
                     file_path, file_content, findings,
                     max_tokens=min(8192, max(2048, len(file_content.split()) * 3)),
+                    route_offset=route_offset,
                 )
             except RateLimitDeferred as error:
                 if not fixed_files:

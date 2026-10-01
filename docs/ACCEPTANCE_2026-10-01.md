@@ -474,3 +474,43 @@ evidence: `reports/openrouter-free-readable-tests.log` and
 provider fixture was called. The key pasted into chat was not deployed.
 Activation and actual free-route compatibility remain pending a privately
 rotated key; previous direct-provider model checks do not satisfy that gate.
+
+### Later OpenRouter activation and offline code follow-up
+
+The server subsequently had an OpenRouter key entered privately. A graceful
+worker recreation loaded all seven approved routes. A private `/api/v1/key`
+request returned HTTP 200 and reported an initial daily free limit of 50.
+Authentication does not confirm that the earlier exposed key was revoked.
+Private activation records are `reports/openrouter-key-reload.json` and
+`reports/openrouter-key-access.json`; no credential value was printed.
+
+Scan #310 completed at Gitea target commit
+`019b29f41d256133a0e4a5090331fb5192aeb5cf`, with five eligible open Python
+SAST findings. One remediation task was submitted:
+`3977acc1-49fb-4e34-b2d1-7f0a110ad422`. The worker received unusable responses,
+deferred, and was last observed in `STARTED`. No new PR was confirmed before
+the server became unavailable. Do not treat this as an accepted proposal or
+submit another task without checking its final state.
+
+A response metadata diagnostic for one affected file recorded HTTP 200,
+no completion content and no finish reason. That diagnostic did not capture
+the error category, so the cause remains unconfirmed; it does not establish
+token truncation. OpenRouter documents error bodies after HTTP 200 headers.
+The current parser lacked explicit handling for those envelopes.
+
+The offline code follow-up prepares:
+
+- Rejection of top-level/selected-choice provider errors before accepting
+  partial code, with normalized status/category and no raw provider text.
+- Bounded transient retry and long `Retry-After` deferral for error bodies as
+  well as HTTP errors.
+- A next-model position carried in Celery retry arguments so later approved
+  routes remain reachable after cooldown expiry or worker restart.
+- Additional server-only regression checks and an extended controlled
+  HTTP/Celery fixture, plus safe provider status in the compatibility report.
+
+No builds, tests, provider calls or server checks were run for these changes
+while the server was unavailable. Their acceptance remains open in
+[the checklist](../CHECKLIST.md). Gitea's README commit `019b29f` must be
+preserved when reconciling future GitHub changes; the deployment checkout
+and GitHub were still at `e74a127` at the last inspected checkpoint.

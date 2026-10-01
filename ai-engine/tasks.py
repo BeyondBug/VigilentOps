@@ -20,10 +20,14 @@ app.conf.update(
 
 
 @app.task(name="secureguard.run_ai_fix", bind=True, max_retries=5)
-def run_ai_fix(self, scan_run_id: int, repo_url: str, commit_sha: str):
+def run_ai_fix(self, scan_run_id: int, repo_url: str, commit_sha: str, route_offset: int = 0):
     try:
-        return run_ai_fix_engine(scan_run_id, repo_url, commit_sha)
+        return run_ai_fix_engine(scan_run_id, repo_url, commit_sha, route_offset=route_offset)
     except RateLimitDeferred as exc:
-        raise self.retry(exc=exc, countdown=exc.retry_after)
+        # The position travels with the broker message, so a retry after a
+        # cooldown or worker restart can reach the remaining approved models.
+        raise self.retry(exc=exc, countdown=exc.retry_after,
+                         args=(scan_run_id, repo_url, commit_sha),
+                         kwargs={'route_offset': exc.route_offset})
     except Exception as exc:
         raise self.retry(exc=exc, countdown=min(300, 30 * 2 ** self.request.retries))

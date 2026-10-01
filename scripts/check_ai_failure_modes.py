@@ -27,10 +27,11 @@ class Provider(BaseHTTPRequestHandler):
     def do_POST(self):
         self.rfile.read(int(self.headers.get('Content-Length', '0')))
         type(self).calls += 1
-        if self.mode == 'limited':
-            self.send_response(429)
+        if self.mode in ('limited', 'body_limited'):
+            self.send_response(200 if self.mode == 'body_limited' else 429)
             self.send_header('Retry-After', '1')
-            payload = {'error': 'controlled fixture rate limit'}
+            payload = {'error': {'code': 429, 'message': 'controlled fixture rate limit',
+                                 'metadata': {'error_type': 'rate_limit_exceeded'}}}
         else:
             self.send_response(200)
             content = SOURCE.replace('shell=True', 'shell=False') if self.path == '/valid' else 'invalid python ???'
@@ -67,16 +68,20 @@ def main():
              patch.object(fix_engine, 'open_pr') as publish, \
              start_worker(tasks.app, queues=[queue], pool='solo', concurrency=1, perform_ping_check=False):
             model = {'model': 'fixture', 'key': 'fixture-key', 'url': endpoint + '/limited'}
-            with patch.object(fix_engine, 'MODELS', [model]):
-                result = tasks.run_ai_fix.apply_async(args=[-1, 'http://sg-gitea:3000/fixture/fixture.git', 'HEAD'], queue=queue)
-                results.append(result)
-                seen_retry = False
-                deadline = time.monotonic() + 40
-                while not result.ready() and time.monotonic() < deadline:
-                    seen_retry |= result.state == 'RETRY'
-                    time.sleep(0.1)
-                assert result.state == 'FAILURE' and seen_retry, '429 must defer and exhaust retries clearly'
-                print('429 Celery RETRY followed by bounded FAILURE: PASS')
+            for mode in ('limited', 'body_limited'):
+                Provider.mode = mode
+                with patch.object(fix_engine, 'MODELS', [model]), \
+                     patch.object(fix_engine, 'MODEL_COOLDOWNS', fix_engine.RouteCooldowns()):
+                    result = tasks.run_ai_fix.apply_async(args=[-1, 'http://sg-gitea:3000/fixture/fixture.git', 'HEAD'], queue=queue)
+                    results.append(result)
+                    seen_retry = False
+                    deadline = time.monotonic() + 40
+                    while not result.ready() and time.monotonic() < deadline:
+                        seen_retry |= result.state == 'RETRY'
+                        time.sleep(0.1)
+                    assert result.state == 'FAILURE' and seen_retry, '429 must defer and exhaust retries clearly'
+                    label = 'HTTP 200 error body' if mode == 'body_limited' else 'HTTP 429'
+                    print(f'{label}: Celery RETRY followed by bounded FAILURE: PASS')
             Provider.mode = 'invalid'
             with patch.object(fix_engine, 'MODELS', [{**model, 'url': endpoint + '/invalid'}]):
                 result = tasks.run_ai_fix.apply_async(args=[-1, 'http://sg-gitea:3000/fixture/fixture.git', 'HEAD'], queue=queue)

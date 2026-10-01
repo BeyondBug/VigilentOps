@@ -8,6 +8,11 @@ No application or test runs are performed on the laptop. See
 
 ## Current handoff
 
+- The server is unavailable for the latest code follow-up. Prepared OpenRouter
+  HTTP-200 error handling, long-wait deferral and continuation through later
+  fallback models require a new server build and acceptance run. The last
+  observed task for scan #310 was still `STARTED`; no resulting PR was
+  confirmed. See [the dated follow-up](docs/ACCEPTANCE_2026-10-01.md).
 - HTTPS **3000** is the only published application port. Gitea `/`, findings
   `/dashboard/`, Jenkins `/jenkins/`, Grafana `/grafana/`, Prometheus
   `/prometheus/`. Host SSH is separate. Username: `BeyondBug`; credentials
@@ -105,9 +110,18 @@ No application or test runs are performed on the laptop. See
   tests: reject paid/unapproved models, enforce zero prices, retain allowed
   order and defer shared-key quota exhaustion after one request. Older
   provider credentials are ignored.
-- [ ] Configure a privately rotated OpenRouter key and verify free-route
-  compatibility on Kali. No OpenRouter route is active without that key;
-  earlier direct-provider results do not validate the new routes.
+- [x] Load a privately entered OpenRouter key on Kali: seven routes loaded
+  after graceful worker recreation and the private key endpoint returned 200.
+  This verifies authentication, not revocation of the previously exposed key.
+- [ ] Confirm the exposed key was revoked, verify the approved free routes
+  and accept a real OpenRouter proposal after exact-head review and rescan.
+  Earlier direct-provider results do not validate the new routes.
+- [ ] Build and verify the prepared HTTP-200 error-body handling, bounded
+  transient retries, long Retry-After deferral, rejection of partial output,
+  safe diagnostics and model position across Celery retries on Kali.
+- [ ] Inspect task `3977acc1-49fb-4e34-b2d1-7f0a110ad422` for scan #310 before
+  any rerun. Preserve Gitea's separate README commit `019b29f` when reconciling
+  GitHub/Gitea history; use a fresh scan if the target branch has moved.
 - [x] Require exact scan commit, trusted clone origin, private Git askpass,
   valid UTF-8, safe paths and preservation of public Python interfaces.
 - [x] Compare original/candidate Bandit results with suppression disabled;

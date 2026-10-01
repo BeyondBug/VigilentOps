@@ -32,11 +32,19 @@ an automatic follow-up or establish that the proposed fixes work.
   requested wait exceeds a minute, it tries another available configured model instead
   of holding a worker idle. Error bodies are not logged because they may
   contain source or credentials.
+- HTTP 200 responses can also carry provider errors. The parser rejects those
+  bodies and any partial code, classifies them using safe status/category
+  values and applies bounded retry handling. A long temporary-error
+  `Retry-After` defers the route instead of replacing it with a shorter wait.
 - If usable routes are cooling or temporarily unavailable, Celery defers the whole proposal
   task until the earliest recorded route cooldown expires, up to five retries. No branch
   is pushed before the full proposal is assembled, so this retry starts from
   the scan commit. A task that still cannot call a model ends in failure and
   leaves findings open for a later manual rerun.
+- Deferred retry messages carry the next model position. A four-route budget
+  therefore does not repeatedly starve the last three models in a seven-model
+  pool once the first four cooldowns expire. This position persists in the
+  broker message; cooldown deadlines themselves remain process-local.
 - All selected free models share OpenRouter account limits. An OpenRouter 429
   with `X-RateLimit-Remaining: 0` defers immediately and cools every route using
   the same key, instead of retrying each model. Cooldowns remain process-local;

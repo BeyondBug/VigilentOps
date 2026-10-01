@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'ai-engine'))
 import httpx
 from model_pool import load_model_pool, completion_options
-from llm_response import extract_llm_content
+from llm_response import extract_llm_content, LLMProviderError
 from fix_validation import parses_ok, preserves_python_interface, validates_security_change
 
 
@@ -35,6 +35,10 @@ def check_route(route):
             return result
         try:
             candidate = extract_llm_content(response.json())
+        except LLMProviderError as error:
+            result['provider_status'] = error.status_code
+            result['reason'] = f'Provider error: {error.error_type}'
+            return result
         except (ValueError, TypeError, AttributeError):
             result['reason'] = 'Unsupported, empty, truncated or malformed response'
             return result

@@ -29,6 +29,15 @@ The new `backup_lab.py` can be used after pulling code, **before** recreating
 services or applying migrations. It requires the full lab stack's containers
 and an idle Jenkins/Celery queue, pauses writers, then restarts them.
 
+**OpenRouter follow-up:** Gitea `main` was observed at `019b29f` with a
+separate README change, while GitHub and the deployment checkout were at
+`e74a127`. Preserve that Gitea commit when reconciling the newer GitHub
+changes. Fetch both remotes, inspect the histories, and integrate any
+divergence before deployment or push; do not force-push either remote. The
+simple fast-forward below is insufficient while those histories diverge.
+Set `umask 022` before Git writes so tracked source stays readable to the
+container user; retain mode 0600 for `.env` and other private files.
+
 ```bash
 git fetch github main
 git merge --ff-only github/main
@@ -171,12 +180,25 @@ Run the controlled AI retry/fallback fixture inside the newly built service
 image. It uses a unique Redis queue, a local fake provider and temporary Git
 fixture; it does not publish a PR or update findings:
 
+The updated fixture also checks an HTTP-200 rate-limit error body. Run the
+expanded Python suite first; its additional checks cover long waits,
+partial-response rejection and retry messages reaching later models. These
+new checks have not run while the server is offline.
+
 Copy the fixture into the worker first, then run it:
 
 ```bash
 docker cp scripts/check_ai_failure_modes.py sg-celery:/tmp/check_ai_failure_modes.py
 docker compose exec -T celery-worker python /tmp/check_ai_failure_modes.py
 ```
+
+Before queuing real OpenRouter work, inspect the existing scan #310 task
+`3977acc1-49fb-4e34-b2d1-7f0a110ad422`, active/reserved/scheduled work, and any
+existing scan branch or PR. Its final result was unknown when the server
+became unavailable. Do not submit duplicate tasks. Check key quota privately
+and run the synthetic approved-route check from [Model pool](MODEL_POOL.md).
+If the repository head changed, complete a fresh scan and remediate that
+commit; the worker deliberately rejects a stale scan base.
 
 Record deferred RETRY,
 bounded FAILURE, invalid-output rejection and validated fallback. A fixture

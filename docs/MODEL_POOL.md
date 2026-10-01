@@ -80,12 +80,23 @@ tasks and let active work finish; do not kill workers or purge the queue.
 - A rate-limited route cools for its bounded `Retry-After` interval. Empty or
   unavailable responses cool for the configured failure interval. Cooling
   routes are skipped without consuming the per-file route budget.
+- Error bodies are checked even when HTTP status is 200. Top-level and
+  selected-choice errors reject any accompanying partial code; only normalized
+  status/category is logged. Temporary errors use the same bounded retry
+  handling as HTTP errors, including deferral for waits longer than a minute.
+  See [OpenRouter error handling](https://openrouter.ai/docs/api_reference/errors-and-debugging).
 - An OpenRouter 429 with `X-RateLimit-Remaining: 0` defers immediately and
   cools all routes sharing its key. Provider-specific limits without that
   platform signal retain normal model fallback.
 - When cooling/unavailable routes remain and no candidate passes, Celery can
   defer until the earliest cooldown expires. Retries remain capped at five.
   Invalid code alone produces no proposal; it does not become a successful fix.
+- A deferred retry resumes with the route after the last attempted model,
+  wrapping around the configured list. The position is included in the Celery
+  retry message, so later models can be reached even if cooldowns expire or
+  the worker restarts. Initial attempts still start with the configured first
+  model; the per-file budget is unchanged. This is prepared code requiring a
+  new server run, not a compatibility result for all seven models.
 - Cooldowns, including the shared-key platform response, are **inside one worker process**, reset on
   restart and are not shared across workers. Keep the lab at one worker until
   shared quota scheduling is implemented and measured.

@@ -1,6 +1,7 @@
 """Server-only pool configuration, cooldown and request-budget checks."""
 
 import sys
+import pickle
 import unittest
 import httpx
 from pathlib import Path
@@ -12,6 +13,90 @@ from model_pool import load_model_pool, RouteCooldowns, OPENROUTER_FREE_MODELS, 
 
 
 class ModelPoolTests(unittest.TestCase):
+    def test_http200_rate_limit_body_defers_shared_quota_without_sleep_or_response_logging(self):
+        routes = load_model_pool({'OPENROUTER_API_KEY': 'key'})
+        secret = 'fixture-sensitive-provider-text'
+        response = httpx.Response(200, headers={'Retry-After': '120', 'X-RateLimit-Remaining': '0'},
+            json={'error': {'code': 429, 'message': secret,
+                           'metadata': {'error_type': 'rate_limit_exceeded'}}},
+            request=httpx.Request('POST', OPENROUTER_URL))
+        with patch.object(fix_engine, 'MODELS', routes), \
+             patch.object(fix_engine, 'MODEL_COOLDOWNS', RouteCooldowns()), \
+             patch.object(fix_engine.httpx, 'post', return_value=response) as request, \
+             patch.object(fix_engine.time, 'sleep') as sleep, \
+             self.assertLogs(fix_engine.log, level='WARNING') as logs:
+            with self.assertRaises(fix_engine.RateLimitDeferred) as caught:
+                fix_engine.try_with_fallback('app.py', "print('old')\n", [])
+            self.assertEqual(caught.exception.retry_after, 120)
+            self.assertTrue(all(fix_engine.MODEL_COOLDOWNS.remaining(route) > 0 for route in routes))
+        request.assert_called_once()
+        sleep.assert_not_called()
+        self.assertNotIn(secret, '\n'.join(logs.output))
+        self.assertIn('rate_limit_exceeded', '\n'.join(logs.output))
+
+    def test_http200_temporary_error_is_bounded_and_never_accepts_partial_output(self):
+        response = httpx.Response(200, headers={'Retry-After': '1'},
+            json={'choices': [{'finish_reason': 'stop', 'message': {'content': 'pass'},
+                               'error': {'code': 503, 'message': 'fixture-sensitive-provider-text'}}]},
+            request=httpx.Request('POST', OPENROUTER_URL))
+        with patch.object(fix_engine.httpx, 'post', return_value=response) as request, \
+             patch.object(fix_engine.time, 'sleep') as sleep, \
+             self.assertLogs(fix_engine.log, level='WARNING') as logs:
+            self.assertEqual(fix_engine.call_llm('fixture', OPENROUTER_FREE_MODELS[0],
+                                               OPENROUTER_URL, 'key'), '')
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertNotIn('fixture-sensitive-provider-text', '\n'.join(logs.output))
+
+    def test_long_temporary_error_retry_after_defers_instead_of_shortening_wait(self):
+        for http_status, payload in ((503, {}), (200, {'error': {'code': 503}})):
+            response = httpx.Response(http_status, headers={'Retry-After': '120'}, json=payload,
+                                      request=httpx.Request('POST', OPENROUTER_URL))
+            with self.subTest(http_status=http_status), \
+                 patch.object(fix_engine.httpx, 'post', return_value=response) as request, \
+                 patch.object(fix_engine.time, 'sleep') as sleep:
+                with self.assertRaises(fix_engine.RateLimitDeferred) as caught:
+                    fix_engine.call_llm('fixture', OPENROUTER_FREE_MODELS[0], OPENROUTER_URL, 'key')
+                self.assertEqual(caught.exception.retry_after, 120)
+                request.assert_called_once()
+                sleep.assert_not_called()
+
+    def test_http200_permanent_error_does_not_retry_or_accept_content(self):
+        for status in (400, 401, 402, 403):
+            response = httpx.Response(200, json={'error': {'code': status},
+                'choices': [{'message': {'content': 'pass'}}]}, request=httpx.Request('POST', OPENROUTER_URL))
+            with self.subTest(status=status), \
+                 patch.object(fix_engine.httpx, 'post', return_value=response) as request, \
+                 patch.object(fix_engine.time, 'sleep') as sleep:
+                self.assertEqual(fix_engine.call_llm('fixture', OPENROUTER_FREE_MODELS[0],
+                                                   OPENROUTER_URL, 'key'), '')
+                request.assert_called_once()
+                sleep.assert_not_called()
+
+    def test_deferred_retry_reaches_later_models_after_worker_cooldowns_reset(self):
+        routes = load_model_pool({'OPENROUTER_API_KEY': 'key'})
+        with patch.object(fix_engine, 'MODELS', routes), \
+             patch.object(fix_engine, 'MAX_MODEL_ROUTES_PER_FILE', 4), \
+             patch.object(fix_engine, 'MODEL_COOLDOWNS', RouteCooldowns()), \
+             patch.object(fix_engine, 'call_llm', return_value='') as call:
+            with self.assertRaises(fix_engine.RateLimitDeferred) as first:
+                fix_engine.try_with_fallback('app.py', 'pass\n', [])
+            self.assertEqual(first.exception.route_offset, 4)
+            self.assertEqual([args.args[1] for args in call.call_args_list], list(OPENROUTER_FREE_MODELS[:4]))
+        with patch.object(fix_engine, 'MODELS', routes), \
+             patch.object(fix_engine, 'MAX_MODEL_ROUTES_PER_FILE', 4), \
+             patch.object(fix_engine, 'MODEL_COOLDOWNS', RouteCooldowns()), \
+             patch.object(fix_engine, 'call_llm', return_value='') as call:
+            with self.assertRaises(fix_engine.RateLimitDeferred) as second:
+                fix_engine.try_with_fallback('app.py', 'pass\n', [], route_offset=first.exception.route_offset)
+            self.assertEqual([args.args[1] for args in call.call_args_list],
+                             list(OPENROUTER_FREE_MODELS[4:]) + [OPENROUTER_FREE_MODELS[0]])
+            self.assertEqual(second.exception.route_offset, 1)
+
+    def test_deferral_serialization_preserves_delay_quota_and_fallback_position(self):
+        error = pickle.loads(pickle.dumps(fix_engine.RateLimitDeferred(120, True, 4)))
+        self.assertEqual((error.retry_after, error.shared_quota, error.route_offset), (120, True, 4))
+
     def test_only_approved_openrouter_routes_are_loaded_despite_old_provider_credentials(self):
         models = load_model_pool({'OPENROUTER_API_KEY': 'fixture-key',
                                  'MODEL_1': 'openai/gpt-4o', 'API_KEY_1': 'old-key',
