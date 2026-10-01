@@ -26,7 +26,7 @@ RUN printf 'server {\n\
   location /cve-intel/ { set $cve_backend cve-intel:8001; rewrite ^/cve-intel/(.*)$ /$1 break; proxy_pass http://$cve_backend$uri$is_args$args; }\n\
 }\n' > /etc/nginx/conf.d/default.conf
 
-RUN sed -i 's@pid */var/run/nginx.pid;@pid /tmp/nginx.pid;@' /etc/nginx/nginx.conf \
+RUN sed -i 's@^pid[[:space:]].*;@pid /tmp/nginx.pid;@; /^[[:space:]]*user[[:space:]]/d' /etc/nginx/nginx.conf \
     && chown -R nginx:nginx /var/cache/nginx /etc/nginx/conf.d
 USER nginx
 
