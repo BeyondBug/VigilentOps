@@ -163,6 +163,9 @@ services:
   celery-worker:
     build: ./ai-engine
     container_name: sg-celery
+    # The shared image's HTTP probe applies only to the API process.
+    healthcheck:
+      disable: true
     env_file: ${ENV_FILE:-.env}
     environment:
       - PUSHGATEWAY_URL=http://sg-pushgateway:9091
@@ -205,6 +208,8 @@ services:
   cve-worker:
     build: ./cve-intel
     container_name: sg-cve-worker
+    healthcheck:
+      disable: true
     env_file: ${ENV_FILE:-.env}
     depends_on:
       migrate:

@@ -20,3 +20,6 @@ USER jenkins
 RUN jenkins-plugin-cli --plugins matrix-auth:3.3 workflow-aggregator git \
     credentials-binding generic-webhook-trigger pipeline-utility-steps \
     ws-cleanup prometheus
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl --fail --silent --max-time 5 http://127.0.0.1:8080/jenkins/login > /dev/null || exit 1

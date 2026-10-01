@@ -26,4 +26,10 @@ RUN printf 'server {\n\
   location /cve-intel/ { set $cve_backend cve-intel:8001; rewrite ^/cve-intel/(.*)$ /$1 break; proxy_pass http://$cve_backend$uri$is_args$args; }\n\
 }\n' > /etc/nginx/conf.d/default.conf
 
+RUN sed -i 's@pid */var/run/nginx.pid;@pid /tmp/nginx.pid;@' /etc/nginx/nginx.conf \
+    && chown -R nginx:nginx /var/cache/nginx /etc/nginx/conf.d
+USER nginx
+
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1:3000/ || exit 1
