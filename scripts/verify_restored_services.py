@@ -87,6 +87,9 @@ def main():
             bootstrap = private / 'secrets/jenkins'
             if not (bootstrap / 'bootstrap.json').is_file():
                 raise ValueError('Snapshot lacks the native Jenkins bootstrap configuration')
+            security_script = private / 'jenkins/init.groovy.d/zz-secureguard-security.groovy'
+            if not security_script.is_file():
+                raise ValueError('Snapshot lacks the Jenkins security startup script')
             quiet = private / 'zzzz-recovery-quiet.groovy'
             quiet.write_text('import jenkins.model.Jenkins\n'
                              'def instance = Jenkins.get()\n'
@@ -149,6 +152,7 @@ def main():
                 *upgrade_flags,
                 '-v', restored['sg-jenkins'] + ':/var/jenkins_home',
                 '-v', str(bootstrap) + ':/run/secureguard-jenkins:ro',
+                '-v', str(security_script) + ':/var/jenkins_home/init.groovy.d/zz-secureguard-security.groovy:ro',
                 '-v', str(quiet) + ':/var/jenkins_home/init.groovy.d/zzzz-recovery-quiet.groovy:ro'])
             start('grafana', metadata['service_images']['sg-grafana'], [
                 *[argument for key in environment if key.startswith('GF_') for argument in ('-e', key)],
