@@ -244,6 +244,8 @@ services:
       - SCANNER_DNS=${SCANNER_DNS:-}
       - JENKINS_HOME_HOST=${JENKINS_HOME_HOST:-}
       - JENKINS_OPTS=--prefix=/jenkins
+      - PLUGINS_FORCE_UPGRADE=true
+      - TRY_UPGRADE_IF_NO_MARKER=true
       - GITEA_PUBLIC_URL=${PUBLIC_URL:-https://localhost:3000}
     networks:
       sg-net:

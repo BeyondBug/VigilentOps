@@ -43,10 +43,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('backup', type=Path)
     parser.add_argument('--output', type=Path, default=Path('reports/restored-service-access.json'))
+    parser.add_argument('--jenkins-image', default='',
+                        help='Exact cached sha256 image ID for an isolated Jenkins upgrade rehearsal')
     args = parser.parse_args()
     directory = args.backup.resolve()
     metadata = validate_backup(directory)
     archives = service_archives(metadata)
+    jenkins_image = args.jenkins_image or metadata['service_images']['sg-jenkins']
+    if not re.fullmatch(r'sha256:[a-f0-9]{64}', jenkins_image):
+        raise ValueError('Jenkins rehearsal requires an exact cached image ID')
+    local_image = json.loads(run(['docker', 'image', 'inspect', jenkins_image], text=True).stdout)[0]
+    if local_image['Id'] != jenkins_image:
+        raise ValueError('Jenkins rehearsal image does not match the requested ID')
     prefix = 'sg-access-' + uuid.uuid4().hex[:12]
     network = prefix + '-network'
     containers, volumes = [], []
@@ -55,6 +63,7 @@ def main():
     started = time.monotonic()
     os.umask(0o077)
     result = {'backup_commit': metadata['commit'], 'network_internal': True, 'published_ports': 0}
+    result.update({'jenkins_image': jenkins_image, 'upgrade_rehearsal': bool(args.jenkins_image)})
     try:
         with tempfile.TemporaryDirectory(prefix='sg_recovery_private_') as scratch:
             private = Path(scratch)
@@ -134,8 +143,10 @@ def main():
             start('gitea', metadata['service_images']['sg-gitea'], [
                 *[argument for key in environment if key.startswith('GITEA__') for argument in ('-e', key)],
                 '-v', restored['sg-gitea'] + ':/data'])
-            start('jenkins', metadata['service_images']['sg-jenkins'], [
+            upgrade_flags = ['-e', 'PLUGINS_FORCE_UPGRADE=true', '-e', 'TRY_UPGRADE_IF_NO_MARKER=true'] if args.jenkins_image else []
+            start('jenkins', jenkins_image, [
                 '--user', '0', '-e', 'JENKINS_OPTS=--prefix=/jenkins',
+                *upgrade_flags,
                 '-v', restored['sg-jenkins'] + ':/var/jenkins_home',
                 '-v', str(bootstrap) + ':/run/secureguard-jenkins:ro',
                 '-v', str(quiet) + ':/var/jenkins_home/init.groovy.d/zzzz-recovery-quiet.groovy:ro'])
@@ -164,6 +175,7 @@ for attempt in range(90):
   user=get('http://grafana:3000/grafana/api/user',basic(os.environ['RESTORE_GRAFANA_USER'],os.environ['RESTORE_GRAFANA_PASSWORD']))
   dashboards=get('http://grafana:3000/grafana/api/search?type=dash-db',basic(os.environ['RESTORE_GRAFANA_USER'],os.environ['RESTORE_GRAFANA_PASSWORD']))
   jenkins=get('http://jenkins:8080/jenkins/api/json',basic(os.environ['RESTORE_JENKINS_USER'],os.environ['RESTORE_JENKINS_PASSWORD']))
+  plugins=get('http://jenkins:8080/jenkins/pluginManager/api/json?depth=1',basic(os.environ['RESTORE_JENKINS_USER'],os.environ['RESTORE_JENKINS_PASSWORD']))['plugins']
   readiness={'repositories':len(repos),'dashboards':len(dashboards),'jobs':len(jenkins.get('jobs',[])),
              'grafana_login_present':bool(user.get('login')),
              'quieting_down':jenkins.get('quietingDown'),'executors':jenkins.get('numExecutors')}
@@ -171,10 +183,12 @@ for attempt in range(90):
           and jenkins.get('quietingDown') is True and jenkins.get('numExecutors')==0):
    time.sleep(2)
    continue
+  inactive=[p['shortName'] for p in plugins if p.get('enabled') and not p.get('active')]
+  assert not inactive,'Restored enabled plugins failed to load: '+','.join(inactive)
   try:get('http://jenkins:8080/jenkins/api/json')
   except HTTPError as error:assert error.code in (401,403)
   else:raise AssertionError('Restored Jenkins permits anonymous API access')
-  checks={'gitea_repositories':len(repos),'grafana_dashboards':len(dashboards),'jenkins_jobs':len(jenkins['jobs']),'native_authentication':True,'jenkins_execution_disabled':True}
+  checks={'gitea_repositories':len(repos),'grafana_dashboards':len(dashboards),'jenkins_jobs':len(jenkins['jobs']),'jenkins_plugins':len(plugins),'enabled_plugins_active':True,'native_authentication':True,'jenkins_execution_disabled':True}
   break
  except (HTTPError,URLError,TimeoutError):time.sleep(2)
 else:raise RuntimeError('Restored service access did not become ready: '+json.dumps(readiness))
