@@ -19,6 +19,8 @@ def docker_json(arguments):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--tools', nargs='+', choices=('trivy', 'dockle'), default=['trivy', 'dockle'],
+                        help='Rerun a failed tool separately while retaining earlier evidence')
     args = parser.parse_args()
     os.umask(0o077)
     output = args.output.resolve()
@@ -58,7 +60,7 @@ def main():
         directory.mkdir(mode=0o700)
         record = {'image_id': image, 'services': services, 'reports': {}}
         metadata['images'].append(record)
-        for tool in ('trivy', 'dockle'):
+        for tool in dict.fromkeys(args.tools):
             path = directory / (tool + '.sarif')
             path.touch(mode=0o600)
             name = 'sg-image-audit-' + uuid.uuid4().hex[:16]
@@ -70,7 +72,7 @@ def main():
                        '-v', '/var/run/docker.sock:/var/run/docker.sock',
                        '-v', str(directory) + ':/reports']
             if tool == 'trivy':
-                command += ['-v', 'trivy-cache:/root/.cache/trivy:ro', scanners[tool], 'image',
+                command += ['-v', 'trivy-cache:/cache:ro', scanners[tool], 'image', '--cache-dir', '/cache',
                             '--image-src', 'docker', '--offline-scan', '--skip-db-update',
                             '--skip-java-db-update', '--cache-backend', 'memory', '--timeout', '15m',
                             '--format', 'sarif', '--output', '/reports/trivy.sarif', image]
