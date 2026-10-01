@@ -105,4 +105,6 @@ See [Next server session](NEXT_SERVER_SESSION.md) and [Testing](TESTING.md).
 Dependency scanners still require trustworthy database/cache updates and
 outbound connectivity. Falco and Wazuh are runtime monitoring components,
 not substitutes for repository scans. Adding linters does not resolve the
-five pending repository reruns, AI PR #18, dependency triage or restore drill.
+finding remediation, AI patch review or full service recovery. The 1 October
+audit found all 13 default-branch heads covered by completed scans on two
+recent pipeline revisions; exact final-revision coverage remains separate.

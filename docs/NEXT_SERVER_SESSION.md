@@ -1,8 +1,11 @@
 # Next Kali session
 
-These changes are prepared in GitHub. SSH connectivity returned on 1 October;
-the new security, API, AI and recovery changes have **not**
-passed a deployment or test run. Run every command below on Kali. Record the
+The 1 October deployment passed builds, migrations, 96 Python tests, native
+Jenkins access checks, eight monitoring targets and 22 Grafana queries. All
+13 repository default-branch heads have completed scans on the two recorded
+pipeline revisions. See [dated evidence](ACCEPTANCE_2026-10-01.md) for results
+and remaining gates. Use this procedure for the next update; its commands
+are not proof that a future commit passes. Run every command below on Kali. Record the
 exact hashes and results in a dated acceptance report. Do not run them on the
 laptop. Keep raw logs, exports, credentials and backups off Git.
 
@@ -64,7 +67,7 @@ docker run --rm --network none -v "$PWD":/repo:ro -w /repo \
 ```
 
 A failure is a deployment stop; fix it before continuing. No result from the
-older 33-test run establishes that this expanded suite passes.
+older test run establishes that a changed final release passes.
 Keep the old scanner images and dependency caches. The version manifest
 includes Dependency-Check 13; verify cache compatibility and native SARIF
 before accepting a scan. The digest inventory proves availability only.

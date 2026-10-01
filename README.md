@@ -8,7 +8,7 @@ Prometheus use routes through it. See [Gateway setup](docs/GATEWAY.md) for
 TLS, login, service paths and migration. AI-generated code needs review and
 validation before it can be accepted as remediation.
 For the current completion status, known blockers, and next actions, see the
-[project checklist](CHECKLIST.md) and [latest server acceptance record](docs/ACCEPTANCE_2026-09-30.md).
+[project checklist](CHECKLIST.md) and [latest server acceptance record](docs/ACCEPTANCE_2026-10-01.md).
 
 ## How it works
 
@@ -34,7 +34,15 @@ flowchart LR
 
 See [Architecture](docs/ARCHITECTURE.md) for the service map, repository layout, and API flow. See [AI pull request review](docs/AI_PR_REVIEW.md) for the review procedure and [Operations](docs/OPERATIONS.md) for backup and response planning.
 
-The latest changes are prepared for deployment. Follow [Next server session](docs/NEXT_SERVER_SESSION.md) to migrate the schema, enable native Jenkins security and verify the changes on Kali. [CHECKLIST.md](CHECKLIST.md) records the remaining acceptance work; the lab is not yet complete.
+The lab has native Jenkins accounts/permissions, private hooks, report receipts,
+live Falco capture and a dashboard built with Vite/Node 24. The dashboard polls
+scan summaries and pages finding records. All 13 target repositories have
+completed scans at their current default-branch heads, using two recent shared
+pipeline revisions. Builds and 96 Python tests passed on Kali; eight monitoring
+targets and 22 Grafana queries passed. See [deployment procedure](docs/NEXT_SERVER_SESSION.md)
+for subsequent updates. [CHECKLIST.md](CHECKLIST.md) tracks remaining findings,
+AI review, full service recovery and final release acceptance; the lab is not
+yet complete.
 
 The AI [model pool](docs/MODEL_POOL.md) supports explicit NVIDIA backups,
 bounded attempts and route cooldowns. Model compatibility and accepted real

@@ -74,9 +74,11 @@ alone does not prove an alert was delivered.
 
 ## Scanner and credential maintenance
 
-The Jenkinsfile still uses several `:latest` scanner images. Pin each to a
-tested version or digest **after** the acceptance scan establishes which
-versions work on the server. Keep a small inventory of image, version/digest,
+The shared pipeline reads versioned scanner references from
+`scanners/images.json`; Hadolint and ShellCheck are also versioned. All 11
+selected images were pulled on Kali and report compatibility was exercised
+in completed scans. Version tags can remain mutable; maintain digest pins
+after compatibility review. Keep an inventory of image, version/digest,
 date, and report format; update one scanner at a time and rerun the report
 contract. Set a regular review cadence and record accepted vulnerability
 exceptions with owner and review date.
@@ -91,7 +93,9 @@ with server firewall rules or a trusted-network bind. Verify the dashboard
 and Grafana remain reachable from intended clients and that APIs require the
 intended authentication. Review Docker socket mounts and privileged monitoring
 services before production
-exposure.
+exposure. Native Jenkins authentication, limited metrics permissions, CSRF
+and credential-backed hooks passed live checks on 1 October. See
+[the acceptance record](ACCEPTANCE_2026-10-01.md).
 
 ## Prepared backup and isolated restore automation
 
@@ -118,8 +122,10 @@ network or published ports. It restores the dump, compares public table counts
 and restores/compares each archived volume. It cleans up only its own named
 resources. It does not change live volumes. Check private configuration
 recovery separately; full restored service login/client validation remains
-required. The new scripts are prepared but unverified until the next server
-session. Existing historical backups use different manifests; do not run this
+required. On 1 October, the new consistent snapshot and isolated restore
+passed: 122 public table counts and eight volume archives matched. This
+evidence does not cover restored service login/access. Existing historical
+backups use different manifests; do not run this
 restore command against them without an explicit conversion/review.
 
 Restore preflight now requires checksums for the database, private configuration

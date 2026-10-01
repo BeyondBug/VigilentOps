@@ -22,7 +22,7 @@ from typing import Optional
 from collections import defaultdict
 
 from llm_response import extract_llm_content
-from fix_validation import parses_ok, preserves_python_interface, validates_security_change
+from fix_validation import parses_ok, preserves_python_interface, validates_security_change, unsafe_contract_change
 from fix_prompts import build_primary_prompt
 from pr_findings import build_finding_comments
 from model_pool import load_model_pool, bounded_integer, RouteCooldowns
@@ -322,6 +322,9 @@ def apply_file_fix(repo_path: str, file_path: str,
         return False
     if file_path.endswith('.py') and not preserves_python_interface(original, fixed_content):
         log.warning('REJECT %s: patch changes an existing Python interface', file_path)
+        return False
+    if file_path.endswith('.py') and unsafe_contract_change(original, fixed_content):
+        log.warning('REJECT %s: input/hash contract migration requires explicit review', file_path)
         return False
     if len(fixed_content.splitlines()) < len(original.splitlines()) * 0.7:
         log.warning(f"REJECT {file_path}: patch removes >30% of lines")

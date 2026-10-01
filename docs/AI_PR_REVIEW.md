@@ -26,3 +26,11 @@ this review sequence.
 On 30 September, PR #18's B107/B310 findings survived the targeted rescan.
 Do not merge that unchanged proposal. Correct or reject it explicitly and
 verify a new real candidate against its head, including real service clients.
+
+On 1 October, the unchanged PR #18 was explicitly rejected and closed without
+merging; its five proposal records were reopened. New sg-bench PR #1 covered
+all 179 scan findings in 11 parts and passed exact-head Jenkins #363, but its
+pickle-to-JSON and plain SHA-256 password changes failed review. That PR was
+also closed, reopening 16 proposal records. This is evidence that a successful
+scan and preserved signatures do not prove a safe fix. See
+[the dated review record](ACCEPTANCE_2026-10-01.md).

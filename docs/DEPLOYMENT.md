@@ -72,6 +72,12 @@ Open the dashboard at `https://<lab-host>:3000/dashboard/` using the private
 gateway login. Browser API requests share that HTTPS origin; their upstream
 services remain on the internal Compose network.
 
+The dashboard uses Vite with Node 24 during its build. It polls the latest
+100 scan summaries, including report receipts and scanner/severity aggregates,
+and requests findings in pages of 50. Its overview counts are finding records
+within that recent scope, not a global count of distinct vulnerabilities.
+Verify the generated `/dashboard/` assets and all tabs after an update.
+
 The optional Gitea Actions runner is disabled by default because it requires a
 registration token and access to the Docker socket. Start it only when needed:
 

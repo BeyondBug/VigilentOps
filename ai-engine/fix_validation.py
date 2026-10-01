@@ -53,7 +53,7 @@ def _bandit_results(content: str) -> list[dict]:
 
 def validates_security_change(original: str, proposed: str, findings: list[dict]) -> tuple[bool, str]:
     """Reject ineffective Bandit fixes and newly introduced medium/high rules."""
-    contract_reason = _unsafe_contract_change(original, proposed)
+    contract_reason = unsafe_contract_change(original, proposed)
     if contract_reason:
         return False, contract_reason
     target_rules = {str(item.get("rule_id") or "") for item in findings
@@ -80,7 +80,7 @@ def validates_security_change(original: str, proposed: str, findings: list[dict]
     return True, "Targeted Bandit rules absent; runtime behavior remains unverified"
 
 
-def _unsafe_contract_change(original: str, proposed: str) -> str | None:
+def unsafe_contract_change(original: str, proposed: str) -> str | None:
     """Conservative checks for two observed unsafe model substitutions.
 
     These are review gates, not a general proof of behavior or cryptography.

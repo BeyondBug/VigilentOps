@@ -94,8 +94,8 @@ Python suite and the controlled `scripts/check_ai_failure_modes.py` fixture on
 Kali as described in [Next server session](NEXT_SERVER_SESSION.md). The fixture
 uses real Celery/Redis scheduling on a unique queue with a local fake provider;
 it checks deferred 429 exhaustion and invalid-output fallback without database
-changes or PR publication. It does not establish real-provider or real-patch
-acceptance. These new checks have not yet run.
+changes or PR publication. The fixture passed on Kali on 1 October. It does
+not establish real-provider or real-patch acceptance.
 
 ## Expanded model pool
 
@@ -105,7 +105,9 @@ skips cooling routes, bounds attempts per file and rejects explicitly truncated,
 filtered, refusal or tool-call responses. Cooldowns are process-local and
 reset on restart; keep the single-worker lab default. Configuration, limitations
 and the Kali-only synthetic compatibility check are in [Model pool](MODEL_POOL.md).
-These changes are prepared, not verified against live NVIDIA models.
+On 1 October three configured routes passed synthetic compatibility checks;
+other routes returned an observed 429 or timeout. See the dated acceptance
+record for the exact models. Compatibility does not prove patch correctness.
 
 ## Interface and source integrity follow-up
 
@@ -119,3 +121,18 @@ These follow-up checks were prepared without running tests on the laptop.
 File resolution also rejects symlinks and `.git` metadata. The final write
 boundary repeats interface checks and uses strict UTF-8, so callers cannot
 bypass the proposal validation through the file writer.
+
+## Observed semantic rejection on 1 October
+
+The real sg-bench PR #1 passed its exact-head scanner run but changed pickle
+input to JSON without a client/data migration and used plain SHA-256 for
+password hashing. It was rejected without merging; its 16 proposed finding
+records were reopened. VigilentOps PR #18 was also rejected, with five proposal
+records reopened, because its unchanged head retained B107/B310 findings.
+
+The candidate and file-write boundaries now reject those two observed
+substitutions. The input-format check recognizes imported aliases; the
+password check recognizes weak-to-fast-digest replacements in functions with
+password-like parameters. These bounded AST checks do not establish general
+semantic equivalence or detect every unsafe cryptographic implementation.
+Hash/input migrations still need explicit client/data review and server checks.

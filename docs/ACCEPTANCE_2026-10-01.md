@@ -134,3 +134,89 @@ The CVE Dockerfile no longer installs unused GCC/libpq development packages
 and requires binary wheels. OSV artifact package/version extraction and
 partial AI proposal handling are prepared with regression checks. These
 latest corrections have not yet passed the server suite or deployment.
+
+## Later results: coverage, dependencies, dashboard and AI review
+
+The changes described as pending above were subsequently built and deployed.
+They remain chronological observations; they do not establish final release
+acceptance.
+
+| Check | Evidence | Result |
+| --- | --- | --- |
+| Service dependency upgrades | AnyIO 4.14.2, refreshed FastAPI/Uvicorn/HTTPX, API Pydantic/instrumentation and Debian runtime upgrades built on Kali; unused CVE GCC/libpq development packages removed | Builds and 92-test suite passed before the dashboard changes |
+| Dashboard build chain | Vite 8.3.1, React plugin 6.1.1, Node 24; lock generated on Kali | Build passed after correcting `theme.jsx`; lock generation reported zero npm audit vulnerabilities |
+| Summary and finding pages | `a9807a7`, summary aggregation and paged `/api/findings` filters | Builds and 94 tests passed; live response embedded zero findings in the scan summary and returned 50 of 104,235 recent-scope finding records |
+| Browser rendering | Kali Chromium/Playwright, isolated temporary NSS trust store importing only the lab CA | All four tabs, next-page navigation, literal search and scan receipt details passed; zero JavaScript errors or failed dashboard requests; TLS verification enabled |
+| Latest AI contract gates | `ab6c0b0`, reject pickle-to-JSON and fast password-digest substitutions, including import aliases | Builds and 96 tests passed; worker recreated with the new code and retained queue |
+| Live negative API checks | Untrusted repository origin/bad SHA/malformed report 422; failed-scan completion/fix and late failure of accepted scan 409 | Existing scan states/findings/receipts remained unchanged |
+| Monitoring after dashboard update | Private `reports/gateway-monitoring-paged.json` | Eight targets up; all 22 provisioned Grafana queries returned nonempty frames without datasource errors |
+
+### Repository coverage
+
+The private audit `reports/coverage-20261001.md` found current default-branch
+head coverage for all 13 repositories. These runs used **two** pipeline
+revisions, not one final release revision.
+
+| Repository | Jenkins build | Scan | Result | Shared pipeline |
+| --- | ---: | ---: | --- | --- |
+| Acdemy | 347 | 269 | complete | `afbda39` |
+| Moondream | 348 | 270 | complete | `afbda39` |
+| Netflix-Hystrix | 349 | 271 | complete | `afbda39` |
+| Netflix-zuul | 350 | 272 | complete | `afbda39` |
+| Portfolio | 351 | 273 | complete | `afbda39` |
+| Range | 352 | 274 | complete | `afbda39` |
+| SIET-Hackathon | 353 | 275 | complete | `afbda39` |
+| SIET-WEBSITE | 354 | 276 | complete | `afbda39` |
+| bagisto | 356 | 278 | complete | `afbda39` |
+| browser-use | 357 | 279 | complete | `afbda39` |
+| VigilentOps | 360 | 282 | complete | `75e6986` |
+| sg-bench | 361 | 283 | complete; AI proposal subsequently rejected | `75e6986` |
+| sietlms-moodle- | 362 | 284 | complete | `75e6986` |
+
+The initial sg-bench run #358 failed on Python indentation; Moodle #359
+failed on malformed/encrypted ZIP fixture processing. Those failures were
+retained. The sg-bench repair `85dffdfb59c2aba2d32d3a5e97555f5278ca8f6c`
+only dedented the invalid top-level Python definitions, preserving source
+values/logic; it does not remediate its security findings. Moodle's exclusion
+matches only `lib/filestorage/tests/fixtures/*.zip` through the scanner's Ant
+pattern. The fresh reruns succeeded without suppressing general scanner
+execution errors.
+
+All current repositories are real projects according to the user; none is
+accepted as an intentionally vulnerable exception. Historical ShadowPatch is
+absent from current Gitea inventory; SIET-Hackathon is present and scanned.
+Shared rules/pipeline remain central in VigilentOps/main.
+
+Scan #282 after initial dependency/image corrections reported **three critical
+and 175 high records**, down from #268's six critical/314 high. The remaining
+critical image records at that point concerned `perl-base`; later Debian/web
+and dashboard changes still require a fresh scan before attributing further
+reductions. Different tools and repeated scan records may overlap.
+
+### Real AI proposal decision
+
+Task `fff5d609-7f89-4594-a341-7f61b2c2cdba` used `openai/gpt-oss-20b` and opened
+sg-bench PR #1 from scan #283. Base:
+`85dffdfb59c2aba2d32d3a5e97555f5278ca8f6c`; head:
+`cbf9695de094d83731514575e8e00d8a8e2eb733`. Its 11 numbered conversation parts
+covered all **179 stored findings exactly once**. Jenkins **#363** scanned the
+exact head in administrator-only review mode and completed SUCCESS without
+queuing another AI task.
+
+The candidate changed `load(blob)` from pickle to JSON without a reviewed
+client/data migration and changed password hashing to plain SHA-256. These
+changes are unsafe despite signature preservation and scanner success.
+PR #1 was **closed without merging**, and its 16 `pr_opened` finding records
+were reset to `open`. The scan returned to `complete`; no finding was marked
+fixed. Private decision evidence: `reports/ai-pr-review-20261001.json`.
+
+VigilentOps PR #18's unchanged head
+`b14bc47ce1c6a81c4682af92f4bd693d48cee1d5` was also closed without merging.
+Its previously reproduced B107/B310 findings remain unresolved; five proposal
+records were reopened. The 50 older conversations were left unchanged.
+
+These outcomes establish a reviewed **rejection**, not an accepted real AI
+fix. New bounded contract gates reduce these observed mistakes; they cannot
+prove general behavior, client compatibility or cryptographic correctness.
+Full finding dispositions, an accepted real fix, restored service access and
+exact final-release coverage/parity remain open in [the checklist](../CHECKLIST.md).

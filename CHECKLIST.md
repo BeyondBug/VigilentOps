@@ -1,190 +1,170 @@
 # Project completion checklist
 
-Status: **code prepared; lab acceptance incomplete**, 1 October 2026.
-This is a self-hosted lab reference implementation. SSH to the server at
-`10.20.29.248` was verified today; its clean checkout is still at `7bcfd0c`.
-Edit/push on the laptop; run all builds, tests and live checks on
-Kali. Follow [Next server session](docs/NEXT_SERVER_SESSION.md).
+Status: **deployed lab; release acceptance incomplete**, 1 October 2026.
+Builds, tests, scanners and browser checks run on Kali at `10.20.29.248`.
+No application or test runs are performed on the laptop. See
+[today's evidence](docs/ACCEPTANCE_2026-10-01.md) and
+[deployment procedure](docs/NEXT_SERVER_SESSION.md).
 
-## Evidence and handoff
+## Current handoff
 
-- The application stack publishes only HTTPS **3000**. Routes: Gitea `/`,
-  findings `/dashboard/`, Jenkins `/jenkins/`, Grafana `/grafana/`, Prometheus
-  `/prometheus/`. Host SSH is separate. Current gateway username: `BeyondBug`.
-  Passwords and private keys stay off Git.
-- Prior gateway acceptance: eight healthy Prometheus targets, all 32 Grafana
-  query results, Live WebSocket, HTTPS Git and end-to-end Jenkins #340/#341.
-  See [30 September evidence](docs/ACCEPTANCE_2026-09-30.md).
-- Last confirmed deployed code: `7bcfd0c` on Kali and Gitea. Compose validation
-  and **33 Python tests passed on Kali at that commit**. The subsequent code
-  changes and expanded tests have not run. Recheck GitHub/Gitea/server parity.
-- Follow-up code review corrected discarded scanner exit codes, malformed scan
-  coordinate handling, AI queuing from incomplete/failed scans, startup metric
-  attribution, database password escaping/log redaction and restore-manifest
-  preflight. These additions are untested;
-  include them in the next server run.
-- Private backups: `~/secureguard-backups/pre-grafana-20260930-115649`,
-  `~/secureguard-backups/pre-proxy-20260930-145430`, and
-  `~/secureguard-backups/gateway-20260930`. Integrity passed; these newer
-  snapshots have not completed a full service recovery rehearsal.
-- Latest known repository failures: Moondream, Netflix-Hystrix, Netflix-zuul,
-  browser-use and sietlms-moodle-. A hook exists for all 13 current Gitea repos;
-  this does not establish current successful coverage. The interrupted rerun
-  may have queued some builds; inspect the server queue before retrying.
-- AI PR #18 covered all 3,742 scan #248 findings in 220 numbered parts, but
-  original Bandit B107/B310 findings survived the targeted rescan. **Do not
-  merge it unchanged.** The user chose complete conversations for future PRs
-  only; leave the 50 older conversations unchanged.
-
-- Latest offline additions: versioned Hadolint/ShellCheck adapters, required
-  report receipts and whole-scan finding integration; a clean target checkout
-  and host bind commit check; dynamic scanner chart and INFO/UNKNOWN filters.
-  These are code preparations only. See [Scanner coverage](docs/SCANNERS.md).
+- HTTPS **3000** is the only published application port. Gitea `/`, findings
+  `/dashboard/`, Jenkins `/jenkins/`, Grafana `/grafana/`, Prometheus
+  `/prometheus/`. Host SSH is separate. Username: `BeyondBug`; credentials
+  and private configuration stay off Git.
+- Native Jenkins authentication, matrix permissions, CSRF and private hooks
+  are deployed. All eight Prometheus targets and 22 provisioned Grafana
+  queries passed. Grafana Live returned 101. Falco now captures real events.
+- All 13 current repositories have successful scans of their default-branch
+  heads in the latest coverage audit. Pipeline revisions are mixed:
+  `afbda39` and `75e6986`. Repeat against the final shared pipeline revision.
+  Every current repository is a real project requiring remediation review;
+  none has been classified as intentionally vulnerable.
+- Jenkins #346 / scan #268 accepted 13 reports with 3,820 finding records.
+  After initial dependency/image changes, #360 / scan #282 reported three
+  critical and 175 high records. Those counts are historical scan records,
+  not a unique vulnerability count or a release disposition.
+- The dashboard now polls summaries and fetches 50 findings per page;
+  browser checks verified all tabs, page navigation and filtered search.
+  The expanded suite passed **96 tests** at `ab6c0b0` on Kali.
+- Private backup `~/secureguard-backups/lab-20261001-091137` passed an isolated
+  restore: 122 table counts and eight volume archives matched. Full restored
+  service login/access remains a separate gate. Older snapshots are retained.
+- AI proposals require manual approval. PR #18 and sg-bench PR #1 were
+  rejected without merging; 21 proposed finding records were reopened.
+  PR #1 passed a head scan but failed input-format/password review.
+  No accepted real AI fix is claimed.
+- The user chose complete finding conversations for future PRs only. Leave
+  the 50 older conversations unchanged; they still require normal review.
 
 ## 1. Scanner execution and trustworthy coverage
 
-- [x] Prepare a central version manifest for nine scanner images and a private
-  server image digest inventory. This is not a compatibility test or immutable
-  pinning of every service image.
-- [x] Finalize accepted reports before enrichment/AI; reject later attempts to
-  mark an accepted scan failed because a downstream workflow failed.
-- [x] Display accepted report receipts and explicit not-applicable coverage in
-  scan details; batch receipt/finding reads for the scan list.
-- [x] Prepare generic API failure responses and notification outcome reporting;
-  omit raw finding descriptions/source from external notifications.
-- [ ] Verify the new versioned images, completion sequence, notification
-  failures and report coverage display on Kali.
-- [x] Add explicit OSV exit-128 `not_applicable` coverage; reject other execution
-  errors and require native output for exit 0/1.
-- [x] Increase bounded Trivy source/image timeouts; fail image scanner errors.
-- [x] Exclude only Moodle's malformed/encrypted ZIP test fixtures from
-  Dependency-Check; retain other source/dependency/archive coverage.
-- [x] Prepare server-side report receipts, required-report completion gates,
-  idempotent identical uploads and rejection of conflicting uploads.
-- [x] Preserve available package, installed/fixed version and image metadata;
-  retain critical severity and advisory IDs from native scanner formats.
-- [x] Record the shared pipeline commit; prepare an audit against each default
-  branch's current head. Retire the obsolete permissive alternate pipeline.
-- [x] Prepare Hadolint and ShellCheck, explicit no-file coverage, bounded
-  isolated scanner execution, quality finding mapping and server-only checks.
-- [x] Clean target checkouts before cloning and verify the Docker host mount
-  contains the exact checked out commit before scanning.
-- [ ] Verify new lint images, SARIF mapping, no-file receipts and cancellation
-  cleanup on Kali; recheck updated Grafana chart and INFO/UNKNOWN UI filters.
-- [ ] Deploy migrations 002/003 and rebuild/restart the changed services on Kali.
-- [ ] Verify malformed/missing reports and failed uploads fail the build/API;
-  optional coverage is explicit; each native report maps correctly.
-- [ ] Verify temporary NVD key cleanup and rejection of untrusted clone URLs.
-- [ ] Rerun the five failed targets successfully with the current pipeline.
-- [ ] Verify fresh scans and delivered push hooks for every intended repository;
-  record branch, target commit, pipeline commit, build ID, scan ID and result.
-- [ ] Reconcile historical ShadowPatch versus current SIET-Hackathon scope.
-  Shared rules come from VigilentOps/main; target-owned Jenkinsfiles need
-  updating only when those repositories must run independently.
+- [x] Select versioned scanner images, pull all 11 selected images on Kali
+  and record private image/digest inventory.
+- [x] Deploy migrations 002/003 for artifact metadata, report receipts and
+  pipeline commit tracking.
+- [x] Finalize accepted reports before enrichment/AI; reject incomplete
+  completion and later attempts to overwrite accepted scans as failed.
+- [x] Validate native reports, identical-upload idempotency and conflicting
+  upload rejection in the server suite. Live malformed report returned 422.
+- [x] Preserve available severity/advisory/package/version/image metadata;
+  OSV artifact metadata extraction has regression coverage.
+- [x] Add Hadolint/ShellCheck and explicit no-file receipts; #346 accepted
+  both reports. OSV unsupported input requires its documented exit 128.
+- [x] Clean target checkouts and verify the Docker host mount's target commit.
+- [x] Restrict clone origins/paths; live untrusted origin and bad SHA returned
+  422. Temporary NVD properties cleanup is implemented before archival.
+- [x] Preserve scanner reports and execution diagnostics in authenticated
+  Jenkins artifacts before workspace cleanup; exclude temporary NVD secrets.
+- [x] Repair Moodle's precise ZIP fixture exclusion and sg-bench's Python
+  indentation error. #361 / scan #283 and #362 / scan #284 completed.
+- [x] Rerun the five previously failed targets successfully; audit all 13
+  default-branch heads. Record the mixed pipeline revisions in evidence.
+- [x] Reconcile scope: ShadowPatch is historical; SIET-Hackathon is a current
+  scanned target. Shared pipeline/rules come from VigilentOps/main.
+- [ ] Audit fresh coverage for all targets against the final shared pipeline
+  commit, recording target SHA, pipeline SHA, build, scan and delivery.
+- [ ] Verify temporary NVD key removal in a fresh live run and an actual
+  rejected-upload Jenkins run; do not infer these from a successful build.
+- [ ] Extend image coverage beyond the first Dockerfile when repositories
+  deploy multiple images; inventory intended artifacts before accepting scope.
 
 ## 2. AI patch quality and failure handling
 
-- [x] Prepare bounded provider retries/deferred Celery work and single-worker
-  defaults, output gates and exact scan-commit checks.
-- [x] Add Python interface preservation and a Bandit before/after gate that
-  ignores suppression comments and rejects remaining target rules or increased
-  medium/high findings. Rejection feeds the next configured model.
-- [x] Tighten Python interface checks to retain parameter optionality,
-  decorators, class bases and annotations, including conditional definitions;
-  skip non-UTF-8 source without lossy rewriting. Server checks remain pending.
-- [x] Use the scanned base branch, restrict repository origins and keep Git
-  tokens in temporary askpass/environment rather than command arguments.
-- [x] Keep findings open if whole-scan conversation publication is incomplete;
-  include report coverage and available artifact metadata in future PRs.
-- [x] Prepare up to 32 explicit model routes, a shared NVIDIA allowlist,
-  process-local cooldowns, per-file route budgets and rejection of truncated,
-  refusal and tool-call responses. Add a Kali-only synthetic pool fixture.
-- [ ] Verify model access/response compatibility, cooldowns and budgets on Kali;
-  record a real accepted PR-head fix before relying on a route's patch quality.
-- [x] Prepare administrator-only PR-head scanning without queuing another AI fix.
-- [x] Prepare a server-only controlled Celery/HTTP retry and fallback fixture.
-- [x] Run the expanded Python suite and controlled failure fixture on Kali:
-  90 tests passed on corrected checkout `9e3dfff`; controlled RETRY/FAILURE,
-  invalid-output rejection and validated fallback passed. Final deployed
-  commit and real PR acceptance still require checks.
-- [ ] Review/correct or explicitly reject PR #18; generate one fresh real PR.
-- [ ] Verify correct repository/base/head and every promised numbered part;
-  review the whole diff and changed interfaces through real clients.
-- [ ] Scan the exact PR head; confirm the original issue disappears and no
-  material regression occurs. Approve or reject explicitly; no automatic merge.
-- [ ] Verify real task diagnostics and finding states after terminal provider
-  failure, malformed output and unsafe/irrelevant proposals.
+- [x] Bound provider retries, cooldowns, route budgets, Celery deferral and
+  single-worker defaults. Worker prefetch is one task per execution slot.
+- [x] Verify controlled RETRY then FAILURE, malformed-output rejection and
+  validated fallback on Kali without real PR/database mutations.
+- [x] Verify synthetic model compatibility for three configured routes;
+  record other routes' observed 429/timeout instead of assuming compatibility.
+- [x] Require exact scan commit, trusted clone origin, private Git askpass,
+  valid UTF-8, safe paths and preservation of public Python interfaces.
+- [x] Compare original/candidate Bandit results with suppression disabled;
+  reject remaining target rules or additional medium/high issues.
+- [x] Preserve validated earlier file proposals when a later file defers;
+  leave deferred findings open and label the PR as partial/unverified.
+- [x] Reject observed pickle-to-JSON migrations and fast password-digest
+  substitutions; regression tests passed. These checks are deliberately
+  bounded and do not prove arbitrary runtime/security correctness.
+- [x] Prepare administrator-only exact PR-head scans without another AI task.
+- [x] Generate a real WIP proposal: sg-bench PR #1 from scan #283, base
+  `85dffdf`, head `cbf9695`; Jenkins #363 scanned that head successfully.
+- [x] Record final review decisions for PR #18 and sg-bench PR #1; keep
+  rejected proposal findings open and retain the review evidence.
+- [x] Verify the new PR #1's 11 numbered parts cover all 179 stored findings
+  exactly once. PR #18's earlier 220-part verification remains recorded.
+- [ ] Review every proposed interface change through relevant clients before
+  accepting a real fix.
+- [ ] Produce one accepted real fix with a reviewed diff, PR-head rescan and
+  client checks. Scanner silence alone is insufficient; never auto-merge.
+- [ ] Review live terminal task diagnostics and finding states after exhausted
+  providers or unsafe proposals. Multi-worker/global quota coordination and
+  duplicate task admission need additional design before scaling.
 
 ## 3. Findings and release decisions
 
-- [x] Prepare private artifact-aware exports and a triage completeness checker.
-- [x] Define dispositions and lab release threshold in
-  [Finding triage](docs/FINDING_TRIAGE.md).
-- [ ] Export a fresh complete scan and manually verify grouping by advisory,
-  package/version/image/path. Historical metadata blanks need manual review.
-- [ ] Resolve or explicitly disposition every critical/high/secret finding;
-  prioritize deployed images and reachable runtime dependencies.
-- [ ] Review the Python SAST findings; apply supported dependency/base-image
-  upgrades, rebuild and rescan before recording a fix.
-- [ ] Record accepted exceptions with impact, mitigation, named owner, evidence
-  and review date. Assign plans/owners to remaining medium/low findings.
-- [ ] Run the completeness checker and review its evidence. A passing CSV
-  check does not establish exploitability or authorize risk acceptance.
+- [x] Export scan #268 privately; provide artifact-aware grouping and a triage
+  completeness checker. Define [release thresholds](docs/FINDING_TRIAGE.md).
+- [x] Apply supported AnyIO/web dependency upgrades, remove unused CVE build
+  packages, refresh Debian runtime packages and replace CRA with Vite/Node 24.
+  Server builds and 96 tests passed; Vite lock generation reported zero npm
+  audit vulnerabilities. A fresh full scan is still required.
+- [ ] Export the final complete scan and review grouping by advisory,
+  package/version/image/path, including historical metadata gaps.
+- [ ] Resolve or explicitly disposition every critical/high/secret finding
+  across intended repositories and deployed images; review reachability.
+- [ ] Review Python SAST findings and rescan any repaired branch before
+  marking a finding fixed.
+- [ ] Record exceptions with impact, mitigation, a real named owner, evidence
+  and review date; assign plans/owners for remaining medium/low findings.
+- [ ] Run the completeness checker. A populated CSV does not authorize risk
+  acceptance or establish exploitability.
 
 ## 4. Access controls and monitoring
 
-- [x] Publish only gateway port 3000; protect public management paths and block
-  public Jenkins trigger requests. Previously verified on Kali.
-- [x] Prepare native Jenkins accounts, administrator/metrics permissions and
-  CSRF; private bootstrap credentials and authenticated Prometheus scraping.
-- [x] Replace the literal trigger token in code with a Jenkins credential;
-  prepare private hook migration and test-delivery tooling.
-- [ ] Back up, deploy Jenkins security, initialize the updated job trigger,
-  then migrate all hooks in the documented order.
-- [ ] Verify native anonymous access denied, metrics privileges limited, admin
-  login/CSRF functional and old webhook token rejected without starting work.
-- [ ] Recheck all Grafana panels, eight targets, WebSocket and HTTPS Git after
-  deployment. Credentials must not appear in logs or public PR comments.
-- [x] Correct the inspected Falco `nodriver` configuration to modern eBPF.
-- [x] Prepare Falco 0.43.0 with its container plugin and remove the invalid
-  `outputs` property; brief Kali initialization diagnostic passed. It captured
-  zero events in that short run, so event/exporter acceptance remains open.
-- [ ] Verify Falco remains running and captures a controlled event through its
-  exporter and Grafana. Startup/capture has not been established; BTF exists
-  on this Kali host, but kernel/permission compatibility needs a live check.
+- [x] Publish only application port 3000; protect public management paths and
+  block public Jenkins triggers. All 16 former application listeners closed.
+- [x] Deploy native Jenkins user realm, matrix permissions and CSRF; anonymous
+  Docker-network API access denied, metrics account cannot administer Jenkins.
+- [x] Migrate all 13 hooks to private credentials; historical token rejected
+  and private dry-run matched exactly one job without queuing work.
+- [x] Verify all eight targets, 22 provisioned Grafana queries, Live WebSocket,
+  authenticated dashboard/API and HTTPS Git after gateway deployment.
+- [x] Deploy Falco 0.43.0/container plugin with modern eBPF; capture a controlled
+  event and verify exporter/Prometheus rule data. Container liveness remains
+  distinct from event capture.
+- [x] Refresh dashboard upstream DNS after container recreation; test summary
+  polling, paged findings, filters and all dashboard tabs in a Kali browser.
+- [ ] Rotate historical credentials with their providers/owners and review old
+  logs/history. Do not publish replacement values or claim unperformed rotations.
 
 ## 5. Backup, recovery and final acceptance
 
-- [x] Prepare private consistent backup automation and a disposable database/
-  volume restore drill with checksum, row-count and content comparison.
-- [ ] Run a new backup and isolated restore drill on Kali; retain older backups
-  and the recorded image IDs. Confirm live services restart after the backup.
-- [ ] Rehearse full restored service access in an isolated stack. Archive
-  comparison alone does not prove Gitea/Jenkins/Grafana recovery.
-- [x] Update deployment, architecture, testing, operations and server handoff
-  documentation to describe the prepared code and pending checks.
-- [ ] Run Compose validation, builds, migrations, the expanded Python suite and
-  health/client checks on the exact final commit.
-- [ ] Complete one real push → Jenkins → reports → database → dashboard run and
-  one reviewed AI PR-head run; record results in a dated acceptance report.
+- [x] Create a private consistent snapshot, retaining exact runtime image IDs.
+- [x] Restore the database and eight volume archives into disposable resources;
+  compare all 122 table counts and archive contents; remove drill resources.
+- [ ] Rehearse full restored Gitea/Jenkins/Grafana access in an isolated stack.
+  Archive comparison alone does not establish application recovery.
+- [ ] Take a final snapshot covering the deployed native access configuration;
+  retain older snapshots and verify writers resume normally.
+- [ ] Run Compose validation, builds, migrations, suite and health/client checks
+  on the exact final release commit.
+- [ ] Complete final push → Jenkins → reports → database → dashboard acceptance
+  and one accepted AI PR-head review; record redacted results.
 - [ ] Confirm exact GitHub/Gitea/Kali commit parity after the final push.
-- [ ] Check every required pending item with evidence before declaring the lab
-  complete.
+- [ ] Update documentation/checklist with final evidence and check every
+  required remaining gate before declaring the lab complete.
 
 ## Additional gates before production exposure
 
-- [ ] Rotate historically exposed Grafana/gateway passwords, NVD/API/webhook
-  credentials as applicable; review access to old logs and Git history.
-- [ ] Review Docker socket access, privileged services, internal-network trust,
-  host firewall and external Wazuh agent access.
-- [ ] Pin and maintain all scanner/container/plugin versions after server
-  compatibility checks; several scanner tags remain mutable.
-- [ ] Assign operational owners, alert routing, response procedures, backup
-  retention/off-host copies and a monitored exception review process.
-- [ ] Replace lab-only TLS/access assumptions with controls appropriate to the
-  intended deployment. Native Jenkins security code still needs live evidence.
+- [ ] Review Docker socket/privileged services, internal-network trust, host
+  firewall and external Wazuh agent access for the intended environment.
+- [ ] Maintain immutable image/plugin versions; current version tags may be
+  mutable. Falco's current exporter needs a replacement transport before 0.44.
+- [ ] Assign real operational owners, alert routes, response procedures, backup
+  retention/off-host copies and an exception review schedule.
+- [ ] Replace lab TLS/access assumptions with deployment-appropriate controls.
 
-**Completion rule:** a green build is insufficient. All required gates need
-server evidence, findings need explicit reviewed decisions, and the final run
-must succeed on the exact release commit. Offline code preparation cannot
-complete those checks.
+**Completion rule:** passing builds and completed scans do not resolve findings.
+The lab needs explicit reviewed dispositions, a validated real fix, recovery
+evidence and a successful acceptance run on the exact release commit.

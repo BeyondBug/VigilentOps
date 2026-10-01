@@ -70,6 +70,11 @@ class RemediationSafetyTests(unittest.TestCase):
         valid, reason = validates_security_change(original, candidate, [])
         self.assertFalse(valid)
         self.assertIn('client/data review', reason)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, 'app.py')
+            path.write_text(original)
+            self.assertFalse(fix_engine.apply_file_fix(directory, 'app.py', candidate))
+            self.assertEqual(path.read_text(), original)
 
     def test_password_fast_digest_substitution_is_rejected_without_blocking_file_checksums(self):
         original = 'from hashlib import md5 as digest\ndef hash_password(pw):\n    return digest(pw.encode()).hexdigest()\n'
