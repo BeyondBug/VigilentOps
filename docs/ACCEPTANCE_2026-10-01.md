@@ -220,3 +220,21 @@ fix. New bounded contract gates reduce these observed mistakes; they cannot
 prove general behavior, client compatibility or cryptographic correctness.
 Full finding dispositions, an accepted real fix, restored service access and
 exact final-release coverage/parity remain open in [the checklist](../CHECKLIST.md).
+
+### Subsequent full scan and container corrections
+
+Jenkins **#364** completed SUCCESS at `ab6c0b0`; scan **#286** completed with
+**285 finding records, zero critical and 54 high**. This verifies the combined
+dependency, Debian and Vite corrections in the current pipeline's scanned
+scope. It does not establish coverage of every deployed image: the image
+stage still builds the first Dockerfile.
+
+The remaining high records included Checkov missing-healthcheck/root-user/
+workflow-permission checks, vendored packaging tools and OS advisories with
+no reported fix. Commit `9b52794` removes unused Docker/curl packages from the
+API/AI image, removes unused setuptools/wheel bootstrap tools after dependency
+installation in the three Python images, defines application image health
+checks, runs dashboard Nginx as its unprivileged user, and limits GitHub
+workflow permissions to contents read. API HTTP image probes are disabled in
+worker services because those processes do not serve the API. These final
+container corrections require their own build/deployment/rescan results.

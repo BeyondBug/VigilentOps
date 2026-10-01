@@ -1,6 +1,8 @@
 # AI model pool
 
-Prepared in code on 30 September; deployment and provider checks remain open.
+Deployed on Kali on 1 October. Three configured routes passed synthetic
+compatibility checks; two other routes returned an observed 429 or timeout.
+See [dated evidence](ACCEPTANCE_2026-10-01.md) for models and limitations.
 The pool improves proposal availability within the existing Python SAST scope.
 It does not promise every finding can be fixed or every proposed patch works.
 

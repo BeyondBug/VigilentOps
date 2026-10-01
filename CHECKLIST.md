@@ -21,8 +21,8 @@ No application or test runs are performed on the laptop. See
   Every current repository is a real project requiring remediation review;
   none has been classified as intentionally vulnerable.
 - Jenkins #346 / scan #268 accepted 13 reports with 3,820 finding records.
-  After initial dependency/image changes, #360 / scan #282 reported three
-  critical and 175 high records. Those counts are historical scan records,
+  The later #364 / scan #286 reported zero critical and 54 high across
+  285 records. Those counts are historical scan records,
   not a unique vulnerability count or a release disposition.
 - The dashboard now polls summaries and fetches 50 findings per page;
   browser checks verified all tabs, page navigation and filtered search.
@@ -109,6 +109,11 @@ No application or test runs are performed on the laptop. See
   packages, refresh Debian runtime packages and replace CRA with Vite/Node 24.
   Server builds and 96 tests passed; Vite lock generation reported zero npm
   audit vulnerabilities. A fresh full scan is still required.
+- [x] Complete #364 / scan #286 after those changes: zero critical, 54 high.
+  This result covers the existing pipeline scope, including one built image.
+- [ ] Verify final container hardening: remove unused runtime/bootstrap tools,
+  image health checks, unprivileged dashboard Nginx and limited workflow
+  permissions. Rebuild, verify clients and inspect fresh scanner results.
 - [ ] Export the final complete scan and review grouping by advisory,
   package/version/image/path, including historical metadata gaps.
 - [ ] Resolve or explicitly disposition every critical/high/secret finding
