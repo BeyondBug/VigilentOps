@@ -142,6 +142,7 @@ def main():
 from urllib.request import Request,urlopen
 from urllib.error import HTTPError,URLError
 checks={}
+readiness={}
 def get(url,headers=None):
  with urlopen(Request(url,headers=headers or {}),timeout=10) as response:return json.load(response)
 def basic(user,password):return {'Authorization':'Basic '+base64.b64encode((user+':'+password).encode()).decode()}
@@ -151,15 +152,20 @@ for attempt in range(90):
   user=get('http://grafana:3000/grafana/api/user',basic(os.environ['RESTORE_GRAFANA_USER'],os.environ['RESTORE_GRAFANA_PASSWORD']))
   dashboards=get('http://grafana:3000/grafana/api/search?type=dash-db',basic(os.environ['RESTORE_GRAFANA_USER'],os.environ['RESTORE_GRAFANA_PASSWORD']))
   jenkins=get('http://jenkins:8080/jenkins/api/json',basic(os.environ['RESTORE_JENKINS_USER'],os.environ['RESTORE_JENKINS_PASSWORD']))
-  assert repos and dashboards and jenkins.get('jobs') and user.get('login')
-  assert jenkins.get('quietingDown') is True and jenkins.get('numExecutors')==0
+  readiness={'repositories':len(repos),'dashboards':len(dashboards),'jobs':len(jenkins.get('jobs',[])),
+             'grafana_login_present':bool(user.get('login')),
+             'quieting_down':jenkins.get('quietingDown'),'executors':jenkins.get('numExecutors')}
+  if not (repos and dashboards and jenkins.get('jobs') and user.get('login')
+          and jenkins.get('quietingDown') is True and jenkins.get('numExecutors')==0):
+   time.sleep(2)
+   continue
   try:get('http://jenkins:8080/jenkins/api/json')
   except HTTPError as error:assert error.code in (401,403)
   else:raise AssertionError('Restored Jenkins permits anonymous API access')
   checks={'gitea_repositories':len(repos),'grafana_dashboards':len(dashboards),'jenkins_jobs':len(jenkins['jobs']),'native_authentication':True,'jenkins_execution_disabled':True}
   break
  except (HTTPError,URLError,TimeoutError):time.sleep(2)
-else:raise RuntimeError('Restored service access did not become ready')
+else:raise RuntimeError('Restored service access did not become ready: '+json.dumps(readiness))
 print(json.dumps(checks))
 '''
             containers.append(prefix + '-client')
