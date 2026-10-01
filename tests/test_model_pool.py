@@ -43,7 +43,7 @@ class ModelPoolTests(unittest.TestCase):
                                                          'finish_reason': 'stop'}]},
                                   request=httpx.Request('POST', OPENROUTER_URL))
         with patch.object(fix_engine.httpx, 'post', return_value=response) as request:
-            self.assertEqual(fix_engine.call_llm('fixture', model, OPENROUTER_URL, 'key'), "print('safe')\n")
+            self.assertEqual(fix_engine.call_llm('fixture', model, OPENROUTER_URL, 'key'), "print('safe')")
         self.assertEqual(request.call_args.kwargs['json']['provider']['max_price'],
                          {'prompt': 0, 'completion': 0, 'request': 0})
         with patch.object(fix_engine.httpx, 'post') as request:
