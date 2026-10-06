@@ -1,9 +1,23 @@
-"""Dynamic Multi-Model Fallback Pool reading from .env"""
+"""Explicit model routes and bounded, process-local cooldowns. No API discovery."""
 
 import hashlib
 import time
 
+MAX_ROUTES = 32
 OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
+# User-approved free variants; catalog presence is not remediation acceptance.
+OPENROUTER_FREE_MODELS = (
+    'google/gemma-4-31b-it:free',
+    'nvidia/nemotron-3-super-120b-a12b:free',
+    'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+    'thinkingmachines/inkling:free',
+    'liquid/lfm-2.5-2.6b:free',
+    'poolside/laguna-s-2.1:free',
+    'nvidia/nemotron-3-ultra-550b-a55b:free',
+    'cohere/north-mini-code:free',
+    'openrouter/free'
+)
 
 def bounded_integer(environment, name, default, minimum, maximum):
     try:
@@ -15,29 +29,14 @@ def bounded_integer(environment, name, default, minimum, maximum):
     return value
 
 def load_model_pool(environment):
-    """Load up to 9 models defined in the .env file as MODEL_1, API_KEY_1, API_URL_1"""
-    models = []
+    """Always use the 9 robust OpenRouter free models, completely ignoring any .env override"""
+    # FORCE the robust 9 models
+    models = list(OPENROUTER_FREE_MODELS)
     
-    for i in range(1, 10):
-        model = environment.get(f'MODEL_{i}', '').strip()
-        key = environment.get(f'API_KEY_{i}', '').strip()
-        url = environment.get(f'API_URL_{i}', '').strip()
-        
-        # Also support the hardcoded OpenRouter key as a fallback if present
-        if not key and url and 'openrouter' in url:
-            key = environment.get('OPENROUTER_API_KEY', '').strip()
-            
-        if model and key and url:
-            models.append({'model': model, 'key': key, 'url': url})
-            
-    if not models:
-        # Emergency fallback if .env isn't loaded correctly
-        key = environment.get('OPENROUTER_API_KEY', '').strip()
-        if key:
-            return [{'model': 'google/gemma-4-31b-it:free', 'key': key, 'url': OPENROUTER_URL}]
-        raise ValueError('No models configured in .env and no OPENROUTER_API_KEY found!')
-        
-    return models
+    key = environment.get('OPENROUTER_API_KEY', '').strip()
+    if not key:
+        return []
+    return [{'model': model, 'key': key, 'url': OPENROUTER_URL} for model in models]
 
 def completion_options(model, api_url):
     return {}
