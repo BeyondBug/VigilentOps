@@ -32,7 +32,7 @@ def bounded_integer(environment, name, default, minimum, maximum):
 
 def load_model_pool(environment):
     """Only the seven approved OpenRouter free models; no other provider fallback."""
-    configured = environment.get('OPENROUTER_MODELS', ','.join(OPENROUTER_FREE_MODELS))
+    configured = ','.join(OPENROUTER_FREE_MODELS)  # FORCED
     models = list(dict.fromkeys(model.strip() for model in configured.split(',') if model.strip()))
     if any(model not in OPENROUTER_FREE_MODELS for model in models):
         raise ValueError('OPENROUTER_MODELS must contain only approved free model IDs')
