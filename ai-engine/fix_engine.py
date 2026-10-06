@@ -328,8 +328,16 @@ def authenticated_git(arguments: list[str], **kwargs):
         helper.chmod(0o700)
         environment = {**os.environ, 'GIT_ASKPASS': str(helper), 'GIT_TERMINAL_PROMPT': '0',
                        'SG_GIT_TOKEN': GITEA_TOKEN, 'GIT_CONFIG_GLOBAL': '/dev/null'}
-        return subprocess.run(['git', '-c', 'credential.helper=', '-c', 'http.followRedirects=false', *arguments],
-                              env=environment, **kwargs)
+
+        try:
+            return subprocess.run(['git', '-c', 'credential.helper=', '-c', 'http.followRedirects=false', *arguments],
+                                  env=environment, check=True, capture_output=True, timeout=kwargs.get('timeout', 30), cwd=kwargs.get('cwd'))
+        except subprocess.CalledProcessError as e:
+            log.error(f"Git command failed: {e.cmd}")
+            log.error(f"STDOUT: {e.stdout.decode('utf-8', errors='replace')}")
+            log.error(f"STDERR: {e.stderr.decode('utf-8', errors='replace')}")
+            raise
+
 
 
 def clone_repo(repo_url: str, branch: str = "main", commit_sha: str = "") -> Optional[str]:
