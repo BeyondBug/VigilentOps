@@ -3,6 +3,17 @@
 import hashlib
 import time
 
+OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
+
+def bounded_integer(environment, name, default, minimum, maximum):
+    try:
+        value = int(environment.get(name, default))
+    except (TypeError, ValueError):
+        raise ValueError(f'{name} must be an integer') from None
+    if not minimum <= value <= maximum:
+        raise ValueError(f'{name} must be between {minimum} and {maximum}')
+    return value
+
 def load_model_pool(environment):
     """Load up to 9 models defined in the .env file as MODEL_1, API_KEY_1, API_URL_1"""
     models = []
@@ -23,7 +34,7 @@ def load_model_pool(environment):
         # Emergency fallback if .env isn't loaded correctly
         key = environment.get('OPENROUTER_API_KEY', '').strip()
         if key:
-            return [{'model': 'google/gemma-4-31b-it:free', 'key': key, 'url': 'https://openrouter.ai/api/v1/chat/completions'}]
+            return [{'model': 'google/gemma-4-31b-it:free', 'key': key, 'url': OPENROUTER_URL}]
         raise ValueError('No models configured in .env and no OPENROUTER_API_KEY found!')
         
     return models
