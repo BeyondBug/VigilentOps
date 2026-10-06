@@ -324,10 +324,10 @@ def authenticated_git(arguments: list[str], **kwargs):
         helper.write_text('#!' + sys.executable + '\n'
                           'import os,sys\n'
                           'prompt = sys.argv[1].lower()\n'
-                          'print("BeyondBug" if "username" in prompt else os.environ["SG_GIT_TOKEN"])\n')
+                          'print("secureguard" if "username" in prompt else os.environ["SG_GIT_TOKEN"])\n')
         helper.chmod(0o700)
         environment = {**os.environ, 'GIT_ASKPASS': str(helper), 'GIT_TERMINAL_PROMPT': '0',
-                       'SG_GIT_TOKEN': 'VR@b3y0nd', 'GIT_CONFIG_GLOBAL': '/dev/null'}
+                       'SG_GIT_TOKEN': GITEA_TOKEN, 'GIT_CONFIG_GLOBAL': '/dev/null'}
         return subprocess.run(['git', '-c', 'credential.helper=', '-c', 'http.followRedirects=false', *arguments],
                               env=environment, **kwargs)
 
