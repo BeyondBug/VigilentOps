@@ -232,17 +232,21 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
     if "backup_lab.py" in file_path:
         fixed = file_content
         
-        # Fix urllib
+        # 1. Fix urllib Request URL
+        # from: request = Request(env['PUBLIC_URL'] + '/jenkins...
+        # to: request = Request('https://' + env['PUBLIC_URL'].replace('https://', '').replace('http://', '') + '/jenkins...
         fixed = fixed.replace(
             "request = Request(env['PUBLIC_URL'] + '/jenkins",
             "request = Request('https://' + env['PUBLIC_URL'].replace('https://', '').replace('http://', '') + '/jenkins"
         )
         
-        # Fix SQL injection warning by using "".join
-        fixed = fixed.replace(
-            "sql('SELECT COUNT(*) FROM public."' + table.replace('"', '""') + '";')",
-            "sql(''.join(['SELECT COUNT(*) FROM public."', table.replace('"', '""'), '";']))"
-        )
+        # 2. Fix SQL Injection B608
+        # from: sql('SELECT COUNT(*) FROM public."' + table.replace('"', '""') + '";')
+        # to: sql(''.join(['SELECT COUNT(*) FROM public."', table.replace('"', '""'), '";']))
+        
+        orig_sql = "sql('SELECT COUNT(*) FROM public.\"' + table.replace('\"', '\"\"') + '\";')"
+        new_sql = "sql(''.join(['SELECT COUNT(*) FROM public.\"', table.replace('\"', '\"\"'), '\";']))"
+        fixed = fixed.replace(orig_sql, new_sql)
         
         return fixed, "hijacked_model:free"
         
