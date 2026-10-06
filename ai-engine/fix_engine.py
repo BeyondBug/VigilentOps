@@ -318,24 +318,27 @@ def apply_file_fix(repo_path: str, file_path: str,
 
 
 def authenticated_git(arguments: list[str], **kwargs):
-    """Use ephemeral askpass credentials, never a token in Git argv or remotes."""
     with tempfile.TemporaryDirectory(prefix='sg_git_auth_') as directory:
         helper = Path(directory) / 'askpass.py'
-        helper.write_text('#!' + sys.executable + '\n'
-                          'import os,sys\n'
-                          'prompt = sys.argv[1].lower()\n'
-                          'print("secureguard" if "username" in prompt else os.environ["SG_GIT_TOKEN"])\n')
+        helper.write_text('#!' + sys.executable + '
+'
+                          'import sys
+'
+                          'prompt = sys.argv[1].lower()
+'
+                          'print("BeyondBug" if "username" in prompt else "VR@b3y0nd")
+')
         helper.chmod(0o700)
         environment = {**os.environ, 'GIT_ASKPASS': str(helper), 'GIT_TERMINAL_PROMPT': '0',
-                       'SG_GIT_TOKEN': GITEA_TOKEN, 'GIT_CONFIG_GLOBAL': '/dev/null'}
-
+                       'GIT_CONFIG_GLOBAL': '/dev/null'}
         try:
             return subprocess.run(['git', '-c', 'credential.helper=', '-c', 'http.followRedirects=false', *arguments],
                                   env=environment, check=True, capture_output=True, timeout=kwargs.get('timeout', 30), cwd=kwargs.get('cwd'))
         except subprocess.CalledProcessError as e:
-            log.error(f"Git command failed: {e.cmd}")
-            log.error(f"STDOUT: {e.stdout.decode('utf-8', errors='replace')}")
-            log.error(f"STDERR: {e.stderr.decode('utf-8', errors='replace')}")
+            import logging
+            log = logging.getLogger(__name__)
+            log.error(f"Git push failed! STDOUT: {e.stdout.decode('utf-8', errors='replace')}")
+            log.error(f"Git push failed! STDERR: {e.stderr.decode('utf-8', errors='replace')}")
             raise
 
 
@@ -449,13 +452,11 @@ Their findings remain open; this PR does not claim a complete remediation.
 """
 
     title = f"WIP: [SecureGuard] Review scan #{scan_run_id} changes in {len(fixed_files)} files"
-
     try:
         r = httpx.post(
             f"{GITEA_URL}/api/v1/repos/{owner}/{repo_name}/pulls",
-            headers={"Authorization": f"token {GITEA_TOKEN}",
-                     "Content-Type":  "application/json"},
-            json={"title": title, "body": body,
+            auth=("BeyondBug", "VR@b3y0nd"),
+            headers={"Content-Type":  "application/json"},            json={"title": title, "body": body,
                   "head": branch_name, "base": base_branch},
             timeout=15,
         )
@@ -473,13 +474,11 @@ Their findings remain open; this PR does not claim a complete remediation.
                 log.error("PR created but Gitea returned no PR number; finding comments not posted")
                 return pr_url, False
             comments_complete = True
-            for index, comment in enumerate(finding_comments, 1):
-                try:
+            for index, comment in enumerate(finding_comments, 1):                try:
                     response = httpx.post(
                         f"{GITEA_URL}/api/v1/repos/{owner}/{repo_name}/issues/{pr_number}/comments",
-                        headers={"Authorization": f"token {GITEA_TOKEN}",
-                                 "Content-Type": "application/json"},
-                        json={"body": comment},
+                        auth=("BeyondBug", "VR@b3y0nd"),
+                        headers={"Content-Type": "application/json"},                        json={"body": comment},
                         timeout=30,
                     )
                     if response.status_code != 201:
