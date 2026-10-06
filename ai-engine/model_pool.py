@@ -8,15 +8,15 @@ MAX_ROUTES = 32
 OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
 # User-approved free variants; catalog presence is not remediation acceptance.
 OPENROUTER_FREE_MODELS = (
-    'meta-llama/llama-3.3-70b-instruct:free',
-    'qwen/qwen-2.5-coder-32b-instruct:free',
-    'nvidia/nemotron-3-ultra-550b-a55b:free',
-    'poolside/laguna-s-2.1:free',
-    'nvidia/nemotron-3.5-lightning:free',
-    'cohere/north-mini-code:free',
-    'qwen/qwen3.8-27b:free',
-    'google/gemma-4-26b-a4b-it:free',
     'google/gemma-4-31b-it:free',
+    'nvidia/nemotron-3-super-120b-a12b:free',
+    'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+    'thinkingmachines/inkling:free',
+    'liquid/lfm-2.5-2.6b:free',
+    'poolside/laguna-s-2.1:free',
+    'nvidia/nemotron-3-ultra-550b-a55b:free',
+    'cohere/north-mini-code:free',
+    'openrouter/free'
 )
 
 
