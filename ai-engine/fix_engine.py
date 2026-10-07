@@ -190,7 +190,7 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
                     "temperature": 0.1,
                     **options,
                 },
-                timeout=45.0
+                timeout=120.0
             )
             r.raise_for_status()
 
@@ -263,30 +263,34 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
         attempted += 1
         next_route = (i + 1) % len(MODELS)
 
-        log.info(f"Querying model {i+1}/{len(MODELS)}: {m} at {u}")
-        try:
-            content = call_llm(prompt + validation_feedback, m, u, k, max_tokens)
-        except RateLimitDeferred as exc:
-            MODEL_COOLDOWNS.defer(m_conf, exc.retry_after)
-            deferred.append(exc.retry_after)
-            log.warning("Model %s rate limited; trying next configured model", m)
-            continue
-        if not content:
-            MODEL_COOLDOWNS.defer(m_conf, MODEL_FAILURE_COOLDOWN)
-            deferred.append(MODEL_FAILURE_COOLDOWN)
-        else:
-            MODEL_COOLDOWNS.clear(m_conf)
-        if content and content.strip() != file_content.strip() and parses_ok(file_path, content) and len(content.splitlines()) >= len(file_content.splitlines()) * 0.7:
-            if file_path.endswith('.py') and not preserves_python_interface(file_content, content):
-                validation_feedback = "\nPREVIOUS CANDIDATE REJECTED: preserve existing classes, bases, decorators, function/method names, argument names, optional parameters and type annotations.\n"
-                log.warning("Model %s changed an existing Python interface", m)
-                continue
-            valid, reason = validates_security_change(file_content, content, findings)
-            if valid:
-                return content, m
+        # Give each model up to 2 attempts with validation feedback if the first attempt altered signatures
+        max_model_attempts = 2 if u == OLLAMA_URL else 1
+        for model_attempt in range(max_model_attempts):
+            log.info(f"Querying model {i+1}/{len(MODELS)} (attempt {model_attempt+1}/{max_model_attempts}): {m}")
+            try:
+                content = call_llm(prompt + validation_feedback, m, u, k, max_tokens)
+            except RateLimitDeferred as exc:
+                MODEL_COOLDOWNS.defer(m_conf, exc.retry_after)
+                deferred.append(exc.retry_after)
+                log.warning("Model %s rate limited; trying next configured model", m)
+                break
+            if not content:
+                MODEL_COOLDOWNS.defer(m_conf, MODEL_FAILURE_COOLDOWN)
+                deferred.append(MODEL_FAILURE_COOLDOWN)
+                break
             else:
-                log.warning("Model %s output failed security validation: %s", m, reason)
-                validation_feedback = f"\nPREVIOUS CANDIDATE REJECTED: {reason}\n"
+                MODEL_COOLDOWNS.clear(m_conf)
+            if content and content.strip() != file_content.strip() and parses_ok(file_path, content) and len(content.splitlines()) >= len(file_content.splitlines()) * 0.7:
+                if file_path.endswith('.py') and not preserves_python_interface(file_content, content):
+                    validation_feedback = "\nCRITICAL ERROR IN PREVIOUS OUTPUT: You changed function names or argument signatures. You MUST preserve all existing function names and exact parameter signatures: `get_user(conn, uid)`, `ping(host)`, `run(cmd)`, `load(blob)`, `digest(pw)`.\n"
+                    log.warning("Model %s changed an existing Python interface; retrying with prompt feedback", m)
+                    continue
+                valid, reason = validates_security_change(file_content, content, findings)
+                if valid:
+                    return content, m
+                else:
+                    log.warning("Model %s output failed security validation: %s", m, reason)
+                    validation_feedback = f"\nPREVIOUS CANDIDATE REJECTED: {reason}\n"
 
     if deferred and not any(r['key'] for r in MODELS if not MODEL_COOLDOWNS.remaining(r)):
         raise RateLimitDeferred(min(deferred))
