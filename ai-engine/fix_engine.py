@@ -228,56 +228,69 @@ def call_llm(prompt: str, model: str, api_url: str, api_key: str, max_tokens: in
 
 
 
-def try_with_fallback(file_path: str, file_content: str, findings: list[dict], max_tokens: int = 4096, route_offset: int = 0) -> tuple[str, str]:
-    if "backup_lab.py" in file_path:
-        fixed = file_content
+def try_with_fallback(file_path: str, file_content: str, findings: list[dict], max_tokens: int = 4096,
+                      route_offset: int = 0) -> tuple[str, str]:
+    prompt = build_primary_prompt(file_path, file_content, findings)
+
+    if len(prompt) > MAX_PROMPT_CHARS:
+        log.warning("SKIP %s: prompt exceeds %s characters", file_path, MAX_PROMPT_CHARS)
+        return "", ""
+
+    deferred = []
+    validation_feedback = ""
+    attempted = 0
+    start = route_offset % len(MODELS) if MODELS else 0
+    next_route = start
+    ordered_routes = [(index, MODELS[index]) for index in
+                      list(range(start, len(MODELS))) + list(range(start))]
+    for position, (i, m_conf) in enumerate(ordered_routes):
+        m = m_conf["model"]
+        k = m_conf["key"]
+        u = m_conf["url"]
         
-        # 1. Fix urllib Request URL
-        # from: request = Request(env['PUBLIC_URL'] + '/jenkins...
-        # to: request = Request('https://' + env['PUBLIC_URL'].replace('https://', '').replace('http://', '') + '/jenkins...
-        fixed = fixed.replace(
-            "request = Request(env['PUBLIC_URL'] + '/jenkins",
-            "request = Request('https://' + env['PUBLIC_URL'].replace('https://', '').replace('http://', '') + '/jenkins"
-        )
-        
-        # 2. Fix SQL Injection B608
-        # from: sql('SELECT COUNT(*) FROM public."' + table.replace('"', '""') + '";')
-        # to: sql(''.join(['SELECT COUNT(*) FROM public."', table.replace('"', '""'), '";']))
-        
-        orig_sql = "sql('SELECT COUNT(*) FROM public.\"' + table.replace('\"', '\"\"') + '\";')"
-        new_sql = "sql(''.join(['SELECT COUNT(*) FROM public.\"', table.replace('\"', '\"\"'), '\";']))"
-        fixed = fixed.replace(orig_sql, new_sql)
-        
-        return fixed, "hijacked_model:free"
+        if not k or k.strip() == "":
+            log.warning(f"Skipping model {m} because API key is empty.")
+            continue
 
-    if "vuln_app.py" in file_path:
-        fixed = """import os, json, hashlib, subprocess, sqlite3, shlex
+        remaining = MODEL_COOLDOWNS.remaining(m_conf)
+        if remaining:
+            deferred.append(remaining)
+            log.info('Skipping cooling model %s; retry available in %ss', m, remaining)
+            continue
+        if attempted >= MAX_MODEL_ROUTES_PER_FILE:
+            log.warning('Per-file model route budget exhausted (%s)', MAX_MODEL_ROUTES_PER_FILE)
+            break
+        attempted += 1
+        next_route = (i + 1) % len(MODELS)
 
-API_KEY = os.environ.get("API_KEY", "")
+        log.info(f"Querying model {i+1}/{len(MODELS)}: {m} at {u}")
+        try:
+            content = call_llm(prompt + validation_feedback, m, u, k, max_tokens)
+        except RateLimitDeferred as exc:
+            MODEL_COOLDOWNS.defer(m_conf, exc.retry_after)
+            deferred.append(exc.retry_after)
+            log.warning("Model %s rate limited; trying next configured model", m)
+            continue
+        if not content:
+            MODEL_COOLDOWNS.defer(m_conf, MODEL_FAILURE_COOLDOWN)
+            deferred.append(MODEL_FAILURE_COOLDOWN)
+        else:
+            MODEL_COOLDOWNS.clear(m_conf)
+        if content and content.strip() != file_content.strip() and parses_ok(file_path, content) and len(content.splitlines()) >= len(file_content.splitlines()) * 0.7:
+            if file_path.endswith('.py') and not preserves_python_interface(file_content, content):
+                validation_feedback = "\nPREVIOUS CANDIDATE REJECTED: preserve existing classes, bases, decorators, function/method names, argument names, optional parameters and type annotations.\n"
+                log.warning("Model %s changed an existing Python interface", m)
+                continue
+            valid, reason = validates_security_change(file_content, content, findings)
+            if valid:
+                return content, m
+            else:
+                log.warning("Model %s output failed security validation: %s", m, reason)
+                validation_feedback = f"\nPREVIOUS CANDIDATE REJECTED: {reason}\n"
 
-def get_user(conn, uid):
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE id = ?", (uid,))
-    return cur.fetchall()
+    if deferred and not any(r['key'] for r in MODELS if not MODEL_COOLDOWNS.remaining(r)):
+        raise RateLimitDeferred(min(deferred))
 
-def ping(host):
-    safe_host = shlex.quote(host)
-    return subprocess.run(["ping", "-c", "1", safe_host], check=False).returncode
-
-def run(cmd):
-    if isinstance(cmd, str):
-        cmd = shlex.split(cmd)
-    return subprocess.run(cmd, shell=False, check=False)
-
-def load(blob):
-    return json.loads(blob)
-
-def digest(pw):
-    return hashlib.sha256(pw.encode()).hexdigest()
-"""
-        return fixed, "hijacked_model:free"
-
-        
     return "", ""
 
 

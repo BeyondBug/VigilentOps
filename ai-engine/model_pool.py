@@ -28,15 +28,24 @@ def bounded_integer(environment, name, default, minimum, maximum):
         raise ValueError(f'{name} must be between {minimum} and {maximum}')
     return value
 
+OLLAMA_URL = 'http://172.18.0.1:11434/v1/chat/completions'
+OLLAMA_MODEL = 'qwen2.5-coder:7b'
+
 def load_model_pool(environment):
-    """Always use the 9 robust OpenRouter free models, completely ignoring any .env override"""
-    # FORCE the robust 9 models
-    models = list(OPENROUTER_FREE_MODELS)
+    """Prioritize local Ollama model (no rate limits or token cuts)."""
+    ollama_url = environment.get('OLLAMA_URL', OLLAMA_URL)
+    ollama_model = environment.get('OLLAMA_MODEL', OLLAMA_MODEL)
     
+    routes = [{
+        'model': ollama_model,
+        'key': 'ollama',
+        'url': ollama_url
+    }]
+
     key = environment.get('OPENROUTER_API_KEY', '').strip()
-    if not key:
-        return []
-    return [{'model': model, 'key': key, 'url': OPENROUTER_URL} for model in models]
+    if key and key != 'your_openrouter_api_key':
+        routes.append({'model': 'qwen/qwen-2.5-coder-32b-instruct:free', 'key': key, 'url': OPENROUTER_URL})
+    return routes
 
 def completion_options(model, api_url):
     return {}
