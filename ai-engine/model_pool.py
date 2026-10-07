@@ -29,18 +29,27 @@ def bounded_integer(environment, name, default, minimum, maximum):
     return value
 
 OLLAMA_URL = 'http://172.18.0.1:11434/v1/chat/completions'
-OLLAMA_MODEL = 'qwen2.5-coder:7b'
+OLLAMA_PRIMARY_MODEL = 'deepseek-coder:6.7b'
+OLLAMA_FALLBACK_MODEL = 'qwen2.5-coder:7b'
 
 def load_model_pool(environment):
-    """Prioritize local Ollama model (no rate limits or token cuts)."""
+    """Ensemble of fine-tuned local models: DeepSeek Coder 6.7b -> Qwen 2.5 Coder 7b."""
     ollama_url = environment.get('OLLAMA_URL', OLLAMA_URL)
-    ollama_model = environment.get('OLLAMA_MODEL', OLLAMA_MODEL)
+    primary = environment.get('OLLAMA_MODEL', OLLAMA_PRIMARY_MODEL)
+    fallback = OLLAMA_FALLBACK_MODEL if primary != OLLAMA_FALLBACK_MODEL else OLLAMA_PRIMARY_MODEL
     
-    routes = [{
-        'model': ollama_model,
-        'key': 'ollama',
-        'url': ollama_url
-    }]
+    routes = [
+        {
+            'model': primary,
+            'key': 'ollama',
+            'url': ollama_url
+        },
+        {
+            'model': fallback,
+            'key': 'ollama',
+            'url': ollama_url
+        }
+    ]
 
     key = environment.get('OPENROUTER_API_KEY', '').strip()
     if key and key != 'your_openrouter_api_key':
