@@ -25,7 +25,7 @@ from llm_response import extract_llm_content, LLMProviderError
 from fix_validation import parses_ok, preserves_python_interface, validates_security_change, unsafe_contract_change
 from fix_prompts import build_primary_prompt
 from pr_findings import build_finding_comments
-from model_pool import load_model_pool, bounded_integer, RouteCooldowns, completion_options, OPENROUTER_URL
+from model_pool import load_model_pool, bounded_integer, RouteCooldowns, completion_options, OPENROUTER_URL, OLLAMA_URL
 from repo_security import canonical_repo_url
 
 import httpx
