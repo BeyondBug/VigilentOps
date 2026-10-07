@@ -26,12 +26,11 @@ OUTPUT RULES:
 - Preserve parameter optionality, type annotations, class bases and decorators.
 - Change a default value only when needed for the reported security issue.
 - Do not invent credentials, APIs, dependencies, or environment variables.
-- Do not replace pickle input with JSON without a reviewed client/data migration.
-- Do not replace password hashing with a fast digest such as SHA-256. A password
-  KDF and existing-hash migration require a reviewed storage/login contract.
+- CRITICAL: Never replace `pickle` with `json` or any other format; keep the original `pickle.loads` calls unchanged if unsure.
+- CRITICAL: Never replace password hashing (`md5`/`sha1`) with fast digests like `sha256`. Keep the existing hashing logic intact.
 - Removing shell=True is insufficient if untrusted arguments can become program
   options; validate inputs and preserve the supported command/output behavior.
-- If a safe fix is uncertain, return the unchanged file so the reviewer can handle it.
+- If a safe fix is uncertain for a specific function, leave that function unchanged so the reviewer can handle it.
 - Return only the complete Python file in a single ```python code block."""
 
 def build_secondary_prompt(file_path: str, file_content: str, findings: list[dict]) -> str:

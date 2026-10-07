@@ -290,7 +290,20 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
                     return content, m
                 else:
                     log.warning("Model %s output failed security validation: %s", m, reason)
-                    validation_feedback = f"\nPREVIOUS CANDIDATE REJECTED: {reason}\n"
+                    if "Pickle-to-JSON" in reason:
+                        validation_feedback = (
+                            "\nCRITICAL FIX REQUIREMENT: DO NOT replace `pickle.loads` or `pickle.load` with `json`. "
+                            "Preserve `pickle` or keep that specific function intact if unsafe migration cannot be avoided. "
+                            "Do not change deserialization formats without a client migration.\n"
+                        )
+                    elif "Fast digest" in reason:
+                        validation_feedback = (
+                            "\nCRITICAL FIX REQUIREMENT: DO NOT replace MD5/SHA1 password hashing with SHA-256. "
+                            "Preserve the existing function or use a proper password KDF.\n"
+                        )
+                    else:
+                        validation_feedback = f"\nPREVIOUS CANDIDATE REJECTED: {reason}\n"
+                    continue
 
     if deferred and not any(r['key'] for r in MODELS if not MODEL_COOLDOWNS.remaining(r)):
         raise RateLimitDeferred(min(deferred))
