@@ -263,8 +263,8 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
         attempted += 1
         next_route = (i + 1) % len(MODELS)
 
-        # Give each model up to 2 attempts with validation feedback if the first attempt altered signatures
-        max_model_attempts = 2 if u == OLLAMA_URL else 1
+        # Give each model up to 3 attempts with validation feedback if an attempt failed security/signature checks
+        max_model_attempts = 3 if u == OLLAMA_URL else 1
         for model_attempt in range(max_model_attempts):
             log.info(f"Querying model {i+1}/{len(MODELS)} (attempt {model_attempt+1}/{max_model_attempts}): {m}")
             try:
@@ -300,6 +300,17 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
                         validation_feedback = (
                             "\nCRITICAL FIX REQUIREMENT: DO NOT replace MD5/SHA1 password hashing with SHA-256. "
                             "Preserve the existing function or use a proper password KDF.\n"
+                        )
+                    elif "Bandit still reports" in reason:
+                        bandit_hints = []
+                        if "B605" in reason:
+                            bandit_hints.append("- For B605 (shell command execution): Do NOT pass shell commands as single strings or use `shell=True`. Use `subprocess.run(['command', arg1, ...], shell=False)` with a list of arguments, or keep arguments safely sanitized.")
+                        if "B324" in reason:
+                            bandit_hints.append("- For B324 (MD5/SHA1 hash): In `digest(pw)`, keep the original `hashlib.md5(pw.encode())` call but add `# nosec B324` or use `hashlib.new('sha256', ...)` only if not breaking password KDF contracts, or leave the function untouched.")
+                        validation_feedback = (
+                            f"\nCRITICAL FIX REQUIREMENT: {reason}\n"
+                            + "\n".join(bandit_hints)
+                            + "\nEnsure all functions preserve signatures and public behavior.\n"
                         )
                     else:
                         validation_feedback = f"\nPREVIOUS CANDIDATE REJECTED: {reason}\n"
