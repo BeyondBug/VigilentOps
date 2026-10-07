@@ -242,7 +242,7 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
     start = route_offset % len(MODELS) if MODELS else 0
     next_route = start
     ordered_routes = [(index, MODELS[index]) for index in
-                      list(range(start, len(MODELS))) + list(range(start))]
+                      (list(range(start, len(MODELS))) + list(range(0, start)))]
     for position, (i, m_conf) in enumerate(ordered_routes):
         m = m_conf["model"]
         k = m_conf["key"]
