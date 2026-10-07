@@ -49,8 +49,15 @@ class LLMProviderError(ValueError):
 
 
 def unfence(text: str) -> str:
-    match = FENCE_RE.match(text.strip())
-    return match.group(1) if match else text.strip()
+    cleaned = text.strip()
+    match = FENCE_RE.match(cleaned)
+    if match:
+        return match.group(1).strip()
+    # If the model included conversational text before/after the fence:
+    embedded_match = re.search(r"```[a-zA-Z0-9_+.\-]*\s*\n(.*?)\n\s*```", cleaned, re.DOTALL)
+    if embedded_match:
+        return embedded_match.group(1).strip()
+    return cleaned
 
 
 def extract_llm_content(data) -> str:
