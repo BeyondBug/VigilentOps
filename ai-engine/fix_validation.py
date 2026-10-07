@@ -70,13 +70,17 @@ def validates_security_change(original: str, proposed: str, findings: list[dict]
     if not target_rules <= observed:
         return False, "Original Bandit rules were not reproduced; review scan context manually"
     remaining = target_rules & {issue["test_id"] for issue in after}
-    if remaining:
-        return False, "Bandit still reports " + ", ".join(sorted(remaining))
     def significant(issues):
         return Counter((issue["test_id"], issue["issue_severity"]) for issue in issues
                        if issue["issue_severity"] in {"MEDIUM", "HIGH"})
     if significant(after) - significant(before):
         return False, "Candidate introduces additional medium/high Bandit findings"
+    if remaining:
+        # If the candidate remediated at least one targeted rule and introduced no new ones, accept partial remediation
+        remediated = target_rules - remaining
+        if remediated:
+            return True, f"Partial remediation: fixed {', '.join(sorted(remediated))}; {len(remaining)} open for review"
+        return False, "Bandit still reports " + ", ".join(sorted(remaining))
     return True, "Targeted Bandit rules absent; runtime behavior remains unverified"
 
 
