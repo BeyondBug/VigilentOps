@@ -2,6 +2,7 @@
 
 import hashlib
 import time
+from urllib.parse import urlsplit
 
 MAX_ROUTES = 32
 OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions'
@@ -33,30 +34,41 @@ OLLAMA_PRIMARY_MODEL = 'deepseek-coder:6.7b'
 OLLAMA_FALLBACK_MODEL = 'qwen2.5-coder:7b'
 
 def load_model_pool(environment):
-    """Ensemble of fine-tuned local models: DeepSeek Coder 6.7b -> Qwen 2.5 Coder 7b."""
-    ollama_url = environment.get('OLLAMA_URL', OLLAMA_URL)
-    primary = environment.get('OLLAMA_MODEL', OLLAMA_PRIMARY_MODEL)
-    fallback = OLLAMA_FALLBACK_MODEL if primary != OLLAMA_FALLBACK_MODEL else OLLAMA_PRIMARY_MODEL
-    
-    routes = [
-        {
-            'model': primary,
-            'key': 'ollama',
-            'url': ollama_url
-        },
-        {
-            'model': fallback,
-            'key': 'ollama',
-            'url': ollama_url
-        }
-    ]
-
+    """Local inference is opt-in; legacy cloud configuration stays supported."""
     key = environment.get('OPENROUTER_API_KEY', '').strip()
-    if key and key != 'your_openrouter_api_key':
-        routes.append({'model': 'qwen/qwen-2.5-coder-32b-instruct:free', 'key': key, 'url': OPENROUTER_URL})
+    if key == 'your_openrouter_api_key':
+        key = ''
+    mode = environment.get('AI_MODE', 'openrouter' if key else 'off').strip().lower()
+    if mode not in {'off', 'openrouter', 'local', 'hybrid'}:
+        raise ValueError('AI_MODE must be off, openrouter, local or hybrid')
+    routes = []
+    if mode in {'local', 'hybrid'}:
+        url = environment.get('OLLAMA_URL', OLLAMA_URL).strip()
+        parsed = urlsplit(url)
+        if (parsed.scheme not in {'http', 'https'} or not parsed.hostname
+                or parsed.username or parsed.password or parsed.query or parsed.fragment
+                or parsed.path != '/v1/chat/completions'):
+            raise ValueError('OLLAMA_URL must be an HTTP(S) chat-completions endpoint without credentials')
+        primary = environment.get('OLLAMA_MODEL', OLLAMA_PRIMARY_MODEL).strip()
+        fallback = environment.get('OLLAMA_FALLBACK_MODEL', OLLAMA_FALLBACK_MODEL).strip()
+        for model in dict.fromkeys([primary, fallback]):
+            if model:
+                routes.append({'model': model, 'key': 'ollama', 'url': url})
+        if not routes:
+            raise ValueError('Local AI mode requires a model')
+    if mode in {'openrouter', 'hybrid'} and key:
+        models = environment.get('OPENROUTER_MODELS', ','.join(OPENROUTER_FREE_MODELS))
+        selected = list(dict.fromkeys(model.strip() for model in models.split(',') if model.strip()))
+        if any(model not in OPENROUTER_FREE_MODELS for model in selected):
+            raise ValueError('OPENROUTER_MODELS contains an unapproved free model')
+        routes.extend({'model': model, 'key': key, 'url': OPENROUTER_URL} for model in selected)
     return routes
 
 def completion_options(model, api_url):
+    if api_url == OPENROUTER_URL:
+        if model not in OPENROUTER_FREE_MODELS:
+            raise ValueError('Only approved free OpenRouter models are permitted')
+        return {'provider': {'max_price': {'prompt': 0, 'completion': 0, 'request': 0}}}
     return {}
 
 def route_identity(route):

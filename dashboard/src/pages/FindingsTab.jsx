@@ -8,9 +8,11 @@ export default function FindingsTab({ scans }) {
   const [sevFilter, setSevFilter] = useState("ALL");
   const [toolFilter, setToolFilter] = useState("ALL");
   const [search, setSearch] = useState("");
+  const [reviewFilter, setReviewFilter] = useState("ALL");
   const [page, setPage] = useState(0);
   const result = useFindings({ page, severity: sevFilter === "ALL" ? "" : sevFilter,
-    scanner: toolFilter === "ALL" ? "" : toolFilter, search, revision: scans });
+    scanner: toolFilter === "ALL" ? "" : toolFilter, search,
+    reviewStatus: reviewFilter === "ALL" ? "" : reviewFilter, revision: scans });
   useEffect(() => {
     if (!result.loading && !result.error && page > 0 && page * 50 >= result.total) setPage(0);
   }, [result.loading, result.error, result.total, page]);
@@ -40,6 +42,11 @@ export default function FindingsTab({ scans }) {
         />
         <FilterGroup label="Severity" options={sevs} value={sevFilter} onChange={changeFilter(setSevFilter)} colorMap={SEV_COLOR} />
         <FilterGroup label="Scanner"  options={tools} value={toolFilter} onChange={changeFilter(setToolFilter)} />
+        <label style={{ fontSize: 11, color: T.textDim }}>Review <select aria-label="Review status"
+          value={reviewFilter} onChange={e => changeFilter(setReviewFilter)(e.target.value)}>
+          {["ALL", "unverified", "confirmed", "false_positive", "accepted_risk", "fixed"].map(status =>
+            <option key={status} value={status}>{status.replaceAll("_", " ")}</option>)}
+        </select></label>
       </div>
 
       {/* Count */}

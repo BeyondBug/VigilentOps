@@ -76,10 +76,6 @@ def validates_security_change(original: str, proposed: str, findings: list[dict]
     if significant(after) - significant(before):
         return False, "Candidate introduces additional medium/high Bandit findings"
     if remaining:
-        # If the candidate remediated at least one targeted rule and introduced no new ones, accept partial remediation
-        remediated = target_rules - remaining
-        if remediated:
-            return True, f"Partial remediation: fixed {', '.join(sorted(remediated))}; {len(remaining)} open for review"
         return False, "Bandit still reports " + ", ".join(sorted(remaining))
     return True, "Targeted Bandit rules absent; runtime behavior remains unverified"
 
@@ -112,7 +108,15 @@ def unsafe_contract_change(original: str, proposed: str) -> str | None:
                 if isinstance(node, ast.ClassDef):
                     collect(node.body, prefix + node.name + '.')
                 elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    calls = {name(item.func) for item in ast.walk(node) if isinstance(item, ast.Call)}
+                    calls = set()
+                    for item in ast.walk(node):
+                        if not isinstance(item, ast.Call):
+                            continue
+                        called = name(item.func)
+                        if (called == 'hashlib.new' and item.args and isinstance(item.args[0], ast.Constant)
+                                and isinstance(item.args[0].value, str)):
+                            called = 'hashlib.' + item.args[0].value.lower()
+                        calls.add(called)
                     parameters = {item.arg.lower() for item in [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]}
                     found[prefix + node.name] = (calls, parameters)
                 else:
@@ -130,6 +134,8 @@ def unsafe_contract_change(original: str, proposed: str) -> str | None:
                 return 'Pickle-to-JSON input migration requires explicit client/data review'
         password_input = parameters & {'pw', 'password', 'passwd', 'passphrase'}
         if password_input and calls & {'hashlib.md5', 'hashlib.sha1'}:
+            if original != proposed and replacement & {'hashlib.md5', 'hashlib.sha1'}:
+                return 'Weak password digest remains; a password KDF migration requires explicit review'
             if replacement & {'hashlib.sha224', 'hashlib.sha256', 'hashlib.sha384', 'hashlib.sha512'}:
                 return 'Fast digest is not a password KDF; hash migration requires explicit review'
     return None

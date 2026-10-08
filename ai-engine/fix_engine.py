@@ -73,6 +73,7 @@ def get_all_findings(scan_run_id: int) -> list[dict]:
                 WHERE f.scan_run_id = %s
                   AND f.severity IN ('CRITICAL','HIGH','MEDIUM')
                   AND f.fix_status = 'open'
+                  AND f.review_status IN ('unverified', 'confirmed')
                   AND f.finding_class = 'sast'
                   AND f.file_path IS NOT NULL
                   AND right(lower(f.file_path), 3) = '.py'
@@ -270,6 +271,11 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
             try:
                 content = call_llm(prompt + validation_feedback, m, u, k, max_tokens)
             except RateLimitDeferred as exc:
+                if exc.shared_quota:
+                    for route in MODELS:
+                        if route['url'] == u and route['key'] == k:
+                            MODEL_COOLDOWNS.defer(route, exc.retry_after)
+                    raise RateLimitDeferred(exc.retry_after, shared_quota=True, route_offset=next_route) from exc
                 MODEL_COOLDOWNS.defer(m_conf, exc.retry_after)
                 deferred.append(exc.retry_after)
                 log.warning("Model %s rate limited; trying next configured model", m)
@@ -299,14 +305,14 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
                     elif "Fast digest" in reason:
                         validation_feedback = (
                             "\nCRITICAL FIX REQUIREMENT: DO NOT replace MD5/SHA1 password hashing with SHA-256. "
-                            "Preserve the existing function or use a proper password KDF.\n"
+                            "A proper password KDF needs a reviewed stored-data migration; do not merely silence the scanner.\n"
                         )
                     elif "Bandit still reports" in reason:
                         bandit_hints = []
                         if "B605" in reason:
                             bandit_hints.append("- For B605 (shell command execution): Do NOT pass shell commands as single strings or use `shell=True`. Use `subprocess.run(['command', arg1, ...], shell=False)` with a list of arguments, or keep arguments safely sanitized.")
                         if "B324" in reason:
-                            bandit_hints.append("- For B324 (MD5/SHA1 hash): In `digest(pw)`, keep the original `hashlib.md5(pw.encode())` call but add `# nosec B324` or use `hashlib.new('sha256', ...)` only if not breaking password KDF contracts, or leave the function untouched.")
+                            bandit_hints.append("- B324 password hashing requires a reviewed password KDF migration; never use suppression or usedforsecurity=False.")
                         validation_feedback = (
                             f"\nCRITICAL FIX REQUIREMENT: {reason}\n"
                             + "\n".join(bandit_hints)
@@ -316,8 +322,8 @@ def try_with_fallback(file_path: str, file_content: str, findings: list[dict], m
                         validation_feedback = f"\nPREVIOUS CANDIDATE REJECTED: {reason}\n"
                     continue
 
-    if deferred and not any(r['key'] for r in MODELS if not MODEL_COOLDOWNS.remaining(r)):
-        raise RateLimitDeferred(min(deferred))
+    if deferred:
+        raise RateLimitDeferred(min(deferred), route_offset=next_route)
 
     return "", ""
 
@@ -369,7 +375,7 @@ def apply_file_fix(repo_path: str, file_path: str,
     if file_path.endswith('.py') and not preserves_python_interface(original, fixed_content):
         log.warning('REJECT %s: patch changes an existing Python interface', file_path)
         return False
-    if file_path.endswith('.py') and unsafe_contract_change(original, fixed_content) and "vuln_app.py" not in file_path:
+    if file_path.endswith('.py') and unsafe_contract_change(original, fixed_content):
         log.warning('REJECT %s: input/hash contract migration requires explicit review', file_path)
         return False
     if len(fixed_content.splitlines()) < len(original.splitlines()) * 0.7:
@@ -391,12 +397,13 @@ def authenticated_git(arguments: list[str], **kwargs):
     with tempfile.TemporaryDirectory(prefix='sg_git_auth_') as directory:
         helper = Path(directory) / 'askpass.py'
         helper.write_text('#!' + sys.executable + '\n'
-                          'import sys\n'
+                          'import os, sys\n'
                           'prompt = sys.argv[1].lower()\n'
-                          'print("BeyondBug" if "username" in prompt else "VR@b3y0nd")\n')
+                          'print(os.environ["SG_GIT_USERNAME"] if "username" in prompt else os.environ["SG_GIT_TOKEN"])\n')
         helper.chmod(0o700)
         environment = {**os.environ, 'GIT_ASKPASS': str(helper), 'GIT_TERMINAL_PROMPT': '0',
-                       'GIT_CONFIG_GLOBAL': '/dev/null'}
+                       'GIT_CONFIG_GLOBAL': '/dev/null', 'SG_GIT_TOKEN': GITEA_TOKEN,
+                       'SG_GIT_USERNAME': os.getenv('GITEA_GIT_USERNAME', 'oauth2')}
         return subprocess.run(['git', '-c', 'credential.helper=', '-c', 'http.followRedirects=false', *arguments],
                               env=environment, **kwargs)
 
@@ -514,8 +521,7 @@ Their findings remain open; this PR does not claim a complete remediation.
     try:
         r = httpx.post(
             f"{GITEA_URL}/api/v1/repos/{owner}/{repo_name}/pulls",
-            auth=("BeyondBug", "VR@b3y0nd"),
-            headers={"Content-Type":  "application/json"},
+            headers={"Authorization": "token " + GITEA_TOKEN, "Content-Type": "application/json"},
             json={"title": title, "body": body,
                   "head": branch_name, "base": base_branch},
             timeout=15,
@@ -538,8 +544,7 @@ Their findings remain open; this PR does not claim a complete remediation.
                 try:
                     response = httpx.post(
                         f"{GITEA_URL}/api/v1/repos/{owner}/{repo_name}/issues/{pr_number}/comments",
-                        auth=("BeyondBug", "VR@b3y0nd"),
-                        headers={"Content-Type": "application/json"},
+                        headers={"Authorization": "token " + GITEA_TOKEN, "Content-Type": "application/json"},
                         json={"body": comment},
                         timeout=30,
                     )

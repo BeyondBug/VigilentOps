@@ -64,23 +64,23 @@ def extract_llm_content(data) -> str:
     """Extract text from object or one-element-array chat responses."""
     if isinstance(data, list):
         if not data:
-            print(f"DEBUG: empty response {data}"); raise ValueError("LLM returned an empty response")
+            raise ValueError("LLM returned an empty response")
         data = data[0]
     if not isinstance(data, dict):
-        print(f"DEBUG: invalid response type {data}"); raise ValueError("LLM returned an invalid response type")
+        raise ValueError("LLM returned an invalid response type")
     if 'error' in data and data['error'] is not None:
         raise LLMProviderError(data['error'])
     choices = data.get("choices") or []
     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-        print(f"DEBUG: no choices {data}"); raise ValueError("LLM returned no choices")
+        raise ValueError("LLM returned no choices")
     if 'error' in choices[0] and choices[0]['error'] is not None:
         raise LLMProviderError(choices[0]['error'])
-    if choices[0].get('finish_reason') not in (None, 'stop', 'eos', 'end_turn', 'length'):
-        raise ValueError(f"LLM response was truncated or invalid: {choices[0].get('finish_reason')}")
+    if choices[0].get('finish_reason') not in (None, 'stop', 'eos', 'end_turn'):
+        raise ValueError("LLM response was truncated or invalid")
     message = choices[0].get('message')
     if not isinstance(message, dict) or message.get('refusal') or message.get('tool_calls'):
-        print(f"DEBUG: refusal {data}"); raise ValueError('LLM returned a refusal or unsupported tool request')
+        raise ValueError('LLM returned a refusal or unsupported tool request')
     content = message.get("content")
     if not isinstance(content, str) or not content.strip():
-        print(f"DEBUG: no text content {data}"); raise ValueError("LLM returned no text content")
+        raise ValueError("LLM returned no text content")
     return unfence(content)

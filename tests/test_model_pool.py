@@ -90,8 +90,8 @@ class ModelPoolTests(unittest.TestCase):
             with self.assertRaises(fix_engine.RateLimitDeferred) as second:
                 fix_engine.try_with_fallback('app.py', 'pass\n', [], route_offset=first.exception.route_offset)
             self.assertEqual([args.args[1] for args in call.call_args_list],
-                             list(OPENROUTER_FREE_MODELS[4:]) + [OPENROUTER_FREE_MODELS[0]])
-            self.assertEqual(second.exception.route_offset, 1)
+                             list(OPENROUTER_FREE_MODELS[4:8]))
+            self.assertEqual(second.exception.route_offset, 8 % len(routes))
 
     def test_deferral_serialization_preserves_delay_quota_and_fallback_position(self):
         error = pickle.loads(pickle.dumps(fix_engine.RateLimitDeferred(120, True, 4)))
@@ -186,3 +186,18 @@ class ModelPoolTests(unittest.TestCase):
     def test_nonfinite_retry_after_values_use_bounded_backoff(self):
         for value in ('nan', 'inf', '-inf'):
             self.assertTrue(1 <= fix_engine._retry_delay(value, 0) <= 3600)
+
+
+class ExplicitAIModeTests(unittest.TestCase):
+    def test_off_mode_makes_no_routes_even_with_a_key(self):
+        self.assertEqual(load_model_pool({'AI_MODE': 'off', 'OPENROUTER_API_KEY': 'fixture'}), [])
+
+    def test_local_is_explicit_and_hybrid_preserves_route_order(self):
+        config = {'AI_MODE': 'local', 'OLLAMA_URL': 'http://localhost:11434/v1/chat/completions',
+                  'OLLAMA_MODEL': 'fixture-local', 'OLLAMA_FALLBACK_MODEL': 'fixture-local'}
+        self.assertEqual([route['model'] for route in load_model_pool(config)], ['fixture-local'])
+        config.update(AI_MODE='hybrid', OPENROUTER_API_KEY='fixture', OPENROUTER_MODELS=OPENROUTER_FREE_MODELS[0])
+        self.assertEqual([route['model'] for route in load_model_pool(config)], ['fixture-local', OPENROUTER_FREE_MODELS[0]])
+        for url in ('file:///tmp/key', 'http://user:secret@localhost/v1/chat/completions', 'http://localhost/v1/chat/completions?token=secret'):
+            with self.assertRaises(ValueError):
+                load_model_pool({**config, 'OLLAMA_URL': url})

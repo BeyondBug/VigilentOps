@@ -67,3 +67,14 @@ class LLMResponseTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResponsePrivacyRegressionTests(unittest.TestCase):
+    def test_successful_provider_text_is_not_printed(self):
+        from contextlib import redirect_stdout, redirect_stderr
+        from io import StringIO
+        output = StringIO()
+        secret = 'private-repository-source-marker'
+        with redirect_stdout(output), redirect_stderr(output):
+            self.assertEqual(extract_llm_content({'choices': [{'finish_reason': 'stop', 'message': {'content': secret}}]}), secret)
+        self.assertNotIn(secret, output.getvalue())

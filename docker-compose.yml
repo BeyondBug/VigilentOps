@@ -1,3 +1,10 @@
+# Bound per-container log growth on long-running lab deployments.
+x-logging: &bounded-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 networks:
   sg-net:
     driver: bridge
@@ -21,6 +28,7 @@ services:
 
   # The only published application port. Optional upstreams resolve at runtime.
   gateway:
+    logging: *bounded-logging
     image: nginx:1.30.5-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
     container_name: sg-gateway
     ports:
@@ -48,6 +56,7 @@ services:
 
   # ── Gitea (self-hosted Git) ──────────────────────────────
   gitea:
+    logging: *bounded-logging
     image: gitea/gitea:1.27.3
     container_name: sg-gitea
     environment:
@@ -71,6 +80,7 @@ services:
     restart: unless-stopped
 
   gitea-runner:
+    logging: *bounded-logging
     image: gitea/act_runner:0.6.1
     container_name: gitea-runner
     environment:
@@ -91,6 +101,7 @@ services:
 
   # ── PostgreSQL ───────────────────────────────────────────
   postgres:
+    logging: *bounded-logging
     image: postgres:15-alpine
     container_name: sg-postgres
     environment:
@@ -110,6 +121,7 @@ services:
 
   # ── Redis (job queue) ────────────────────────────────────
   redis:
+    logging: *bounded-logging
     image: redis:7-alpine
     container_name: sg-redis
     volumes:
@@ -124,6 +136,7 @@ services:
     restart: unless-stopped
 
   migrate:
+    logging: *bounded-logging
     build: ./ai-engine
     env_file: ${ENV_FILE:-.env}
     command: python migrate.py
@@ -136,6 +149,7 @@ services:
 
   # ── FastAPI orchestrator ─────────────────────────────────
   orchestrator:
+    logging: *bounded-logging
     build: ./ai-engine
     container_name: sg-orchestrator
     env_file: ${ENV_FILE:-.env}
@@ -161,6 +175,7 @@ services:
 
   # ── Celery worker ────────────────────────────────────────
   celery-worker:
+    logging: *bounded-logging
     build: ./ai-engine
     container_name: sg-celery
     # The shared image's HTTP probe applies only to the API process.
@@ -185,6 +200,7 @@ services:
 
   # ── CVE Intel poller ─────────────────────────────────────
   cve-intel:
+    logging: *bounded-logging
     build: ./cve-intel
     container_name: sg-cve-intel
     env_file: ${ENV_FILE:-.env}
@@ -206,6 +222,7 @@ services:
     restart: unless-stopped
 
   cve-worker:
+    logging: *bounded-logging
     build: ./cve-intel
     container_name: sg-cve-worker
     healthcheck:
@@ -225,6 +242,7 @@ services:
 
   # ── Jenkins ──────────────────────────────────────────────
   jenkins:
+    logging: *bounded-logging
     build:
       context: ./jenkins
       dockerfile: Dockerfile
@@ -255,6 +273,7 @@ services:
 
   # ── React dashboard ──────────────────────────────────────
   dashboard:
+    logging: *bounded-logging
     build: ./dashboard
     container_name: sg-dashboard
     env_file: ${ENV_FILE:-.env}
@@ -269,6 +288,7 @@ services:
 
   # ── Prometheus ───────────────────────────────────────────
   prometheus:
+    logging: *bounded-logging
     image: prom/prometheus:v3.8.0
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -287,6 +307,7 @@ services:
 
   # ── Pushgateway (metrics bridge for Celery workers) ──────
   sg-pushgateway:
+    logging: *bounded-logging
     image: prom/pushgateway:v1.11.3
     container_name: sg-pushgateway
     networks:
@@ -295,6 +316,7 @@ services:
 
   # ── Grafana ──────────────────────────────────────────────
   grafana:
+    logging: *bounded-logging
     image: grafana/grafana:13.2.2
     container_name: sg-grafana
     environment:
@@ -321,6 +343,7 @@ services:
 
   # ── Falco (kernel syscall + container runtime monitoring) ──
   falco:
+    logging: *bounded-logging
     image: falcosecurity/falco:0.43.0
     container_name: sg-falco
     privileged: true
@@ -347,6 +370,7 @@ services:
 
   # ── PostgreSQL exporter ──────────────────────────────────
   postgres-exporter:
+    logging: *bounded-logging
     image: prometheuscommunity/postgres-exporter:v0.15.0
     container_name: sg-postgres-exporter
     environment:
@@ -360,6 +384,7 @@ services:
 
   # ── Redis exporter ───────────────────────────────────────
   redis-exporter:
+    logging: *bounded-logging
     image: oliver006/redis_exporter:v1.92.0
     container_name: sg-redis-exporter
     environment:
@@ -373,6 +398,7 @@ services:
 
   # ── cAdvisor (Docker container metrics) ──────────────────
   cadvisor:
+    logging: *bounded-logging
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     container_name: sg-cadvisor
     privileged: true
@@ -395,6 +421,7 @@ services:
 
   # ── Falco → Prometheus exporter ──────────────────────────
   falco-exporter:
+    logging: *bounded-logging
     image: falcosecurity/falco-exporter:0.8.7
     container_name: sg-falco-exporter
     volumes:
@@ -408,6 +435,7 @@ services:
 
   # ── Wazuh HIDS manager ───────────────────────────────────
   wazuh:
+    logging: *bounded-logging
     image: wazuh/wazuh-manager:4.7.3
     container_name: sg-wazuh
     entrypoint: ["/bin/sh", "-c", "mkdir -p /var/ossec/logs/archives /var/ossec/logs/firewall && chown wazuh:wazuh /var/ossec/logs/archives /var/ossec/logs/firewall && exec /init"]
@@ -426,6 +454,7 @@ services:
 
   # ── Loki (log aggregation) ───────────────────────────────
   loki:
+    logging: *bounded-logging
     image: grafana/loki:2.9.0
     container_name: sg-loki
     command: -config.file=/etc/loki/local-config.yaml
@@ -436,6 +465,7 @@ services:
 
   # ── Promtail (reads Wazuh alerts and ships to Loki) ──────
   promtail:
+    logging: *bounded-logging
     image: grafana/promtail:2.9.0
     container_name: sg-promtail
     volumes:
@@ -453,6 +483,7 @@ services:
 
   # ── Wazuh API proxy ──────────────────────────────────────
   wazuh-proxy:
+    logging: *bounded-logging
     build: ./wazuh-proxy
     container_name: sg-wazuh-proxy
     environment:

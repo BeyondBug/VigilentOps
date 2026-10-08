@@ -1,20 +1,25 @@
 import { useState, useEffect, useCallback } from "react";
 import { T, SEV_COLOR, sevBadge } from "../theme";
 import { FilterGroup, EmptyState } from "../components";
-import { CVE_INTEL } from "../api";
+import { API, CVE_INTEL } from "../api";
 
 export default function CVEFeed({ scans }) {
   const [loading, setLoading] = useState(false);
   const [cveData, setCveData] = useState([]);
+  const [error, setError] = useState(null);
+  const [scanTotal, setScanTotal] = useState(0);
   const [filter, setFilter] = useState("ALL");
   const [source, setSource] = useState("live");  // "live" | "scan"
 
   // Fetch live CVE feed from cve-intel service
   const fetchLiveCVEs = useCallback(async () => {
     setLoading(true);
+    setError(null);
+    setCveData([]);
     try {
       const r = await fetch(`${CVE_INTEL}/cves/recent?limit=100`);
-      if (r.ok) {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      {
         const data = await r.json();
         setCveData(
           data.map(c => ({
@@ -34,38 +39,27 @@ export default function CVEFeed({ scans }) {
         );
       }
     } catch (e) {
-      // Fall back to scan findings
-      setSource("scan");
+      setError(`Live CVE feed unavailable: ${e.message}`);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Collect CVEs from scan findings
-  const loadScanCVEs = useCallback(() => {
-    const cveMap = {};
-    scans.forEach(s => {
-      (s.findings || []).filter(f => f.cve_id).forEach(f => {
-        if (!cveMap[f.cve_id]) {
-          cveMap[f.cve_id] = {
-            id:       f.cve_id,
-            severity: f.severity || "UNKNOWN",
-            score:    f.cvss_score || 0,
-            title:    f.title || f.rule_id || "",
-            repos:    new Set(),
-            count:    0,
-            from_live: false,
-          };
-        }
-        cveMap[f.cve_id].repos.add(s.repo_name);
-        cveMap[f.cve_id].count++;
-      });
-    });
-    setCveData(
-      Object.values(cveMap)
-        .map(c => ({ ...c, repos: [...c.repos] }))
-        .sort((a, b) => b.score - a.score)
-    );
+  const loadScanCVEs = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setCveData([]);
+    try {
+      const response = await fetch(`${API}/api/cves/summary?limit=200`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      setCveData(data.cves);
+      setScanTotal(data.total);
+    } catch (failure) {
+      setError(`Scan CVEs unavailable: ${failure.message}`);
+    } finally {
+      setLoading(false);
+    }
   }, [scans]);
 
   useEffect(() => {
@@ -104,7 +98,8 @@ export default function CVEFeed({ scans }) {
         </span>
       </div>
 
-      {filtered.length === 0 ? (
+      {source === "scan" && <p style={{ color: T.textDim, fontSize: 12 }}>Latest 100 scans · showing {cveData.length} of {scanTotal} distinct CVEs</p>}
+      {error ? <EmptyState message={error} /> : filtered.length === 0 ? (
         <EmptyState message={loading ? "Fetching CVE data from NIST NVD..." : "No CVEs found. Run a scan to populate findings."} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

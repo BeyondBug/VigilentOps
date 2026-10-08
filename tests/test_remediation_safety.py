@@ -350,3 +350,25 @@ class RemediationSafetyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PasswordSuppressionRegressionTests(unittest.TestCase):
+    def test_usedforsecurity_false_does_not_fix_password_storage(self):
+        for name in ('app.py', 'vuln_app.py'):
+            for digest in ('hashlib.md5(pw.encode())', 'hashlib.new("md5", pw.encode())'):
+                original = 'import hashlib\ndef digest(pw):\n    return ' + digest + '.hexdigest()\n'
+                candidate = original.replace('pw.encode())', 'pw.encode(), usedforsecurity=False)')
+                self.assertFalse(validates_security_change(original, candidate, [])[0])
+                with tempfile.TemporaryDirectory() as directory:
+                    path = Path(directory, name)
+                    path.write_text(original)
+                    self.assertFalse(fix_engine.apply_file_fix(directory, name, candidate))
+                    self.assertEqual(path.read_text(), original)
+
+    def test_partial_removal_cannot_mark_all_targeted_rules_addressed(self):
+        original = 'import subprocess, hashlib\ndef execute(command):\n    subprocess.call(command, shell=True)\n    return hashlib.md5(command.encode()).hexdigest()\n'
+        candidate = original.replace('shell=True', 'shell=False')
+        valid, reason = validates_security_change(original, candidate,
+                    [{'scanner': 'bandit', 'rule_id': 'B602'}, {'scanner': 'bandit', 'rule_id': 'B324'}])
+        self.assertFalse(valid)
+        self.assertIn('B324', reason)

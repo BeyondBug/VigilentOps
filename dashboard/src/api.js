@@ -21,12 +21,13 @@ export async function fetchScans() {
     findings: (scan.findings || []).map(normalizeFinding),
   }));
 }
-export async function fetchFindings({ scanId, page = 0, severity = "", scanner = "", search = "", signal }) {
+export async function fetchFindings({ scanId, page = 0, severity = "", scanner = "", search = "", reviewStatus = "", signal }) {
   const params = new URLSearchParams({ limit: "50", offset: String(page * 50) });
   if (scanId != null) params.set("scan_id", String(scanId));
   if (severity) params.set("severity", severity);
   if (scanner) params.set("scanner", scanner);
   if (search) params.set("search", search);
+  if (reviewStatus) params.set("review_status", reviewStatus);
   const response = await fetch(`${API}/api/findings?${params}`, { signal });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const data = await response.json();

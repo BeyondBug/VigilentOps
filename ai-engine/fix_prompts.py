@@ -28,7 +28,7 @@ OUTPUT RULES:
 - Do not invent credentials, APIs, dependencies, or environment variables.
 - CRITICAL: Never replace `pickle` with `json` or any other format; keep the original `pickle.loads` calls unchanged if unsure.
 - CRITICAL: For command execution (B605/B602), avoid strings like `shlex.quote` or `shell=True`; use `subprocess.run(["ping", "-c", "1", host], check=False)` or pass command args as a list with `shell=False`.
-- CRITICAL: For password hashing functions (`hashlib.md5`, `hashlib.sha1`), DO NOT replace them with `hashlib.sha256` or `hashlib.sha512`. Use `hashlib.md5(pw.encode(), usedforsecurity=False).hexdigest()  # nosec B324` or leave the function untouched.
+- CRITICAL: MD5/SHA1 password hashing requires a reviewed password-KDF and stored-data migration. Never silence this finding using `usedforsecurity=False`, `# nosec`, or a fast SHA digest. If a compatible safe migration is uncertain, do not propose a change to this file.
 - Removing shell=True is insufficient if untrusted arguments can become program
   options; validate inputs and preserve the supported command/output behavior.
 - If a safe fix is uncertain for a specific function, leave that function unchanged so the reviewer can handle it.

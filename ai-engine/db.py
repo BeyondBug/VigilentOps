@@ -38,6 +38,9 @@ class ScanRun(Base):
     low_count      = Column(Integer, default=0)
     required_reports = Column(JSON)
     pipeline_commit = Column(Text)
+    ai_task_id = Column(Text)
+    ai_task_status = Column(Text)
+    ai_task_updated_at = Column(DateTime)
 
     def to_dict(self):
         return {
@@ -57,6 +60,8 @@ class ScanRun(Base):
             "findings":       [],   # findings fetched separately if needed
             "required_reports": self.required_reports or [],
             "pipeline_commit": self.pipeline_commit,
+            "ai_task_id": self.ai_task_id,
+            "ai_task_status": self.ai_task_status,
         }
 
     def _extract_repo_name(self):
@@ -93,6 +98,12 @@ class Finding(Base):
     pr_url         = Column(Text)
     pr_confidence  = Column(Float)
     created_at     = Column(DateTime, default=datetime.utcnow)
+    review_status = Column(Text, nullable=False, default='unverified')
+    review_owner = Column(Text)
+    review_evidence = Column(Text)
+    review_details = Column(JSON)
+    review_version = Column(Integer, nullable=False, default=0)
+    reviewed_at = Column(DateTime)
 
     def to_dict(self):
         return {
@@ -116,11 +127,34 @@ class Finding(Base):
             "fix_status":  self.fix_status,
             "pr_url":      self.pr_url,
             "pr_confidence": self.pr_confidence,
+            "review_status": self.review_status or 'unverified',
+            "review_owner": self.review_owner,
+            "review_evidence": self.review_evidence,
+            "review_details": self.review_details or {},
+            "review_version": self.review_version or 0,
+            "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
         }
 
 
 # Keep ScanResult as alias for backwards compat with old imports
 ScanResult = ScanRun
+
+
+class FindingReview(Base):
+    __tablename__ = 'finding_reviews'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    finding_id = Column(Integer, nullable=False)
+    version = Column(Integer, nullable=False)
+    status = Column(Text, nullable=False)
+    owner = Column(Text, nullable=False)
+    evidence = Column(Text, nullable=False)
+    details = Column(JSON)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {'version': self.version, 'status': self.status, 'owner': self.owner,
+                'evidence': self.evidence, 'details': self.details or {},
+                'created_at': self.created_at.isoformat() if self.created_at else None}
 
 
 class ScanReport(Base):

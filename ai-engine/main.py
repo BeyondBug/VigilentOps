@@ -4,6 +4,7 @@ import hmac
 import hashlib
 import json
 import re
+import uuid
 from datetime import datetime
 
 from fastapi import FastAPI, Request, HTTPException, Query
@@ -15,7 +16,8 @@ from prometheus_client import Counter, Gauge, Histogram
 
 log = logging.getLogger("orchestrator")
 from sqlalchemy import text
-from db import get_db_session, ScanRun, Finding, ScanReport
+from db import get_db_session, ScanRun, Finding, ScanReport, FindingReview
+from finding_review import REVIEW_STATUSES, validate_review
 from report_parsers import parse_sarif, parse_bandit, determine_finding_class, validate_report_shape, REQUIRED_TOOLS, SUPPORTED_TOOLS
 
 # ── App setup ────────────────────────────────────────────────
@@ -303,10 +305,13 @@ async def get_findings(
     severity: str = Query(default='', max_length=10),
     scanner: str = Query(default='', max_length=100),
     search: str = Query(default='', max_length=200),
+    review_status: str = Query(default='', max_length=30),
 ):
     """Page findings from one scan or the 100 most recent scan records."""
     if severity and severity not in {'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'UNKNOWN'}:
         raise HTTPException(status_code=422, detail='Invalid finding severity')
+    if review_status and review_status not in REVIEW_STATUSES:
+        raise HTTPException(status_code=422, detail='Invalid review status')
     try:
         with get_db_session() as db:
             query = db.query(Finding, ScanRun).join(ScanRun, ScanRun.id == Finding.scan_run_id)
@@ -323,6 +328,8 @@ async def get_findings(
                 query = query.filter(Finding.severity == severity)
             if scanner:
                 query = query.filter(func.coalesce(Finding.scanner, 'unknown') == scanner)
+            if review_status:
+                query = query.filter(Finding.review_status == review_status)
             if search:
                 escaped = search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
                 pattern = '%' + escaped + '%'
@@ -341,6 +348,104 @@ async def get_findings(
     except Exception as error:
         log.error('Finding page unavailable: %s', type(error).__name__)
         raise HTTPException(status_code=503, detail='Finding data unavailable')
+
+
+@app.get('/api/cves/summary')
+def scan_cve_summary(limit: int = Query(default=100, ge=1, le=200),
+                     offset: int = Query(default=0, ge=0, le=1_000_000)):
+    """Aggregate stored findings without loading full scan payloads in the browser."""
+    try:
+        with get_db_session() as db:
+            recent = db.query(ScanRun.id).order_by(ScanRun.started_at.desc(), ScanRun.id.desc()).limit(100)
+            rank = case({'CRITICAL': 5, 'HIGH': 4, 'MEDIUM': 3, 'LOW': 2, 'INFO': 1},
+                        value=Finding.severity, else_=0)
+            query = db.query(Finding.cve_id, func.max(rank), func.max(Finding.cvss_score),
+                             func.min(Finding.title), func.count(Finding.id)).filter(
+                                 Finding.scan_run_id.in_(recent), Finding.cve_id.isnot(None),
+                                 Finding.cve_id != '').group_by(Finding.cve_id)
+            total = query.count()
+            rows = query.order_by(func.max(rank).desc(), func.max(Finding.cvss_score).desc(),
+                                  Finding.cve_id).offset(offset).limit(limit).all()
+            repos = {}
+            if rows:
+                for cve_id, repo in db.query(Finding.cve_id, ScanRun.repo_name).join(
+                        ScanRun, ScanRun.id == Finding.scan_run_id).filter(
+                        Finding.scan_run_id.in_(recent), Finding.cve_id.in_([row[0] for row in rows])).distinct():
+                    repos.setdefault(cve_id, []).append(repo)
+            severities = {5: 'CRITICAL', 4: 'HIGH', 3: 'MEDIUM', 2: 'LOW', 1: 'INFO', 0: 'UNKNOWN'}
+            return {'cves': [{'id': row[0], 'severity': severities[row[1]], 'score': row[2] or 0,
+                              'title': row[3] or '', 'count': row[4], 'repos': sorted(repos.get(row[0], [])),
+                              'from_live': False} for row in rows],
+                    'total': total, 'limit': limit, 'offset': offset, 'scope': 'recent_100_scans'}
+    except Exception as exc:
+        log.error('CVE summary unavailable: %s', type(exc).__name__)
+        raise HTTPException(status_code=503, detail='CVE summary unavailable')
+
+
+@app.patch('/api/findings/{finding_id}/review')
+async def review_finding(finding_id: int, request: Request):
+    """Authenticated operator decisions retain original severity and audit history."""
+    try:
+        body = await request.json()
+        status, owner, evidence, details = validate_review(body)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail='Invalid review; supply owner, evidence and current version, plus required verification/exception details')
+    try:
+        with get_db_session() as db:
+            finding = db.query(Finding).filter_by(id=finding_id).with_for_update().first()
+            if not finding:
+                raise HTTPException(status_code=404, detail='Finding not found')
+            if (finding.review_version or 0) != body['version']:
+                raise HTTPException(status_code=409, detail='Review changed; reload the finding before updating')
+            if status == 'fixed':
+                source = db.query(ScanRun).filter_by(id=finding.scan_run_id).first()
+                verification = db.query(ScanRun).filter_by(id=details['verification_scan_id']).first()
+                if (not verification or not source or verification.id == source.id
+                        or verification.repo_url != source.repo_url or verification.finished_at is None
+                        or verification.status not in {'complete', 'pr_opened', 'ai_fixed'}
+                        or verification.commit_sha.lower() != details['tested_commit'].lower()):
+                    raise HTTPException(status_code=422, detail='Verification must be an accepted rescan of the same repository at the tested commit')
+                receipts = {r.tool for r in db.query(ScanReport).filter_by(scan_run_id=verification.id).all()}
+                if (not set(verification.required_reports or REQUIRED_TOOLS) <= receipts
+                        or finding.scanner not in receipts):
+                    raise HTTPException(status_code=422, detail='Verification scan has incomplete report coverage')
+                original_tool = db.query(ScanReport).filter_by(scan_run_id=verification.id,
+                                                               tool=finding.scanner).first()
+                if original_tool.coverage == 'not_applicable':
+                    raise HTTPException(status_code=422, detail='Original scanner must actually run during verification')
+                if db.query(Finding).filter_by(scan_run_id=verification.id, scanner=finding.scanner,
+                                               rule_id=finding.rule_id, cve_id=finding.cve_id,
+                                               file_path=finding.file_path, package=finding.package).first():
+                    raise HTTPException(status_code=409, detail='Verification scan still reports this finding')
+            finding.review_status, finding.review_owner = status, owner
+            finding.review_evidence, finding.review_details = evidence, details
+            finding.review_version = (finding.review_version or 0) + 1
+            finding.reviewed_at = datetime.utcnow()
+            db.add(FindingReview(finding_id=finding.id, version=finding.review_version,
+                                 status=status, owner=owner, evidence=evidence, details=details))
+            db.flush()
+            result = finding.to_dict()
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error('Finding review failed: %s', type(exc).__name__)
+        raise HTTPException(status_code=503, detail='Finding review unavailable')
+
+
+@app.get('/api/findings/{finding_id}/reviews')
+def finding_review_history(finding_id: int):
+    try:
+        with get_db_session() as db:
+            if not db.query(Finding.id).filter_by(id=finding_id).first():
+                raise HTTPException(status_code=404, detail='Finding not found')
+            return [row.to_dict() for row in db.query(FindingReview).filter_by(finding_id=finding_id)
+                    .order_by(FindingReview.version).all()]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error('Review history unavailable: %s', type(exc).__name__)
+        raise HTTPException(status_code=503, detail='Review history unavailable')
 
 
 @app.get("/api/scans/{scan_id}")
@@ -519,7 +624,7 @@ async def fix_scan(scan_id: str, request: Request):
         raise HTTPException(status_code=422, detail="scan_id must be an integer")
 
     with get_db_session() as db:
-        scan = db.query(ScanRun).filter_by(id=numeric_scan_id).first()
+        scan = db.query(ScanRun).filter_by(id=numeric_scan_id).with_for_update().first()
         if not scan:
             raise HTTPException(status_code=404, detail="Scan not found")
         if scan.status == 'failed':
@@ -529,12 +634,20 @@ async def fix_scan(scan_id: str, request: Request):
         received = {report.tool for report in db.query(ScanReport).filter_by(scan_run_id=scan.id).all()}
         if set(scan.required_reports or REQUIRED_TOOLS) - received:
             raise HTTPException(status_code=409, detail='Accept all required reports before queuing remediation')
-        repo_url = scan.repo_url
-        commit_sha = scan.commit_sha
-
-    from tasks import run_ai_fix
-    job = run_ai_fix.delay(numeric_scan_id, repo_url, commit_sha)
-    return {"status": "fix_queued", "scan_id": scan_id, "job_id": job.id}
+        if scan.ai_task_id and scan.ai_task_status in {'queued', 'running', 'retry', 'complete'}:
+            return {'status': scan.ai_task_status, 'scan_id': scan_id, 'job_id': scan.ai_task_id}
+        from tasks import run_ai_fix
+        scan.ai_task_id = str(uuid.uuid4())
+        scan.ai_task_status = 'queued'
+        scan.ai_task_updated_at = datetime.utcnow()
+        try:
+            run_ai_fix.apply_async(args=(numeric_scan_id, scan.repo_url, scan.commit_sha),
+                                   task_id=scan.ai_task_id)
+        except Exception as exc:
+            log.error('AI queue unavailable: %s', type(exc).__name__)
+            raise HTTPException(status_code=503, detail='AI queue unavailable; no task reserved')
+        result = {'status': 'fix_queued', 'scan_id': scan_id, 'job_id': scan.ai_task_id}
+    return result
 
 
 @app.post("/api/scans/{scan_id}/notify")

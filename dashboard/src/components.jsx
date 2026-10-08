@@ -173,6 +173,9 @@ export function FindingCard({ finding, showRepo }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             {sevBadge(sev)}
+            <span style={{ fontSize: 10, color: T.textDim }}>
+              {(finding.review_status || 'unverified').replaceAll('_', ' ')}
+            </span>
             <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.font }}>
               {TOOL_ICON[finding.tool] || "?"} {finding.tool}
             </span>
@@ -195,7 +198,7 @@ export function FindingCard({ finding, showRepo }) {
                 fontSize: 10, padding: "1px 6px", borderRadius: 3,
                 background: `${T.textFade}20`, color: T.textDim,
                 fontFamily: T.font,
-              }}>⊘ UNFIXABLE</span>
+              }}>⊘ NO PROPOSAL</span>
             )}
           </div>
           <div style={{ fontSize: 12, color: T.text, fontFamily: T.font, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -214,10 +217,14 @@ export function FindingCard({ finding, showRepo }) {
           padding: "0 16px 14px", borderTop: `1px solid ${T.border}18`,
           animation: "fadeIn 0.15s ease",
         }}>
+          {finding.review_evidence && <div style={{ fontSize: 12, color: T.text, margin: '10px 0', whiteSpace: 'pre-wrap' }}>
+            Reviewed by {finding.review_owner}: {finding.review_evidence}
+            {finding.review_details?.review_date && <div>Review due: {finding.review_details.review_date}</div>}
+          </div>}
           {finding.cvss_score > 0 && (
             <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8, fontFamily: T.font }}>
               CVSS: <span style={{ color: SEV_COLOR[sev] || T.text, fontWeight: 700 }}>{finding.cvss_score}</span>
-              {finding.cwe && <span style={{ marginLeft: 12 }}>CWE: {finding.cwe}</span>}
+              {finding.cwe_id && <span style={{ marginLeft: 12 }}>CWE: {finding.cwe_id}</span>}
             </div>
           )}
           {finding.code_snippet && (
