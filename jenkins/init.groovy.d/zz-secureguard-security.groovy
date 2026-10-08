@@ -10,6 +10,7 @@ import com.cloudbees.plugins.credentials.CredentialsScope
 import com.cloudbees.plugins.credentials.SystemCredentialsProvider
 import com.cloudbees.plugins.credentials.domains.Domain
 import org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl
+import com.cloudbees.plugins.credentials.impl.UsernamePasswordCredentialsImpl
 import hudson.util.Secret
 import hudson.security.Permission
 import org.jenkinsci.plugins.prometheus.config.PrometheusConfiguration
@@ -56,5 +57,17 @@ def prometheus = PrometheusConfiguration.get()
 prometheus.setUseAuthenticatedEndpoint(true)
 prometheus.save()
 provider.save()
+if (settings.gitea_username && settings.gitea_token) {
+    def gitCredential = new UsernamePasswordCredentialsImpl(CredentialsScope.GLOBAL,
+        'gitea-cred', 'Private Gitea repository token', settings.gitea_username as String,
+        settings.gitea_token as String)
+    def oldGitCredential = provider.getCredentials().find { it.id == 'gitea-cred' }
+    if (oldGitCredential) {
+        assert store.updateCredentials(Domain.global(), oldGitCredential, gitCredential)
+    } else {
+        assert store.addCredentials(Domain.global(), gitCredential)
+    }
+    provider.save()
+}
 instance.save()
 println('SecureGuard Jenkins authentication, account permissions and CSRF enabled')

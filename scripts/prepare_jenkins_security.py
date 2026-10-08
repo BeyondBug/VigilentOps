@@ -30,6 +30,10 @@ def prepare(env_path=Path(".env"), directory=Path("secrets/jenkins")):
         "metrics_password": previous.get("metrics_password") or secrets.token_urlsafe(32),
         "webhook_token": previous.get("webhook_token") or secrets.token_urlsafe(48),
     }
+    token = env.get('GITEA_TOKEN', '').strip()
+    if token and token != 'your_gitea_personal_access_token':
+        values['gitea_username'] = env.get('GITEA_GIT_USERNAME', 'oauth2')
+        values['gitea_token'] = token
     if username == values["metrics_user"]:
         raise ValueError("Administrator and metrics account must be different")
     config.write_text(json.dumps(values) + "\n")
