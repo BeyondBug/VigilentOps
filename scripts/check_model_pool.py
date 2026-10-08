@@ -27,7 +27,7 @@ def check_route(route):
     try:
         response = httpx.post(route['url'], headers={'Authorization': 'Bearer ' + route['key']},
                               json={'model': route['model'], 'messages': [{'role': 'user', 'content': PROMPT}],
-                                    'temperature': 0.1, 'max_tokens': 512,
+                                    'temperature': 0.1, 'max_tokens': 2048,
                                     **completion_options(route['model'], route['url'])}, timeout=45)
         result['http_status'] = response.status_code
         if response.status_code != 200:

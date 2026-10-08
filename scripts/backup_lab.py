@@ -26,7 +26,7 @@ def table_counts(container):
     query = "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename;"
     def sql(statement):
         return run(['docker', 'exec', '-i', container, 'sh', '-c',
-                    'exec psql -v ON_ERROR_STOP=1 -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"'],
+                    'export PGPASSWORD="$POSTGRES_PASSWORD"; exec psql -w -v ON_ERROR_STOP=1 -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"'],
                    input=statement, text=True).stdout.strip()
     return {table: int(sql('SELECT COUNT(*) FROM public."' + table.replace('"', '""') + '";'))
             for table in sql(query).splitlines()}
@@ -86,7 +86,7 @@ def main():
         dump = directory / 'postgres.dump'
         with dump.open('wb') as output:
             subprocess.run(['docker', 'exec', 'sg-postgres', 'sh', '-c',
-                            'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc'],
+                            'export PGPASSWORD="$POSTGRES_PASSWORD"; exec pg_dump -w -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc'],
                            stdout=output, stderr=subprocess.PIPE, check=True)
         metadata['table_counts'] = table_counts('sg-postgres')
         volumes = sorted({mount['Name'] for item in inspected
