@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'cve-intel'))
 spec = importlib.util.spec_from_file_location('cve_poller_regression', Path(__file__).resolve().parents[1] / 'cve-intel/poller.py')
 poller = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(poller)

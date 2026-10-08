@@ -17,6 +17,7 @@ class FindingReviewTests(unittest.TestCase):
             db.add(finding)
             db.flush()
             self.finding = finding.id
+            db.commit()
         self.path = f'/api/findings/{self.finding}/review'
         self.body = {'status': 'confirmed', 'owner': 'Test operator', 'version': 0,
                      'evidence': 'Reproduced with a controlled shell command fixture.'}
@@ -56,6 +57,7 @@ class FindingReviewTests(unittest.TestCase):
             verification_id = verification.id
             for tool in REQUIRED_TOOLS:
                 db.add(ScanReport(scan_run_id=verification_id, tool=tool, sha256='0'*64, finding_count=0, coverage='scanned'))
+            db.commit()
         body = {**self.body, 'status': 'fixed', 'details': {'tested_commit': 'b'*40, 'verification_scan_id': verification_id}}
         self.assertEqual(self.client.patch(self.path, json=body, headers=self.headers).status_code, 422)
         with self.sessions() as db:
@@ -64,9 +66,11 @@ class FindingReviewTests(unittest.TestCase):
             db.add(duplicate)
             db.flush()
             duplicate_id = duplicate.id
+            db.commit()
         self.assertEqual(self.client.patch(self.path, json=body, headers=self.headers).status_code, 409)
         with self.sessions() as db:
             db.delete(db.get(Finding, duplicate_id))
+            db.commit()
         response = self.client.patch(self.path, json=body, headers=self.headers)
         self.assertEqual(response.status_code, 200, response.text)
 
@@ -86,6 +90,7 @@ class FindingReviewTests(unittest.TestCase):
             scan.status, scan.finished_at = 'complete', datetime.utcnow()
             for tool in REQUIRED_TOOLS:
                 db.add(ScanReport(scan_run_id=self.scan, tool=tool, sha256='0'*64, finding_count=0, coverage='scanned'))
+            db.commit()
 
     def test_repeated_fix_requests_enqueue_only_once_and_return_same_id(self):
         self.accepted_scan()
