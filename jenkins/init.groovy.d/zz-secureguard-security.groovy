@@ -16,7 +16,9 @@ import org.jenkinsci.plugins.prometheus.config.PrometheusConfiguration
 
 def instance = Jenkins.get()
 def realm = new HudsonPrivateSecurityRealm(false)
-def matrix = new GlobalMatrixAuthorizationStrategy()
+// Keep the team's existing grants when this deployment restarts Jenkins.
+def matrix = instance.authorizationStrategy instanceof GlobalMatrixAuthorizationStrategy ?
+    instance.authorizationStrategy : new GlobalMatrixAuthorizationStrategy()
 def source = new File('/run/secureguard-jenkins/bootstrap.json')
 instance.setSecurityRealm(realm)
 instance.setAuthorizationStrategy(matrix)
@@ -30,8 +32,13 @@ def settings = new JsonSlurper().parse(source)
 assert settings.admin_user ==~ /[A-Za-z0-9_.-]+/
 assert settings.admin_password && settings.metrics_password && settings.webhook_token
 assert settings.admin_user != settings.metrics_user
-realm.createAccount(settings.admin_user as String, settings.admin_password as String)
-realm.createAccount(settings.metrics_user as String, settings.metrics_password as String)
+// Existing team passwords belong to their users, not the bootstrap file.
+for (entry in [[settings.admin_user, settings.admin_password], [settings.metrics_user, settings.metrics_password]]) {
+    def user = hudson.model.User.getById(entry[0] as String, false)
+    if (!user?.getProperty(HudsonPrivateSecurityRealm.Details)) {
+        realm.createAccount(entry[0] as String, entry[1] as String)
+    }
+}
 matrix.add(Jenkins.ADMINISTER, PermissionEntry.user(settings.admin_user as String))
 matrix.add(Jenkins.READ, PermissionEntry.user(settings.metrics_user as String))
 def metricsView = Permission.fromId('jenkins.metrics.api.Metrics.View')
