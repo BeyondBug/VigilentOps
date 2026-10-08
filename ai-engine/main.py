@@ -17,6 +17,7 @@ from prometheus_client import Counter, Gauge, Histogram
 log = logging.getLogger("orchestrator")
 from sqlalchemy import text
 from db import get_db_session, ScanRun, Finding, ScanReport, FindingReview
+from finding_groups import grouping_columns, group_members
 from finding_review import REVIEW_STATUSES, validate_review
 from report_parsers import parse_sarif, parse_bandit, determine_finding_class, validate_report_shape, REQUIRED_TOOLS, SUPPORTED_TOOLS
 
@@ -307,6 +308,8 @@ async def get_findings(
     search: str = Query(default='', max_length=200),
     review_status: str = Query(default='', max_length=30),
     finding_class: str = Query(default='', max_length=20),
+    group_duplicates: bool = Query(default=False),
+    group_id: int | None = Query(default=None, ge=1),
 ):
     """Page findings from one scan or the 100 most recent scan records."""
     if severity and severity not in {'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'UNKNOWN'}:
@@ -327,6 +330,11 @@ async def get_findings(
                 query = query.filter(Finding.scan_run_id.in_(recent_ids))
             total_in_scope = query.count()
             scanners = sorted({name or 'unknown' for (name,) in query.with_entities(Finding.scanner).distinct().all()})
+            if group_id is not None:
+                representative = query.filter(Finding.id == group_id).first()
+                if representative is None:
+                    raise HTTPException(status_code=404, detail='Finding group not found in scope')
+                query = group_members(query, representative[0])
             if severity:
                 query = query.filter(Finding.severity == severity)
             if scanner:
@@ -344,11 +352,25 @@ async def get_findings(
                                          Finding.cve_id.ilike(pattern, escape='\\'),
                                          Finding.package.ilike(pattern, escape='\\'),
                                          Finding.image.ilike(pattern, escape='\\')))
-            total = query.count()
+            total_records = query.count()
+            grouped = group_duplicates and group_id is None
+            if grouped:
+                groups = query.with_entities(func.min(Finding.id).label('representative_id'),
+                                             func.count(Finding.id).label('record_count')).group_by(
+                                                 *grouping_columns()).subquery()
+                total = db.query(groups).count()
+                rows = query.join(groups, Finding.id == groups.c.representative_id).add_columns(
+                    groups.c.record_count).order_by(ScanRun.id.desc(), Finding.id).offset(offset).limit(limit).all()
+            else:
+                total = total_records
+                rows = [(finding, scan, 1) for finding, scan in query.order_by(
+                    ScanRun.id.desc(), Finding.id).offset(offset).limit(limit).all()]
             findings = [{**finding.to_dict(), 'repo': scan.repo_name,
-                         'scan_id': scan.id, 'scan_time': scan.to_dict()['created_at']}
-                        for finding, scan in query.order_by(ScanRun.id.desc(), Finding.id).offset(offset).limit(limit).all()]
-            return {'findings': findings, 'total': total, 'total_in_scope': total_in_scope,
+                         'scan_id': scan.id, 'scan_time': scan.to_dict()['created_at'],
+                         'group_record_count': record_count}
+                        for finding, scan, record_count in rows]
+            return {'findings': findings, 'total': total, 'total_records': total_records,
+                    'grouped': grouped, 'total_in_scope': total_in_scope,
                     'scanners': scanners, 'limit': limit, 'offset': offset,
                     'scope': 'scan' if scan_id is not None else 'recent_100_scans'}
     except HTTPException:

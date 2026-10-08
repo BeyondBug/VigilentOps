@@ -316,3 +316,12 @@ severity or scanner agreement automatically confirms exploitability.
 Select a scan with a failed AI task: its AI state and task ID must be visible
 independently of scanner completion, with findings still accessible. These
 changes do not alter review dispositions, credentials or enqueue AI jobs.
+
+Dependency grouping is opt-in and computed in SQL before pagination. Only SCA
+records with advisory, package, installed version and image/manifest identity
+can group. Scan, file, fix version, severity and review disposition must also
+match. Missing identity and non-SCA findings stay separate. The card identifies
+a representative; “View all scanner records” retrieves paginated originals.
+Group totals count display groups, never confirmed vulnerabilities. Raw records,
+review audit history and raw scan counters are preserved. Verify groups split
+when any artifact/version/review field differs and cannot cross scan scope.

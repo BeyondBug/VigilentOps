@@ -119,6 +119,61 @@ class FindingReviewTests(unittest.TestCase):
             db.commit()
         self.assertEqual(self.client.get('/api/cves/summary').json()['cves'][0]['score'], 0.0)
 
+    def test_grouping_preserves_versions_artifacts_reviews_and_raw_members(self):
+        base = dict(scan_run_id=self.scan, finding_class='sca', cve_id='CVE-2026-99999',
+                    package='fixture-package', installed_version='1.0', fixed_version='1.1',
+                    image='fixture@sha256:abc', file_path='site-packages/fixture',
+                    severity='HIGH', title='Controlled dependency alert', review_status='unverified')
+        with self.sessions() as db:
+            first = Finding(**base, scanner='trivy-image')
+            db.add(first)
+            db.flush()
+            group_id = first.id
+            db.add(Finding(**base, scanner='grype'))
+            for change in ({'installed_version': '0.9'}, {'image': 'other@sha256:def'},
+                           {'file_path': 'other/location'}, {'review_status': 'confirmed'},
+                           {'severity': 'LOW'}, {'fixed_version': '2.0'}, {'package': 'other'},
+                           {'finding_class': 'sast'}, {'installed_version': None}):
+                db.add(Finding(**{**base, **change}, scanner='trivy-image'))
+            # Incomplete records remain separate even when their remaining fields match.
+            db.add(Finding(**{**base, 'installed_version': None}, scanner='grype'))
+            db.commit()
+        raw = self.client.get('/api/findings').json()
+        grouped = self.client.get('/api/findings?group_duplicates=true').json()
+        self.assertEqual(raw['total'], 13)
+        self.assertEqual(grouped['total'], 12)
+        self.assertEqual(grouped['total_records'], raw['total'])
+        group = next(row for row in grouped['findings'] if row['id'] == group_id)
+        self.assertEqual(group['group_record_count'], 2)
+        members = self.client.get('/api/findings', params={'group_id': group_id}).json()
+        self.assertEqual(members['total'], 2)
+        self.assertEqual({row['scanner'] for row in members['findings']}, {'trivy-image', 'grype'})
+        self.assertFalse(members['grouped'])
+        self.assertEqual(self.client.get('/api/findings', params={'group_id': group_id, 'offset': 1, 'limit': 1}).json()['findings'][0]['scanner'], 'grype')
+        self.assertEqual(self.client.get('/api/findings?group_duplicates=true&limit=1').json()['total'], 12)
+        self.assertEqual(self.client.get('/api/findings?group_id=999999').status_code, 404)
+        self.assertEqual(self.client.get('/api/findings?group_id=0').status_code, 422)
+        self.assertEqual(self.client.get('/api/findings?scanner=grype&group_duplicates=true').json()['total'], 2)
+
+    def test_grouping_never_combines_scans_or_unlocated_dependency_records(self):
+        with self.sessions() as db:
+            scan = db.get(ScanRun, self.scan)
+            other = ScanRun(repo_url=scan.repo_url, commit_sha='c'*40, branch='main')
+            db.add(other)
+            db.flush()
+            other_id = other.id
+            for scan_id in (self.scan, other_id):
+                db.add(Finding(scan_run_id=scan_id, scanner='grype', finding_class='sca',
+                               cve_id='CVE-2026-22222', package='fixture', installed_version='1.0',
+                               image='fixture@sha256:abc', severity='HIGH', title='Located alert'))
+            for tool in ('grype', 'trivy-image'):
+                db.add(Finding(scan_run_id=self.scan, scanner=tool, finding_class='sca',
+                               cve_id='CVE-2026-22222', package='fixture', installed_version='1.0',
+                               severity='HIGH', title='Artifact unknown'))
+            db.commit()
+        self.assertEqual(self.client.get('/api/findings?group_duplicates=true').json()['total'], 5)
+        self.assertEqual(self.client.get('/api/findings', params={'scan_id': other_id, 'group_id': self.finding}).status_code, 404)
+
     def accepted_scan(self):
         with self.sessions() as db:
             scan = db.get(ScanRun, self.scan)

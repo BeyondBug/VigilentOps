@@ -155,7 +155,7 @@ export function FilterGroup({ label, options, value, onChange, colorMap }) {
   );
 }
 
-export function FindingCard({ finding, showRepo }) {
+export function FindingCard({ finding, showRepo, onViewGroup }) {
   const [open, setOpen] = useState(false);
   const sev = (finding.severity || "UNKNOWN").toUpperCase();
 
@@ -173,6 +173,7 @@ export function FindingCard({ finding, showRepo }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
             {sevBadge(sev)}
+            {finding.group_record_count > 1 && <span style={{ fontSize: 10, color: T.textDim }}>Representative alert</span>}
             <span style={{ fontSize: 10, color: T.textDim }}>
               {(finding.review_status || 'unverified').replaceAll('_', ' ')}
             </span>
@@ -213,6 +214,10 @@ export function FindingCard({ finding, showRepo }) {
         <span style={{ color: T.textDim, marginLeft: 16, fontSize: 12 }}>{open ? "▲" : "▼"}</span>
       </div>
 
+      {finding.group_record_count > 1 && onViewGroup && <button
+        onClick={() => onViewGroup(finding.id)} style={{ margin: '0 16px 12px', cursor: 'pointer' }}>
+        View all {finding.group_record_count} scanner records
+      </button>}
       {open && (
         <div style={{
           padding: "0 16px 14px", borderTop: `1px solid ${T.border}18`,
