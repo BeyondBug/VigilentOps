@@ -306,12 +306,15 @@ async def get_findings(
     scanner: str = Query(default='', max_length=100),
     search: str = Query(default='', max_length=200),
     review_status: str = Query(default='', max_length=30),
+    finding_class: str = Query(default='', max_length=20),
 ):
     """Page findings from one scan or the 100 most recent scan records."""
     if severity and severity not in {'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO', 'UNKNOWN'}:
         raise HTTPException(status_code=422, detail='Invalid finding severity')
     if review_status and review_status not in REVIEW_STATUSES:
         raise HTTPException(status_code=422, detail='Invalid review status')
+    if finding_class and finding_class not in {'sast', 'sca', 'secret', 'iac', 'quality', 'unknown'}:
+        raise HTTPException(status_code=422, detail='Invalid finding class')
     try:
         with get_db_session() as db:
             query = db.query(Finding, ScanRun).join(ScanRun, ScanRun.id == Finding.scan_run_id)
@@ -330,12 +333,17 @@ async def get_findings(
                 query = query.filter(func.coalesce(Finding.scanner, 'unknown') == scanner)
             if review_status:
                 query = query.filter(Finding.review_status == review_status)
+            if finding_class:
+                query = query.filter(func.coalesce(Finding.finding_class, 'unknown') == finding_class)
             if search:
                 escaped = search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
                 pattern = '%' + escaped + '%'
                 query = query.filter(or_(Finding.title.ilike(pattern, escape='\\'),
                                          Finding.rule_id.ilike(pattern, escape='\\'),
-                                         Finding.file_path.ilike(pattern, escape='\\')))
+                                         Finding.file_path.ilike(pattern, escape='\\'),
+                                         Finding.cve_id.ilike(pattern, escape='\\'),
+                                         Finding.package.ilike(pattern, escape='\\'),
+                                         Finding.image.ilike(pattern, escape='\\')))
             total = query.count()
             findings = [{**finding.to_dict(), 'repo': scan.repo_name,
                          'scan_id': scan.id, 'scan_time': scan.to_dict()['created_at']}
@@ -373,7 +381,7 @@ def scan_cve_summary(limit: int = Query(default=100, ge=1, le=200),
                         Finding.scan_run_id.in_(recent), Finding.cve_id.in_([row[0] for row in rows])).distinct():
                     repos.setdefault(cve_id, []).append(repo)
             severities = {5: 'CRITICAL', 4: 'HIGH', 3: 'MEDIUM', 2: 'LOW', 1: 'INFO', 0: 'UNKNOWN'}
-            return {'cves': [{'id': row[0], 'severity': severities[row[1]], 'score': row[2] or 0,
+            return {'cves': [{'id': row[0], 'severity': severities[row[1]], 'score': row[2],
                               'title': row[3] or '', 'count': row[4], 'repos': sorted(repos.get(row[0], [])),
                               'from_live': False} for row in rows],
                     'total': total, 'limit': limit, 'offset': offset, 'scope': 'recent_100_scans'}

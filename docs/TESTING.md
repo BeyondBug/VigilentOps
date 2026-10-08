@@ -302,3 +302,17 @@ The Grafana scanner chart now uses one grouped query for all scanner labels.
 Recheck its query and rendered legend on Kali; the previous 32-query acceptance
 count does not describe this updated dashboard. Verify INFO/UNKNOWN filters
 and severity totals in the findings UI. These changes have not run locally.
+
+## Finding accuracy presentation
+
+On the product/finding-accuracy branch, check category + severity + review
+filters together and paginate through results. Quality warnings remain in raw
+counts and can be viewed separately. Search supports advisory IDs, packages and
+images, with literal wildcard handling. Missing historical categories are unknown.
+Expand a finding to inspect package/version/image metadata and review evidence.
+Missing CVSS is “Not reported”; a real zero is displayed as zero. No category,
+severity or scanner agreement automatically confirms exploitability.
+
+Select a scan with a failed AI task: its AI state and task ID must be visible
+independently of scanner completion, with findings still accessible. These
+changes do not alter review dispositions, credentials or enqueue AI jobs.

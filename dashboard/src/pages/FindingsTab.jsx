@@ -9,10 +9,12 @@ export default function FindingsTab({ scans }) {
   const [toolFilter, setToolFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [reviewFilter, setReviewFilter] = useState("ALL");
+  const [classFilter, setClassFilter] = useState("ALL");
   const [page, setPage] = useState(0);
   const result = useFindings({ page, severity: sevFilter === "ALL" ? "" : sevFilter,
     scanner: toolFilter === "ALL" ? "" : toolFilter, search,
-    reviewStatus: reviewFilter === "ALL" ? "" : reviewFilter, revision: scans });
+    reviewStatus: reviewFilter === "ALL" ? "" : reviewFilter,
+    findingClass: classFilter === "ALL" ? "" : classFilter, revision: scans });
   useEffect(() => {
     if (!result.loading && !result.error && page > 0 && page * 50 >= result.total) setPage(0);
   }, [result.loading, result.error, result.total, page]);
@@ -42,6 +44,11 @@ export default function FindingsTab({ scans }) {
         />
         <FilterGroup label="Severity" options={sevs} value={sevFilter} onChange={changeFilter(setSevFilter)} colorMap={SEV_COLOR} />
         <FilterGroup label="Scanner"  options={tools} value={toolFilter} onChange={changeFilter(setToolFilter)} />
+        <label style={{ fontSize: 11, color: T.textDim }}>Category <select aria-label="Finding category"
+          value={classFilter} onChange={e => changeFilter(setClassFilter)(e.target.value)}>
+          {["ALL", "sast", "sca", "secret", "iac", "quality", "unknown"].map(category =>
+            <option key={category} value={category}>{category === "quality" ? "Code quality" : category.toUpperCase()}</option>)}
+        </select></label>
         <label style={{ fontSize: 11, color: T.textDim }}>Review <select aria-label="Review status"
           value={reviewFilter} onChange={e => changeFilter(setReviewFilter)(e.target.value)}>
           {["ALL", "unverified", "confirmed", "false_positive", "accepted_risk", "fixed"].map(status =>
@@ -51,7 +58,7 @@ export default function FindingsTab({ scans }) {
 
       {/* Count */}
       <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.font, marginBottom: 12, letterSpacing: 1 }}>
-        Latest 100 scans · {result.total_in_scope.toLocaleString()} finding records in scope
+        Latest 100 scans · {result.total_in_scope.toLocaleString()} finding records in scope. Scanner severity does not establish exploitability.
       </div>
 
       {/* Findings list */}

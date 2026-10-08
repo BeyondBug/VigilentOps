@@ -84,6 +84,41 @@ class FindingReviewTests(unittest.TestCase):
         self.assertEqual(data['cves'][0]['count'], 1)
         self.assertEqual(self.client.get('/api/cves/summary?offset=1').json()['cves'], [])
 
+    def test_category_filters_keep_quality_separate_without_hiding_raw_records(self):
+        with self.sessions() as db:
+            db.add(Finding(scan_run_id=self.scan, scanner='hadolint', rule_id='DL3006',
+                           severity='HIGH', title='Pin base image', finding_class='quality'))
+            db.add(Finding(scan_run_id=self.scan, scanner='legacy', severity='LOW',
+                           title='Unclassified historical alert'))
+            db.commit()
+        self.assertEqual(self.client.get('/api/findings').json()['total'], 3)
+        security = self.client.get('/api/findings?finding_class=sast').json()
+        self.assertEqual(security['total'], 1)
+        self.assertEqual(security['total_in_scope'], 3)
+        quality = self.client.get('/api/findings?finding_class=quality').json()
+        self.assertEqual(quality['findings'][0]['rule_id'], 'DL3006')
+        self.assertEqual(self.client.get('/api/findings?finding_class=unknown').json()['total'], 1)
+        self.assertEqual(self.client.get('/api/findings?finding_class=invalid').status_code, 422)
+        self.assertEqual(self.client.get('/api/findings?finding_class=quality&severity=LOW').json()['total'], 0)
+
+    def test_search_matches_advisory_package_image_and_escapes_wildcards(self):
+        with self.sessions() as db:
+            finding = db.get(Finding, self.finding)
+            finding.package = 'fixture-package'
+            finding.image = 'fixture-image@sha256:abc'
+            db.commit()
+        for term in ('CVE-2026-12345', 'fixture-package', 'fixture-image'):
+            self.assertEqual(self.client.get('/api/findings', params={'search': term}).json()['total'], 1)
+        self.assertEqual(self.client.get('/api/findings', params={'search': '%'}).json()['total'], 0)
+        self.assertEqual(self.client.get('/api/findings', params={'search': '_'}).json()['total'], 0)
+
+    def test_cve_summary_distinguishes_missing_score_from_zero(self):
+        self.assertIsNone(self.client.get('/api/cves/summary').json()['cves'][0]['score'])
+        with self.sessions() as db:
+            db.get(Finding, self.finding).cvss_score = 0.0
+            db.commit()
+        self.assertEqual(self.client.get('/api/cves/summary').json()['cves'][0]['score'], 0.0)
+
     def accepted_scan(self):
         with self.sessions() as db:
             scan = db.get(ScanRun, self.scan)

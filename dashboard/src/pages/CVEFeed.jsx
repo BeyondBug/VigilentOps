@@ -26,7 +26,7 @@ export default function CVEFeed({ scans }) {
           data.map(c => ({
             id:          c.cve_id,
             severity:    c.severity || "UNKNOWN",
-            score:       c.cvss_score || 0,
+            score:       c.cvss_score ?? null,
             title:       (c.description || "").slice(0, 120),
             description: c.description || "",
             cwe_ids:     c.cwe_ids || [],
@@ -117,13 +117,13 @@ export default function CVEFeed({ scans }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
                   <span style={{ fontFamily: T.font, fontSize: 13, fontWeight: 700, color: T.accent }}>{cve.id}</span>
                   {sevBadge(cve.severity)}
-                  {cve.score > 0 && (
+                  {(
                     <span style={{
                       fontSize: 11, padding: "1px 7px", borderRadius: 4,
                       background: `${SEV_COLOR[(cve.severity || "").toUpperCase()]}18`,
                       color: SEV_COLOR[(cve.severity || "").toUpperCase()] || T.textDim,
                       fontFamily: T.font, fontWeight: 700,
-                    }}>CVSS {cve.score}</span>
+                    }}>CVSS {cve.score ?? "Not reported"}</span>
                   )}
                   {cve.is_kev && (
                     <span style={{

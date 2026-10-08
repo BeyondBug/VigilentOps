@@ -67,6 +67,11 @@ export default function ScanHistory({ scans }) {
             <div style={{ marginBottom: 20 }}>
               <KVRow label="Repo"    value={scan.repo_name} />
               <KVRow label="Status" value={scan.status || 'unknown'} />
+              <KVRow label="AI review" value={scan.ai_task_status || (scan.ai_task_id ? 'Unknown' : 'Not requested')} />
+              {scan.ai_task_id && <KVRow label="AI task" value={scan.ai_task_id} mono />}
+              {['failed', 'retry'].includes(scan.ai_task_status) && <p style={{ color: T.red, fontSize: 12 }}>
+                AI review {scan.ai_task_status === 'failed' ? 'failed' : 'is retrying'}. Scanner findings remain available; no validated fix is implied.
+              </p>}
               <KVRow label="Branch" value={scan.branch || 'unknown'} />
               <KVRow label="Commit"  value={(scan.commit_sha || "").slice(0, 16)} mono />
               <KVRow label="Pipeline" value={scan.pipeline_commit || 'Not recorded'} mono />

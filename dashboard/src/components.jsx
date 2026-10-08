@@ -179,6 +179,7 @@ export function FindingCard({ finding, showRepo }) {
             <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.font }}>
               {TOOL_ICON[finding.tool] || "?"} {finding.tool}
             </span>
+            <span style={{ fontSize: 10, color: T.textDim }}>{finding.finding_class || 'unknown category'}</span>
             {finding.cve_id && (
               <span style={{
                 fontSize: 10, padding: "1px 6px", borderRadius: 3,
@@ -221,12 +222,18 @@ export function FindingCard({ finding, showRepo }) {
             Reviewed by {finding.review_owner}: {finding.review_evidence}
             {finding.review_details?.review_date && <div>Review due: {finding.review_details.review_date}</div>}
           </div>}
-          {finding.cvss_score > 0 && (
-            <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8, fontFamily: T.font }}>
-              CVSS: <span style={{ color: SEV_COLOR[sev] || T.text, fontWeight: 700 }}>{finding.cvss_score}</span>
-              {finding.cwe_id && <span style={{ marginLeft: 12 }}>CWE: {finding.cwe_id}</span>}
-            </div>
-          )}
+          <div style={{ fontSize: 11, color: T.textDim, margin: '10px 0', fontFamily: T.font }}>
+            CVSS: {finding.cvss_score ?? 'Not reported'}
+            {finding.cwe_id && <span style={{ marginLeft: 12 }}>CWE: {finding.cwe_id}</span>}
+          </div>
+          {finding.review_status === 'unverified' && <p style={{ fontSize: 12, color: T.textDim }}>
+            Scanner alert awaiting evidence review. Applicability and exploitability have not been established.
+          </p>}
+          <KVRow label="Package" value={finding.package || 'Not reported'} mono />
+          <KVRow label="Installed" value={finding.installed_version || 'Not reported'} mono />
+          <KVRow label="Fix version" value={finding.fixed_version || 'Not reported'} mono />
+          <KVRow label="Image" value={finding.image || 'Not reported'} mono />
+          {finding.description && <p style={{ fontSize: 12, color: T.text, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{finding.description}</p>}
           {finding.code_snippet && (
             <pre style={{
               background: T.bg, border: `1px solid ${T.border}`, borderRadius: 6,
