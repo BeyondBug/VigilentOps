@@ -58,6 +58,14 @@ docker run --rm --network none -v "$PWD":/repo:ro -w /repo \
   secureguard-orchestrator python -m unittest discover -s tests -v
 ```
 
+The installer regression tests install synthetic wheels and extract synthetic
+archives into temporary directories, without downloading packages. A normal
+entry point/file must work, while an entry point or symlink targeting outside
+the destination must not create a file. Run them in the rebuilt Python images;
+the old pip 24.0 image is expected to fail these checks. Both Python Dockerfiles
+upgrade pip before installing application dependencies and reject a Trixie
+liblzma5 version older than the security update `5.8.1-1+deb13u2`.
+
 After building, confirm migrations completed and the API routes load:
 
 ```bash

@@ -1,15 +1,17 @@
-FROM python:3.11-slim
+FROM python:3.11-slim-trixie
 
 WORKDIR /app
 
 RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' liblzma5)" ge 5.8.1-1+deb13u2 \
     && apt-get install -y --no-install-recommends \
     git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN python -m pip install --no-cache-dir --upgrade pip==26.2.0 \
+    && python -m pip install --no-cache-dir -r requirements.txt \
     && pip uninstall -y setuptools wheel
 
 COPY . .
