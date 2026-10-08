@@ -12,15 +12,16 @@ export default function CVEFeed({ scans }) {
   const [source, setSource] = useState("live");  // "live" | "scan"
 
   // Fetch live CVE feed from cve-intel service
-  const fetchLiveCVEs = useCallback(async () => {
+  const fetchLiveCVEs = useCallback(async (signal) => {
     setLoading(true);
     setError(null);
     setCveData([]);
     try {
-      const r = await fetch(`${CVE_INTEL}/cves/recent?limit=100`);
+      const r = await fetch(`${CVE_INTEL}/cves/recent?limit=100`, { signal });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       {
         const data = await r.json();
+        if (signal.aborted) return;
         setCveData(
           data.map(c => ({
             id:          c.cve_id,
@@ -39,38 +40,41 @@ export default function CVEFeed({ scans }) {
         );
       }
     } catch (e) {
-      setError(`Live CVE feed unavailable: ${e.message}`);
+      if (!signal.aborted) setError(`Live CVE feed unavailable: ${e.message}`);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   }, []);
 
-  const loadScanCVEs = useCallback(async () => {
+  const loadScanCVEs = useCallback(async (signal) => {
     setLoading(true);
     setError(null);
     setCveData([]);
     try {
-      const response = await fetch(`${API}/api/cves/summary?limit=200`);
+      const response = await fetch(`${API}/api/cves/summary?limit=200`, { signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
+      if (signal.aborted) return;
       setCveData(data.cves);
       setScanTotal(data.total);
     } catch (failure) {
-      setError(`Scan CVEs unavailable: ${failure.message}`);
+      if (!signal.aborted) setError(`Scan CVEs unavailable: ${failure.message}`);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   }, [scans]);
 
   useEffect(() => {
+    const controller = new AbortController();
     if (source === "live") {
-      fetchLiveCVEs();
+      fetchLiveCVEs(controller.signal);
     } else {
-      loadScanCVEs();
+      loadScanCVEs(controller.signal);
     }
+    return () => controller.abort();
   }, [source, fetchLiveCVEs, loadScanCVEs]);
 
-  const sevs     = ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW"];
+  const sevs     = ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"];
   const filtered = filter === "ALL" ? cveData : cveData.filter(c => (c.severity || "").toUpperCase() === filter);
 
   return (
