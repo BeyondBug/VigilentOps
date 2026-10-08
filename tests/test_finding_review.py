@@ -62,7 +62,7 @@ class FindingReviewTests(unittest.TestCase):
         self.assertEqual(self.client.patch(self.path, json=body, headers=self.headers).status_code, 422)
         with self.sessions() as db:
             db.add(ScanReport(scan_run_id=verification_id, tool='bandit', sha256='1'*64, finding_count=0, coverage='scanned'))
-            duplicate = Finding(scan_run_id=verification_id, scanner='bandit', rule_id='B602', severity='HIGH', file_path='app.py', cve_id='CVE-2026-12345')
+            duplicate = Finding(scan_run_id=verification_id, scanner='bandit', rule_id='B602', severity='HIGH', title='Shell injection', file_path='app.py', cve_id='CVE-2026-12345')
             db.add(duplicate)
             db.flush()
             duplicate_id = duplicate.id
