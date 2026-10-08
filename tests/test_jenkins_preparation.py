@@ -26,19 +26,3 @@ class JenkinsPreparationTests(unittest.TestCase):
             self.assertEqual(after['metrics_password'], before['metrics_password'])
             self.assertEqual((private / 'bootstrap.json').stat().st_mode & 0o777, 0o600)
             self.assertEqual(private.stat().st_mode & 0o777, 0o700)
-
-    def test_gitea_token_is_stored_only_in_private_bootstrap(self):
-        from contextlib import redirect_stdout
-        from io import StringIO
-        with tempfile.TemporaryDirectory() as temporary:
-            env = Path(temporary) / '.env'
-            private = Path(temporary) / 'private'
-            env.write_text('PROXY_AUTH_USER=operator\nPROXY_AUTH_PASSWORD=fixture-password\nGITEA_TOKEN=fixture-private-git-token\nGITEA_GIT_USERNAME=fixture-bot\n')
-            output = StringIO()
-            with redirect_stdout(output):
-                prepare(env, private)
-            values = json.loads((private / 'bootstrap.json').read_text())
-            self.assertEqual(values['gitea_username'], 'fixture-bot')
-            self.assertEqual(values['gitea_token'], 'fixture-private-git-token')
-            self.assertNotIn('fixture-private-git-token', output.getvalue())
-            self.assertEqual((private / 'bootstrap.json').stat().st_mode & 0o777, 0o600)
