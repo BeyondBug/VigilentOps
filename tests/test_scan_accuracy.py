@@ -111,10 +111,14 @@ class ArtifactTests(unittest.TestCase):
 
     def test_success_exit_without_new_report_rejects_stale_result(self):
         (self.reports/'dockle.sarif').write_text(json.dumps({'version':'2.1.0','runs':[{'results':[]}]}))
-        with patch('run_image_artifacts.subprocess.run', return_value=subprocess.CompletedProcess([], 0)):
+        with patch('run_image_artifacts.docker_socket_group', return_value=998), \
+             patch('run_image_artifacts.subprocess.run', return_value=subprocess.CompletedProcess([], 0)) as commands:
             with self.assertRaises(ValueError):
                 scan_image('sha256:'+'a'*64, 'alias:scan', 'dockle', 'scanner:fixed', self.reports, str(self.reports))
         self.assertFalse((self.reports/'dockle.sarif').exists())
+        command = commands.call_args_list[0].args[0]
+        self.assertIn('--user', command)
+        self.assertEqual(command[command.index('--group-add')+1], '998')
 
     def test_identical_builds_are_scanned_once_per_image_and_map_every_artifact(self):
         for name in ('api/Dockerfile', 'worker/Dockerfile', 'ui/Dockerfile'):

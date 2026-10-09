@@ -93,11 +93,17 @@ def attach_image(report, image_id, artifact_ids):
     return report['runs']
 
 
+def docker_socket_group():
+    return Path('/var/run/docker.sock').stat().st_gid
+
+
 def scan_image(image_id, alias, tool, image, directory, host_directory):
     name = 'sg-artifact-scan-' + uuid.uuid4().hex[:12]
     path = directory / (tool + '.sarif')
     path.unlink(missing_ok=True)
     command = ['docker', 'run', '--rm', '--name', name, '--network', 'none', '--read-only',
+               '--user', f'{os.getuid()}:{os.getgid()}',
+               '--group-add', str(docker_socket_group()), '-e', 'HOME=/tmp',
                '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--cpus', '2',
                '--memory', '4g', '--pids-limit', '512', '--tmpfs', '/tmp:rw,nosuid,size=256m',
                '--label', 'secureguard.image-scan=true',

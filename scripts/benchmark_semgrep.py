@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import uuid
 from pathlib import Path
@@ -59,9 +60,9 @@ def run(rules, fixtures, host_rules, host_fixtures, image, output, require_pass)
     image_id = subprocess.check_output(['docker', 'image', 'inspect', image, '--format', '{{.Id}}'], text=True).strip()
     name = 'sg-rule-benchmark-' + uuid.uuid4().hex[:12]
     command = ['docker', 'run', '--rm', '--name', name, '--network', 'none', '--read-only',
+               '--user', f'{os.getuid()}:{os.getgid()}', '-e', 'HOME=/tmp',
                '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--cpus', '2',
                '--memory', '2g', '--pids-limit', '256', '--tmpfs', '/tmp:rw,nosuid,size=256m',
-               '--tmpfs', '/root/.semgrep:rw,nosuid,size=16m',
                '-e', 'SEMGREP_SEND_METRICS=off', '-e', 'SEMGREP_ENABLE_VERSION_CHECK=0',
                '-e', 'SEMGREP_USER_DATA_FOLDER=/tmp/semgrep', '-v', host_rules + ':/rules:ro',
                '-v', host_fixtures + ':/fixtures:ro', image_id, 'semgrep', 'scan',
