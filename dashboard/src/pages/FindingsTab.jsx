@@ -9,14 +9,19 @@ export default function FindingsTab({ scans }) {
   const [toolFilter, setToolFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [reviewFilter, setReviewFilter] = useState("ALL");
+  const [classFilter, setClassFilter] = useState("ALL");
+  const [showAllAlerts, setShowAllAlerts] = useState(false);
+  const [groupDuplicates, setGroupDuplicates] = useState(false);
+  const [groupId, setGroupId] = useState(null);
   const [page, setPage] = useState(0);
   const result = useFindings({ page, severity: sevFilter === "ALL" ? "" : sevFilter,
     scanner: toolFilter === "ALL" ? "" : toolFilter, search,
-    reviewStatus: reviewFilter === "ALL" ? "" : reviewFilter, revision: scans });
+    reviewStatus: reviewFilter === "ALL" ? "" : reviewFilter,
+    findingClass: classFilter === "ALL" ? "" : classFilter, verifiedOnly: !showAllAlerts, groupDuplicates, groupId, revision: scans });
   useEffect(() => {
     if (!result.loading && !result.error && page > 0 && page * 50 >= result.total) setPage(0);
   }, [result.loading, result.error, result.total, page]);
-  const changeFilter = setter => value => { setter(value); setPage(0); };
+  const changeFilter = setter => value => { setter(value); setPage(0); setGroupId(null); };
   const tools = ["ALL", ...result.scanners];
   const sevs  = ["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO", "UNKNOWN"];
 
@@ -42,6 +47,19 @@ export default function FindingsTab({ scans }) {
         />
         <FilterGroup label="Severity" options={sevs} value={sevFilter} onChange={changeFilter(setSevFilter)} colorMap={SEV_COLOR} />
         <FilterGroup label="Scanner"  options={tools} value={toolFilter} onChange={changeFilter(setToolFilter)} />
+        <label style={{ fontSize: 11, color: T.textDim }}><input type="checkbox"
+          checked={showAllAlerts} onChange={e => changeFilter(setShowAllAlerts)(e.target.checked)} />
+          Show all scanner alerts (includes unverified)
+        </label>
+        <label style={{ fontSize: 11, color: T.textDim }}><input type="checkbox"
+          checked={groupDuplicates} onChange={e => changeFilter(setGroupDuplicates)(e.target.checked)} />
+          Group matching dependency alerts
+        </label>
+        <label style={{ fontSize: 11, color: T.textDim }}>Category <select aria-label="Finding category"
+          value={classFilter} onChange={e => changeFilter(setClassFilter)(e.target.value)}>
+          {["ALL", "sast", "sca", "secret", "iac", "quality", "unknown"].map(category =>
+            <option key={category} value={category}>{category === "quality" ? "Code quality" : category.toUpperCase()}</option>)}
+        </select></label>
         <label style={{ fontSize: 11, color: T.textDim }}>Review <select aria-label="Review status"
           value={reviewFilter} onChange={e => changeFilter(setReviewFilter)(e.target.value)}>
           {["ALL", "unverified", "confirmed", "false_positive", "accepted_risk", "fixed"].map(status =>
@@ -51,20 +69,24 @@ export default function FindingsTab({ scans }) {
 
       {/* Count */}
       <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.font, marginBottom: 12, letterSpacing: 1 }}>
-        Latest 100 scans · {result.total_in_scope.toLocaleString()} finding records in scope
+        Latest 100 scans · {result.total_in_scope.toLocaleString()} scanner records in scope · {result.verified_in_scope ?? 0} evidence-confirmed. Scanner severity does not establish exploitability.
       </div>
 
+      {groupId != null && <button onClick={() => { setGroupId(null); setPage(0); }}>Back to findings</button>}
+      {result.grouped && <p style={{ color: T.textDim, fontSize: 12 }}>
+        {result.total} display groups from {result.total_records} matching scanner records. Grouping does not confirm exploitability.
+      </p>}
       {/* Findings list */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {result.error ? <EmptyState message={`Unable to load findings: ${result.error}`} /> : result.loading ? (
           <EmptyState message="Loading findings…" />
         ) : result.findings.length === 0 ? (
-          <EmptyState message="No findings match the current filters." />
+          <EmptyState message={showAllAlerts ? "No scanner alerts match the current filters." : "No evidence-confirmed findings match this view. Unverified alerts remain under Show all scanner alerts; this is not proof of a vulnerability-free system."} />
         ) : result.findings.map(f => (
-          <FindingCard key={f.id} finding={f} showRepo />
+          <FindingCard key={f.id} finding={f} showRepo onViewGroup={id => { setGroupId(id); setPage(0); }} />
         ))}
       </div>
-      <FindingPage page={page} total={result.total} loading={result.loading} onChange={setPage} />
+      <FindingPage page={page} total={result.total} unit={result.grouped ? "groups" : "records"} loading={result.loading} onChange={setPage} />
     </div>
   );
 }

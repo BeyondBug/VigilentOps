@@ -61,6 +61,8 @@ def _finding_entry(finding: dict, proposed_ids: set[int]) -> str:
         f"- **Installed version:** {_one_line(finding.get('installed_version'))}\n"
         f"- **Reported fixed version:** {_one_line(finding.get('fixed_version'))}\n"
         f"- **Image:** {_one_line(finding.get('image'))}\n"
+        f"- **Review status:** {_one_line(finding.get('review_status'))}\n"
+        f"- **Proof reference:** {_one_line((finding.get('review_details') or {}).get('proof_reference'))}\n"
         f"- **Stored status:** {_one_line(finding.get('fix_status'))}\n"
         f"- **AI proposal:** {proposal}; security and runtime behavior are unverified.\n\n"
         f"**Scanner description**\n\n{description_block}\n\n"
@@ -88,15 +90,15 @@ def build_finding_comments(
         for scanner, items in sorted(by_scanner.items())
     ) or "- No findings were stored."
     summary = (
-        f"## Complete scanner findings — Scan #{scan_run_id}\n\n"
-        f"This scan stored **{len(findings)} finding records** across "
+        f"## Review findings — Scan #{scan_run_id}\n\n"
+        f"This review contains **{len(findings)} finding records** across "
         f"**{len(by_scanner)} tools**. Severity records: {totals}. "
         "Different tools can report the same underlying issue. "
         "Only findings marked \"Proposed file change\" are associated with "
         "this AI patch; no finding is verified fixed.\n\n"
         "**Findings by tool**\n\n"
         f"{tool_counts}\n\n"
-        "All stored finding metadata follows in this conversation. Raw source "
+        "Included finding metadata follows in this conversation. Raw source "
         "snippets and descriptions likely to contain credentials are excluded to avoid copying "
         "credentials into pull request comments.\n"
     )

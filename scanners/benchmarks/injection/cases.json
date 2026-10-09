@@ -1,0 +1,106 @@
+{
+  "schema": 1,
+  "description": "Focused source-rule detection benchmark, not exploit confirmation or a whole-product accuracy score.",
+  "cases": [
+    {
+      "path": "python-command-unsafe.py",
+      "rule": "python-command-injection",
+      "expected": true
+    },
+    {
+      "path": "python-command-constant.py",
+      "rule": "python-command-injection",
+      "expected": false
+    },
+    {
+      "path": "python-command-argv.py",
+      "rule": "python-command-injection",
+      "expected": false
+    },
+    {
+      "path": "python-sql-unsafe.py",
+      "rule": "python-sql-injection",
+      "expected": true
+    },
+    {
+      "path": "python-sql-params.py",
+      "rule": "python-sql-injection",
+      "expected": false
+    },
+    {
+      "path": "python-sql-constant.py",
+      "rule": "python-sql-injection",
+      "expected": false
+    },
+    {
+      "path": "js-eval-unsafe.js",
+      "rule": "js-eval-injection",
+      "expected": true
+    },
+    {
+      "path": "js-eval-constant.js",
+      "rule": "js-eval-injection",
+      "expected": false
+    },
+    {
+      "path": "js-eval-json.js",
+      "rule": "js-eval-injection",
+      "expected": false
+    },
+    {
+      "path": "js-xss-unsafe.js",
+      "rule": "js-xss-innerhtml",
+      "expected": true
+    },
+    {
+      "path": "js-xss-constant.js",
+      "rule": "js-xss-innerhtml",
+      "expected": false
+    },
+    {
+      "path": "js-xss-text.js",
+      "rule": "js-xss-innerhtml",
+      "expected": false
+    },
+    {
+      "path": "python-command-alias.py",
+      "rule": "python-command-injection",
+      "expected": true
+    },
+    {
+      "path": "python-command-constant-alias.py",
+      "rule": "python-command-injection",
+      "expected": false
+    },
+    {
+      "path": "python-sql-alias.py",
+      "rule": "python-sql-injection",
+      "expected": true
+    },
+    {
+      "path": "python-sql-constant-alias.py",
+      "rule": "python-sql-injection",
+      "expected": false
+    },
+    {
+      "path": "js-eval-alias.js",
+      "rule": "js-eval-injection",
+      "expected": true
+    },
+    {
+      "path": "js-eval-constant-alias.js",
+      "rule": "js-eval-injection",
+      "expected": false
+    },
+    {
+      "path": "js-xss-alias.js",
+      "rule": "js-xss-innerhtml",
+      "expected": true
+    },
+    {
+      "path": "js-xss-constant-alias.js",
+      "rule": "js-xss-innerhtml",
+      "expected": false
+    }
+  ]
+}

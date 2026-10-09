@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "artifacts": [
+    {"id": "api", "context": "ai-engine", "dockerfile": "ai-engine/Dockerfile", "services": ["orchestrator", "celery-worker", "migrate"]},
+    {"id": "cve", "context": "cve-intel", "dockerfile": "cve-intel/Dockerfile", "services": ["cve-intel", "cve-worker"]},
+    {"id": "dashboard", "context": "dashboard", "dockerfile": "dashboard/Dockerfile", "services": ["dashboard"]},
+    {"id": "jenkins", "context": "jenkins", "dockerfile": "jenkins/Dockerfile", "services": ["jenkins"]},
+    {"id": "wazuh-proxy", "context": "wazuh-proxy", "dockerfile": "wazuh-proxy/Dockerfile", "services": ["wazuh-proxy"]}
+  ]
+}

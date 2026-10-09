@@ -6,8 +6,9 @@ import FindingPage from "../FindingPage";
 
 export default function ScanHistory({ scans }) {
   const [selected, setSelected] = useState(null);
+  const [showAllAlerts, setShowAllAlerts] = useState(false);
   const [page, setPage] = useState(0);
-  const result = useFindings({ scanId: selected, page, revision: scans, enabled: selected != null });
+  const result = useFindings({ scanId: selected, page, verifiedOnly: !showAllAlerts, revision: scans, enabled: selected != null });
   const select = id => { setSelected(id); setPage(0); };
 
   const scan = scans.find(s => s.id === selected);
@@ -67,11 +68,17 @@ export default function ScanHistory({ scans }) {
             <div style={{ marginBottom: 20 }}>
               <KVRow label="Repo"    value={scan.repo_name} />
               <KVRow label="Status" value={scan.status || 'unknown'} />
+              <KVRow label="AI review" value={scan.ai_task_status || (scan.ai_task_id ? 'Unknown' : 'Not requested')} />
+              {scan.ai_task_id && <KVRow label="AI task" value={scan.ai_task_id} mono />}
+              {['failed', 'retry'].includes(scan.ai_task_status) && <p style={{ color: T.red, fontSize: 12 }}>
+                AI review {scan.ai_task_status === 'failed' ? 'failed' : 'is retrying'}. Scanner findings remain available; no validated fix is implied.
+              </p>}
               <KVRow label="Branch" value={scan.branch || 'unknown'} />
               <KVRow label="Commit"  value={(scan.commit_sha || "").slice(0, 16)} mono />
               <KVRow label="Pipeline" value={scan.pipeline_commit || 'Not recorded'} mono />
               <KVRow label="Time"    value={scan.created_at ? new Date(scan.created_at).toLocaleString() : "N/A"} />
-              <KVRow label="Total"   value={scan.total_findings} />
+              <KVRow label="Confirmed" value={scan.verified_finding_count ?? 0} />
+              <KVRow label="Raw alerts"   value={scan.total_findings} />
               <KVRow label="Critical" value={<span style={{ color: SEV_COLOR.CRITICAL, fontWeight: 700 }}>{scan.critical_count}</span>} />
               <KVRow label="High"    value={<span style={{ color: SEV_COLOR.HIGH, fontWeight: 700 }}>{scan.high_count}</span>} />
             </div>
@@ -97,8 +104,11 @@ export default function ScanHistory({ scans }) {
               </div>
             </div>
             <div style={{ fontFamily: T.font, fontSize: 11, color: T.textDim, marginBottom: 8, letterSpacing: 1 }}>
-              FINDINGS ({result.total})
+              {showAllAlerts ? "SCANNER ALERTS" : "EVIDENCE-CONFIRMED FINDINGS"} ({result.total})
             </div>
+            <label style={{ color: T.textDim, fontSize: 12 }}><input type="checkbox" checked={showAllAlerts}
+              onChange={e => { setShowAllAlerts(e.target.checked); setPage(0); }} /> Show all scanner alerts (includes unverified)</label>
+            {!result.loading && !result.error && result.findings.length === 0 && <EmptyState message="No matching evidence-confirmed findings. Unverified alerts remain available; zero confirmed findings does not establish safety." />}
             {result.error ? <EmptyState message={`Unable to load findings: ${result.error}`} />
               : result.loading ? <EmptyState message="Loading findings…" />
               : result.findings.map(f => <FindingCard key={f.id} finding={f} />)}

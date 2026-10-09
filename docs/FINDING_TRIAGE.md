@@ -92,3 +92,51 @@ labels prioritize review; they do not establish exploitability, a CVE or a
 CVSS score. Review the actual diagnostic and context, especially parser errors
 and suppressed shell diagnostics. They appear in private exports and future
 whole-scan PR conversations but are outside Python automatic patch scope.
+
+## Evidence-confirmed reporting
+
+The product dashboard defaults to evidence-confirmed findings. Raw alerts stay
+under **Show all scanner alerts (includes unverified)** and retain their original
+severity, report receipts and audit history. Older `confirmed` reviews without
+structured reproduction evidence appear as `review only`; they are not promoted
+or deleted. A zero confirmed count means evidence is absent, not that scans proved
+safety. External NVD feed entries are advisories, not project vulnerabilities.
+
+To confirm a security finding, an authenticated operator must record a controlled
+reproduction at the exact scanned commit. Put these fields in a private JSON file:
+
+```json
+{
+  "tested_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "verification_method": "controlled_reproduction",
+  "artifact": "app.py",
+  "proof_reference": "private/reproductions/finding-123-test.log",
+  "reproduction_steps": "Describe the controlled input, setup and repeatable test.",
+  "observed_impact": "Describe the actual observed unauthorized security impact."
+}
+```
+
+Use the real commit and artifact. Artifact identity must equal the finding's
+image if present, otherwise its file path, otherwise its package. The reference
+must point to retained proof; the API validates the attestation fields and identity,
+not the contents of an external proof file. Reproduce safely in an isolated test
+copy, record an owner and evidence, then use the existing Kali operator command:
+
+```bash
+python3 scripts/review_finding.py 123 confirmed --owner 'Reviewer name' --version 0 \
+  --evidence-file /private/evidence.txt --details-file /private/reproduction.json
+```
+
+No AI confidence percentage, CVSS threshold, scanner agreement or package-version
+match can replace this evidence. Code-quality warnings cannot be confirmed as
+security vulnerabilities. This gate does not automatically run exploits and cannot
+make reviewer attestations infallible. Findings that cannot yet be reproduced stay
+unverified for investigation; retain them to avoid silently losing coverage.
+
+The AI queue returns `awaiting_verification` without reserving a task when no
+eligible evidence-confirmed Python SAST records exist. After confirmation, an
+authenticated operator may call the existing `POST /api/scans/{id}/fix` endpoint.
+Worker selection repeats the gate, PR conversations include evidence-confirmed
+records, and a changed file does not mark its neighboring unverified alerts as
+proposed fixes. High/critical notifications use the same evidence gate. No actual
+notification is sent as part of verification tests.

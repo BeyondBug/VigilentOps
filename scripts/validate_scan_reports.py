@@ -6,6 +6,7 @@ device. Required reports must exist, be nonempty, and have the expected shape.
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -90,8 +91,72 @@ def normalize_osv_report(reports: Path, exit_code: int) -> None:
     }) + "\n", encoding="utf-8")
 
 
+def validate_image_coverage(reports: Path, required: bool = False) -> str | None:
+    path = reports / 'artifacts/coverage.json'
+    if not path.exists():
+        if required:
+            raise ValueError('Image artifact coverage inventory is missing')
+        return None
+    inventory = _load(path)
+    if not isinstance(inventory, dict) or inventory.get('schema') != 1:
+        raise ValueError('Invalid image artifact coverage inventory')
+    artifacts, images = inventory.get('artifacts'), inventory.get('images')
+    if not isinstance(artifacts, list) or not isinstance(images, list):
+        raise ValueError('Invalid artifact/image lists')
+    if not artifacts:
+        if inventory.get('status') != 'not_applicable' or images or inventory.get('discovered_dockerfiles'):
+            raise ValueError('Invalid no-artifact coverage')
+        return 'Image builds: NOT APPLICABLE (no Docker build artifacts discovered)'
+    if inventory.get('status') != 'complete' or any(not isinstance(a, dict) or a.get('status') != 'scanned' for a in artifacts):
+        raise ValueError('Image artifact coverage is incomplete')
+    ids = [a.get('id') for a in artifacts]
+    if any(not isinstance(a, str) or not a for a in ids) or len(set(ids)) != len(ids):
+        raise ValueError('Artifact IDs are missing or duplicated')
+    mapping = {}
+    for image in images:
+        if not isinstance(image, dict) or not isinstance(image.get('image_id'), str) or image.get('image_id') in mapping:
+            raise ValueError('Invalid/duplicate covered image')
+        image_id = image.get('image_id')
+        if not isinstance(image_id, str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', image_id):
+            raise ValueError('Covered images require immutable IDs')
+        artifact_ids = image.get('artifact_ids')
+        if not isinstance(artifact_ids, list) or not artifact_ids or any(not isinstance(a, str) for a in artifact_ids) or len(set(artifact_ids)) != len(artifact_ids):
+            raise ValueError('Covered images require artifact mappings')
+        mapping[image_id] = set(artifact_ids)
+        receipts = image.get('reports')
+        if not isinstance(receipts, dict):
+            raise ValueError('Invalid image report receipts')
+        for tool in ('trivy-image', 'dockle'):
+            receipt = receipts.get(tool)
+            if not isinstance(receipt, dict) or receipt.get('status') != 'accepted' or type(receipt.get('finding_count')) is not int or receipt['finding_count'] < 0:
+                raise ValueError('Every image requires both accepted scanner reports')
+    flattened = [artifact for items in mapping.values() for artifact in items]
+    if set(flattened) != set(ids) or len(flattened) != len(ids):
+        raise ValueError('Artifact/image mapping is incomplete or duplicated')
+    if any(a.get('id') not in mapping.get(a.get('image_id'), set()) for a in artifacts):
+        raise ValueError('Artifact image identity does not match coverage mapping')
+    for tool in ('trivy-image', 'dockle'):
+        _sarif(reports / (tool + '.sarif'))
+        covered, counts = set(), {image_id: 0 for image_id in mapping}
+        for run in _load(reports / (tool + '.sarif'))['runs']:
+            properties = run.get('properties', {})
+            image_id = properties.get('imageName')
+            run_artifacts = properties.get('artifact_ids')
+            if (not isinstance(image_id, str) or image_id not in mapping or not isinstance(run_artifacts, list)
+                    or any(not isinstance(a, str) for a in run_artifacts)
+                    or len(run_artifacts) != len(set(run_artifacts)) or set(run_artifacts) != mapping[image_id]):
+                raise ValueError('Image report identity does not match expected artifact coverage')
+            covered.add(image_id)
+            counts[image_id] += len(run['results'])
+        if covered != set(mapping):
+            raise ValueError('Image report omits an expected image')
+        if any(image['reports'][tool]['finding_count'] != counts[image['image_id']] for image in images):
+            raise ValueError('Image report counts do not match coverage receipts')
+    return f'Image builds: {len(artifacts)} artifacts / {len(images)} immutable images; complete'
+
+
 def validate_reports(reports: Path, has_python: bool = False,
-                     snyk_enabled: bool = False) -> list[str]:
+                     snyk_enabled: bool = False, require_artifacts: bool = False) -> list[str]:
     """Return concise report summaries or raise ValueError."""
     if not reports.is_dir():
         raise ValueError(f"Report directory does not exist: {reports}")
@@ -102,7 +167,8 @@ def validate_reports(reports: Path, has_python: bool = False,
     if image_built:
         required_sarif.append("trivy-image.sarif")
         required_sarif.append("dockle.sarif")
-    summary = []
+    coverage = validate_image_coverage(reports, require_artifacts)
+    summary = [coverage] if coverage else []
     for filename in required_sarif:
         count = _sarif(reports / filename)
         if filename in {'osv.sarif', 'hadolint.sarif', 'shellcheck.sarif'} and any(
@@ -147,6 +213,7 @@ def main() -> int:
     parser.add_argument("reports", type=Path)
     parser.add_argument("--python", action="store_true")
     parser.add_argument("--snyk", action="store_true")
+    parser.add_argument("--require-artifacts", action="store_true")
     parser.add_argument("--normalize-osv-exit-code", type=int)
     args = parser.parse_args()
     try:
@@ -154,7 +221,7 @@ def main() -> int:
             normalize_osv_report(args.reports, args.normalize_osv_exit_code)
             print(f"OSV report contract recorded (exit {args.normalize_osv_exit_code})")
             return 0
-        for line in validate_reports(args.reports, args.python, args.snyk):
+        for line in validate_reports(args.reports, args.python, args.snyk, args.require_artifacts):
             print(line)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

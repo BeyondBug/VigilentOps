@@ -302,3 +302,62 @@ The Grafana scanner chart now uses one grouped query for all scanner labels.
 Recheck its query and rendered legend on Kali; the previous 32-query acceptance
 count does not describe this updated dashboard. Verify INFO/UNKNOWN filters
 and severity totals in the findings UI. These changes have not run locally.
+
+## Finding accuracy presentation
+
+On the product/finding-accuracy branch, check category + severity + review
+filters together and paginate through results. Quality warnings remain in raw
+counts and can be viewed separately. Search supports advisory IDs, packages and
+images, with literal wildcard handling. Missing historical categories are unknown.
+Expand a finding to inspect package/version/image metadata and review evidence.
+Missing CVSS is “Not reported”; a real zero is displayed as zero. No category,
+severity or scanner agreement automatically confirms exploitability.
+
+Select a scan with a failed AI task: its AI state and task ID must be visible
+independently of scanner completion, with findings still accessible. These
+changes do not alter review dispositions, credentials or enqueue AI jobs.
+
+Dependency grouping is opt-in and computed in SQL before pagination. Only SCA
+records with advisory, package, installed version and image/manifest identity
+can group. Scan, file, fix version, severity and review disposition must also
+match. Missing identity and non-SCA findings stay separate. The card identifies
+a representative; “View all scanner records” retrieves paginated originals.
+Group totals count display groups, never confirmed vulnerabilities. Raw records,
+review audit history and raw scan counters are preserved. Verify groups split
+when any artifact/version/review field differs and cannot cross scan scope.
+
+Run the repeatable dashboard fixture checks on Kali after building the candidate:
+
+```bash
+python3 scripts/verify_finding_dashboard.py --image secureguard-product-dashboard:grouping
+```
+
+This checks category request parameters, group drill-down/back navigation,
+artifact details, AI failure visibility and unknown/zero CVSS using Chromium.
+It serves candidate build assets on an ephemeral loopback port and intercepts
+API requests with controlled fixtures. It neither calls shared APIs nor changes
+running services. It is a UI regression check, not a live deployment acceptance.
+
+## Evidence gate acceptance
+
+Check unverified, legacy-confirmed, wrong-commit, wrong-artifact and quality
+fixtures against confirmed-only queries, model queuing, worker selection and
+notification eligibility. Positive fixtures must have named review evidence and
+structured controlled-reproduction details. Test disposition reversal, raw count
+preservation, CVE summary filtering, and pagination. Repeat the API checks against
+isolated PostgreSQL because the gate reads JSON fields in SQL.
+
+The Chromium harness must prove that the default Findings and scan CVE views
+exclude unverified alerts and that those original alerts remain available through
+the explicit toggle. Empty confirmed results must not imply scan coverage or safety.
+Source details and credentials are never submitted to external services by tests.
+
+## Accuracy benchmark and multi-artifact image scans
+
+See [scan accuracy](SCAN_ACCURACY.md) for the labeled rule gate, explicit build
+manifest, immutable image identities and coverage acceptance procedure. The new
+pipeline requires the build inventory even when no Dockerfiles apply. A failed
+build must fail coverage; image report requirements begin when artifacts are
+expected, rather than only after a successful first build. Test failed execution,
+stale outputs, missing images, tampered mappings, duplicate image identities and
+no-artifact repositories on Kali before enabling the revised pipeline.
