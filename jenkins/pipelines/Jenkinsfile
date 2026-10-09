@@ -385,28 +385,11 @@ pipeline {
 
                 stage('Container Image Scans') {
                     steps {
-                        sh """
-                            set -eu
-                            echo "Building and scanning the first target Dockerfile"
-                            DOCKERFILE=\$(find ${SOURCE_DIR} -name Dockerfile -print -quit)
-                            if [ -n "\$DOCKERFILE" ]; then
-                                DIR=\$(dirname "\$DOCKERFILE")
-                                if docker build -t sg-target-scan:${BUILD_NUMBER} "\$DIR"; then
-                                    touch ${REPORTS_DIR}/image-built.marker
-                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports ${env.SCANNER_DOCKLE_IMAGE} -f sarif -o /reports/dockle.sarif sg-target-scan:${BUILD_NUMBER}
-                                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v ${env.HOST_REPORTS}:/reports -v trivy-cache:/root/.cache/trivy ${env.SCANNER_TRIVY_IMAGE} image --timeout 30m --skip-db-update --cache-backend memory --format sarif --output /reports/trivy-image.sarif sg-target-scan:${BUILD_NUMBER}
-                                else
-                                    echo "WARNING: target image build failed; image scanners skipped"
-                                fi
-                            else
-                                echo "No Dockerfile found; image scanners skipped"
-                            fi
-
-                            ls -lh ${REPORTS_DIR}/dockle.sarif 2>/dev/null \
-                              && echo "Dockle OK" || echo "WARNING: dockle no output"
-                            ls -lh ${REPORTS_DIR}/trivy-image.sarif 2>/dev/null \
-                              && echo "Trivy Image OK" || echo "WARNING: Trivy Image no output"
-                        """
+                        sh '''set -eu
+                            python3 scripts/run_image_artifacts.py --source "$SOURCE_DIR" \
+                              --reports "$REPORTS_DIR" --host-reports "$HOST_REPORTS" \
+                              --scanner-manifest scanners/images.json
+                        '''
                     }
                 }
 
@@ -540,7 +523,7 @@ pipeline {
                 script {
                     def pythonFlag = env.HAS_PYTHON == 'true' ? '--python' : ''
                     def snykFlag = env.SNYK_TOKEN?.trim() ? '--snyk' : ''
-                    sh "docker run --rm -v ${env.HOST_REPORTS}:/reports:ro -v ${env.HOST_VALIDATOR}:/validator.py:ro python:3.12-slim python /validator.py /reports ${pythonFlag} ${snykFlag}"
+                    sh "docker run --rm -v ${env.HOST_REPORTS}:/reports:ro -v ${env.HOST_VALIDATOR}:/validator.py:ro python:3.12-slim python /validator.py /reports ${pythonFlag} ${snykFlag} --require-artifacts"
                     def requiredReports = readJSON(text: env.REQUIRED_REPORTS)
                     if (fileExists("${REPORTS_DIR}/image-built.marker")) {
                         requiredReports.addAll(['dockle', 'trivy-image'])
@@ -646,12 +629,14 @@ pipeline {
             sh "ls -lh ${REPORTS_DIR}/ 2>/dev/null || true"
             sh '''set +x
                 rm -f "$REPORTS_DIR/.nvd.properties"
+                docker ps -aq --filter "label=secureguard.image-scan=true" \
+                  --filter "label=secureguard.build=$BUILD_TAG" | xargs -r docker rm -f
                 docker ps -aq --filter "label=secureguard.static-scan=true" \\
                   --filter "label=secureguard.build=$BUILD_TAG" | xargs -r docker rm -f
             '''
             // Preserve private native evidence before workspace cleanup,
             // including reports from a rejected scan. Management auth applies.
-            archiveArtifacts artifacts: 'reports/*.sarif,reports/*.json,semgrep-execution.log,gitleaks-execution.log',
+            archiveArtifacts artifacts: 'reports/**/*.sarif,reports/**/*.json,semgrep-execution.log,gitleaks-execution.log',
                 allowEmptyArchive: true, fingerprint: true
             sh "docker rmi sg-target-scan:${BUILD_NUMBER} 2>/dev/null || true"
             cleanWs()

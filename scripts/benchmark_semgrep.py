@@ -60,6 +60,7 @@ def run(rules, fixtures, host_rules, host_fixtures, image, output, require_pass)
     command = ['docker', 'run', '--rm', '--name', name, '--network', 'none', '--read-only',
                '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--cpus', '2',
                '--memory', '2g', '--pids-limit', '256', '--tmpfs', '/tmp:rw,nosuid,size=256m',
+               '--tmpfs', '/root/.semgrep:rw,nosuid,size=16m',
                '-e', 'SEMGREP_SEND_METRICS=off', '-e', 'SEMGREP_ENABLE_VERSION_CHECK=0',
                '-e', 'SEMGREP_USER_DATA_FOLDER=/tmp/semgrep', '-v', host_rules + ':/rules:ro',
                '-v', host_fixtures + ':/fixtures:ro', image_id, 'semgrep', 'scan',

@@ -62,7 +62,8 @@ def plan_artifacts(root):
     seen, builds = set(), []
     for item in items:
         if (not isinstance(item, dict) or set(item) - {'id', 'dockerfile', 'context', 'target', 'services'}
-                or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}', str(item.get('id', '')))
+                or not isinstance(item.get('id'), str)
+                or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}', item['id'])
                 or item['id'] in seen):
             raise ValueError('Artifact IDs must be valid and unique')
         context = local_path(root, item.get('context'), directory=True)
