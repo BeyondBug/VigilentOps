@@ -12,8 +12,10 @@ def main():
     parser.add_argument('--owner', required=True)
     parser.add_argument('--version', required=True, type=int)
     parser.add_argument('--evidence-file', required=True, type=Path)
-    parser.add_argument('--details-file', type=Path, help='Optional JSON verification or risk exception details')
+    parser.add_argument('--details-file', type=Path, help='Required for confirmed, fixed and accepted_risk: JSON proof or exception details')
     args = parser.parse_args()
+    if args.status in {'confirmed', 'fixed', 'accepted_risk'} and args.details_file is None:
+        parser.error('--details-file is required for this disposition')
     body = {'status': args.status, 'owner': args.owner, 'version': args.version,
             'evidence': args.evidence_file.read_text(),
             'details': json.loads(args.details_file.read_text()) if args.details_file else {}}

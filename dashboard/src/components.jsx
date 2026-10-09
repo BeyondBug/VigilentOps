@@ -175,7 +175,7 @@ export function FindingCard({ finding, showRepo, onViewGroup }) {
             {sevBadge(sev)}
             {finding.group_record_count > 1 && <span style={{ fontSize: 10, color: T.textDim }}>Representative alert</span>}
             <span style={{ fontSize: 10, color: T.textDim }}>
-              {(finding.review_status || 'unverified').replaceAll('_', ' ')}
+              {(finding.verification_level || (finding.review_status === 'confirmed' ? 'review_only' : finding.review_status) || 'unverified').replaceAll('_', ' ')}
             </span>
             <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.font }}>
               {TOOL_ICON[finding.tool] || "?"} {finding.tool}
@@ -231,8 +231,12 @@ export function FindingCard({ finding, showRepo, onViewGroup }) {
             CVSS: {finding.cvss_score ?? 'Not reported'}
             {finding.cwe_id && <span style={{ marginLeft: 12 }}>CWE: {finding.cwe_id}</span>}
           </div>
-          {finding.review_status === 'unverified' && <p style={{ fontSize: 12, color: T.textDim }}>
+          {finding.verification_level !== 'evidence_confirmed' && finding.review_status !== 'fixed' && <p style={{ fontSize: 12, color: T.textDim }}>
             Scanner alert awaiting evidence review. Applicability and exploitability have not been established.
+          </p>}
+          {finding.verification_level === 'evidence_confirmed' && <p style={{ fontSize: 12, color: T.green }}>
+            Reviewer attested to a controlled reproduction at {finding.review_details?.tested_commit}.
+            Proof reference: {finding.review_details?.proof_reference}
           </p>}
           <KVRow label="Package" value={finding.package || 'Not reported'} mono />
           <KVRow label="Installed" value={finding.installed_version || 'Not reported'} mono />

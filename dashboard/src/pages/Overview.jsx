@@ -5,8 +5,9 @@ import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tool
 export default function Overview({ scans }) {
   const totalScans    = scans.length;
   const totalFindings = scans.reduce((s, r) => s + (r.total_findings || 0), 0);
-  const totalCritical = scans.reduce((s, r) => s + (r.critical_count || 0), 0);
-  const totalHigh     = scans.reduce((s, r) => s + (r.high_count || 0), 0);
+  const totalCritical = scans.reduce((s, r) => s + (r.verified_severity_counts?.CRITICAL || 0), 0);
+  const totalHigh     = scans.reduce((s, r) => s + (r.verified_severity_counts?.HIGH || 0), 0);
+  const confirmed = scans.reduce((s, r) => s + (r.verified_finding_count || 0), 0);
   const proposedFindings = scans.reduce((s, r) => s + (r.proposed_finding_count || 0), 0);
 
   // Last 10 scans for area chart
@@ -45,15 +46,16 @@ export default function Overview({ scans }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
         <StatCard label="RECENT SCANS"     value={totalScans}    icon="⬡" color={T.accent} sub="latest 100 scans" />
         <StatCard label="FINDING RECORDS"  value={totalFindings} icon="⚠" color={T.text}  sub="across latest 100 scans" />
-        <StatCard label="CRITICAL"        value={totalCritical} icon="🔴" color={SEV_COLOR.CRITICAL} sub="scanner severity" />
-        <StatCard label="HIGH"            value={totalHigh}     icon="🟠" color={SEV_COLOR.HIGH}     sub="scanner severity" />
+        <StatCard label="EVIDENCE CONFIRMED" value={confirmed} icon="✓" color={T.green} sub="reviewer attested reproduction" />
+        <StatCard label="CONFIRMED CRITICAL"        value={totalCritical} icon="🔴" color={SEV_COLOR.CRITICAL} sub="evidence confirmed" />
+        <StatCard label="CONFIRMED HIGH"            value={totalHigh}     icon="🟠" color={SEV_COLOR.HIGH}     sub="evidence confirmed" />
         <StatCard label="FINDINGS WITH PR" value={proposedFindings} icon="🤖" color={T.green} sub="review required" />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 24 }}>
         {/* Trend chart */}
         <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: 20 }}>
-          <SectionHeader title="SCAN TREND" />
+          <SectionHeader title="RAW SCANNER TREND" />
           <ResponsiveContainer width="100%" height={180}>
             <AreaChart data={trendData}>
               <defs>
@@ -97,7 +99,7 @@ export default function Overview({ scans }) {
       {/* Severity bar + recent scans */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div style={{ background: T.panel, border: `1px solid ${T.border}`, borderRadius: 8, padding: 20 }}>
-          <SectionHeader title="SEVERITY BREAKDOWN" />
+          <SectionHeader title="RAW ALERT SEVERITY" />
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={sevData} barSize={28}>
               <XAxis dataKey="name" tick={{ fill: T.textDim, fontSize: 10, fontFamily: T.font }} axisLine={false} tickLine={false}/>

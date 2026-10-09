@@ -40,10 +40,10 @@ def verify(image, chromium):
         params = parse_qs(url.query)
         if url.path.endswith('/api/findings'):
             grouped = params.get('group_duplicates') == ['true'] and 'group_id' not in params
-            rows = [{**first, 'group_record_count': 2}] if grouped else [first, second]
+            rows = [] if params.get('verified_only') == ['true'] else ([{**first, 'group_record_count': 2}] if grouped else [first, second])
             route.fulfill(json={
                 'findings': rows, 'total': len(rows), 'total_records': 2,
-                'total_in_scope': 2, 'grouped': grouped, 'scanners': ['trivy-image', 'grype'],
+                'total_in_scope': 2, 'verified_in_scope': 0, 'grouped': grouped, 'scanners': ['trivy-image', 'grype'],
             })
         elif url.path.endswith('/api/scans'):
             route.fulfill(json=[scan])
@@ -57,7 +57,7 @@ def verify(image, chromium):
                 {'id': 'CVE-ZERO', 'cve_id': 'CVE-ZERO', 'severity': 'LOW',
                  'score': 0, 'cvss_score': 0},
             ]
-            route.fulfill(json=cves if url.path.endswith('/cves/recent') else {'cves': cves, 'total': 2})
+            route.fulfill(json=cves if url.path.endswith('/cves/recent') else {'cves': [] if params.get('verified_only') == ['true'] else cves, 'total': 0 if params.get('verified_only') == ['true'] else 2})
         else:
             route.continue_()
 
@@ -81,6 +81,8 @@ def verify(image, chromium):
                     page.route('**/*', mock)
                     page.goto(f'http://127.0.0.1:{server.server_port}/dashboard/')
                     page.get_by_role('button', name='Findings', exact=False).click()
+                    page.get_by_text('No evidence-confirmed findings match this view.', exact=False).wait_for()
+                    page.get_by_label('Show all scanner alerts (includes unverified)').check()
                     page.get_by_text(first['title'], exact=True).wait_for()
                     with page.expect_request(lambda r: 'finding_class=sca' in r.url):
                         page.get_by_label('Finding category').select_option('sca')
@@ -103,7 +105,9 @@ def verify(image, chromium):
                     page.get_by_role('button', name='CVE Feed', exact=False).click()
                     page.get_by_text('CVSS Not reported', exact=True).wait_for()
                     page.get_by_text('CVSS 0', exact=True).wait_for()
-                    page.get_by_role('button', name='SCAN FINDINGS', exact=False).click()
+                    with page.expect_request(lambda r: '/api/cves/summary' in r.url and 'verified_only=true' in r.url):
+                        page.get_by_role('button', name='SCAN FINDINGS', exact=False).click()
+                    page.get_by_label('Show all scanner alerts (includes unverified)').check()
                     page.get_by_text('CVSS Not reported', exact=True).wait_for()
                     page.get_by_text('CVSS 0', exact=True).wait_for()
                     if errors:
@@ -114,7 +118,7 @@ def verify(image, chromium):
             server.shutdown()
             server.server_close()
     print(json.dumps({'result': 'passed', 'image': image, 'page_errors': errors,
-                      'checks': ['category transport', 'artifact evidence', 'group drill-down and back',
+                      'checks': ['confirmed-only default and raw alert access', 'category transport', 'artifact evidence', 'group drill-down and back',
                                  'AI failure visibility', 'missing and zero CVSS in both CVE views']}))
 
 

@@ -17,6 +17,7 @@ from prometheus_client import Counter, Gauge, Histogram
 log = logging.getLogger("orchestrator")
 from sqlalchemy import text
 from db import get_db_session, ScanRun, Finding, ScanReport, FindingReview
+from finding_verification import evidence_confirmed, verification_level, verified_filter
 from finding_groups import grouping_columns, group_members
 from finding_review import REVIEW_STATUSES, validate_review
 from report_parsers import parse_sarif, parse_bandit, determine_finding_class, validate_report_shape, REQUIRED_TOOLS, SUPPORTED_TOOLS
@@ -265,7 +266,7 @@ async def get_scans(limit: int = 100, summary_only: bool = False):
                 .all()
             )
             ids = [row.id for row in results]
-            by_scan, by_report, aggregates = {}, {}, {}
+            by_scan, by_report, aggregates, verified_counts = {}, {}, {}, {}
             if ids:
                 for report in db.query(ScanReport).filter(ScanReport.scan_run_id.in_(ids)).order_by(ScanReport.tool).all():
                     by_report.setdefault(report.scan_run_id, []).append(report.to_dict())
@@ -281,6 +282,11 @@ async def get_scans(limit: int = 100, summary_only: bool = False):
                     item['scanner_counts'][tool] = item['scanner_counts'].get(tool, 0) + count
                     item['severity_counts'][level] = item['severity_counts'].get(level, 0) + count
                     item['proposed_finding_count'] += int(proposed or 0)
+                for scan_id, level, count in db.query(Finding.scan_run_id, Finding.severity, func.count(Finding.id)).join(
+                        ScanRun, ScanRun.id == Finding.scan_run_id).filter(
+                        Finding.scan_run_id.in_(ids), verified_filter()).group_by(Finding.scan_run_id, Finding.severity):
+                    counts = verified_counts.setdefault(scan_id, {})
+                    counts[level or 'UNKNOWN'] = count
                 if not summary_only:
                     for finding in db.query(Finding).filter(Finding.scan_run_id.in_(ids)).order_by(Finding.id).all():
                         by_scan.setdefault(finding.scan_run_id, []).append(finding.to_dict())
@@ -289,6 +295,8 @@ async def get_scans(limit: int = 100, summary_only: bool = False):
                 item = row.to_dict()
                 if not summary_only:
                     item["findings"] = by_scan.get(row.id, [])
+                item['verified_severity_counts'] = verified_counts.get(row.id, {})
+                item['verified_finding_count'] = sum(item['verified_severity_counts'].values())
                 item['reports'] = by_report.get(row.id, [])
                 item.update(aggregates.get(row.id, {'scanner_counts': {}, 'severity_counts': {}, 'proposed_finding_count': 0}))
                 payload.append(item)
@@ -308,6 +316,7 @@ async def get_findings(
     search: str = Query(default='', max_length=200),
     review_status: str = Query(default='', max_length=30),
     finding_class: str = Query(default='', max_length=20),
+    verified_only: bool = Query(default=False),
     group_duplicates: bool = Query(default=False),
     group_id: int | None = Query(default=None, ge=1),
 ):
@@ -335,6 +344,9 @@ async def get_findings(
                 if representative is None:
                     raise HTTPException(status_code=404, detail='Finding group not found in scope')
                 query = group_members(query, representative[0])
+            verified_in_scope = query.filter(verified_filter()).count()
+            if verified_only:
+                query = query.filter(verified_filter())
             if severity:
                 query = query.filter(Finding.severity == severity)
             if scanner:
@@ -367,10 +379,12 @@ async def get_findings(
                     ScanRun.id.desc(), Finding.id).offset(offset).limit(limit).all()]
             findings = [{**finding.to_dict(), 'repo': scan.repo_name,
                          'scan_id': scan.id, 'scan_time': scan.to_dict()['created_at'],
-                         'group_record_count': record_count}
+                         'group_record_count': record_count,
+                         'verification_level': verification_level(finding.to_dict(), scan.commit_sha)}
                         for finding, scan, record_count in rows]
             return {'findings': findings, 'total': total, 'total_records': total_records,
                     'grouped': grouped, 'total_in_scope': total_in_scope,
+                    'verified_in_scope': verified_in_scope, 'verified_only': verified_only,
                     'scanners': scanners, 'limit': limit, 'offset': offset,
                     'scope': 'scan' if scan_id is not None else 'recent_100_scans'}
     except HTTPException:
@@ -382,7 +396,8 @@ async def get_findings(
 
 @app.get('/api/cves/summary')
 def scan_cve_summary(limit: int = Query(default=100, ge=1, le=200),
-                     offset: int = Query(default=0, ge=0, le=1_000_000)):
+                     offset: int = Query(default=0, ge=0, le=1_000_000),
+                     verified_only: bool = Query(default=False)):
     """Aggregate stored findings without loading full scan payloads in the browser."""
     try:
         with get_db_session() as db:
@@ -392,21 +407,27 @@ def scan_cve_summary(limit: int = Query(default=100, ge=1, le=200),
             query = db.query(Finding.cve_id, func.max(rank), func.max(Finding.cvss_score),
                              func.min(Finding.title), func.count(Finding.id)).filter(
                                  Finding.scan_run_id.in_(recent), Finding.cve_id.isnot(None),
-                                 Finding.cve_id != '').group_by(Finding.cve_id)
+                                 Finding.cve_id != '').join(ScanRun, ScanRun.id == Finding.scan_run_id)
+            if verified_only:
+                query = query.filter(verified_filter())
+            query = query.group_by(Finding.cve_id)
             total = query.count()
             rows = query.order_by(func.max(rank).desc(), func.max(Finding.cvss_score).desc(),
                                   Finding.cve_id).offset(offset).limit(limit).all()
             repos = {}
             if rows:
-                for cve_id, repo in db.query(Finding.cve_id, ScanRun.repo_name).join(
+                repo_query = db.query(Finding.cve_id, ScanRun.repo_name).join(
                         ScanRun, ScanRun.id == Finding.scan_run_id).filter(
-                        Finding.scan_run_id.in_(recent), Finding.cve_id.in_([row[0] for row in rows])).distinct():
+                        Finding.scan_run_id.in_(recent), Finding.cve_id.in_([row[0] for row in rows]))
+                if verified_only:
+                    repo_query = repo_query.filter(verified_filter())
+                for cve_id, repo in repo_query.distinct():
                     repos.setdefault(cve_id, []).append(repo)
             severities = {5: 'CRITICAL', 4: 'HIGH', 3: 'MEDIUM', 2: 'LOW', 1: 'INFO', 0: 'UNKNOWN'}
             return {'cves': [{'id': row[0], 'severity': severities[row[1]], 'score': row[2],
                               'title': row[3] or '', 'count': row[4], 'repos': sorted(repos.get(row[0], [])),
                               'from_live': False} for row in rows],
-                    'total': total, 'limit': limit, 'offset': offset, 'scope': 'recent_100_scans'}
+                    'total': total, 'limit': limit, 'offset': offset, 'verified_only': verified_only, 'scope': 'recent_100_scans'}
     except Exception as exc:
         log.error('CVE summary unavailable: %s', type(exc).__name__)
         raise HTTPException(status_code=503, detail='CVE summary unavailable')
@@ -427,6 +448,12 @@ async def review_finding(finding_id: int, request: Request):
                 raise HTTPException(status_code=404, detail='Finding not found')
             if (finding.review_version or 0) != body['version']:
                 raise HTTPException(status_code=409, detail='Review changed; reload the finding before updating')
+            if status == 'confirmed':
+                source = db.get(ScanRun, finding.scan_run_id)
+                candidate = {**finding.to_dict(), 'review_status': status, 'review_owner': owner,
+                             'review_evidence': evidence, 'review_details': details}
+                if not source or not evidence_confirmed(candidate, source.commit_sha):
+                    raise HTTPException(status_code=422, detail='Confirmation evidence must match the scanned commit and exact reported artifact; quality warnings are not vulnerabilities')
             if status == 'fixed':
                 source = db.query(ScanRun).filter_by(id=finding.scan_run_id).first()
                 verification = db.query(ScanRun).filter_by(id=details['verification_scan_id']).first()
@@ -455,6 +482,7 @@ async def review_finding(finding_id: int, request: Request):
                                  status=status, owner=owner, evidence=evidence, details=details))
             db.flush()
             result = finding.to_dict()
+            result['verification_level'] = verification_level(result, db.get(ScanRun, finding.scan_run_id).commit_sha)
         return result
     except HTTPException:
         raise
@@ -666,6 +694,12 @@ async def fix_scan(scan_id: str, request: Request):
             raise HTTPException(status_code=409, detail='Accept all required reports before queuing remediation')
         if scan.ai_task_id and scan.ai_task_status in {'queued', 'running', 'retry', 'complete'}:
             return {'status': scan.ai_task_status, 'scan_id': scan_id, 'job_id': scan.ai_task_id}
+        eligible = db.query(Finding).join(ScanRun, ScanRun.id == Finding.scan_run_id).filter(
+            Finding.scan_run_id == scan.id, verified_filter(), Finding.finding_class == 'sast',
+            Finding.severity.in_(['CRITICAL', 'HIGH', 'MEDIUM']), Finding.fix_status == 'open',
+            func.lower(Finding.file_path).like('%.py')).count()
+        if not eligible:
+            return {'status': 'awaiting_verification', 'scan_id': scan_id, 'eligible_findings': 0}
         from tasks import run_ai_fix
         scan.ai_task_id = str(uuid.uuid4())
         scan.ai_task_status = 'queued'
@@ -692,8 +726,8 @@ async def notify_scan(scan_id: int, request: Request):
                 raise HTTPException(status_code=409, detail='Notifications require an accepted scan')
             repo_name = scan.repo_name or scan._extract_repo_name()
             commit = scan.commit_sha
-            findings = db.query(Finding).filter(
-                Finding.scan_run_id == scan_id, Finding.severity.in_(['HIGH', 'CRITICAL'])
+            findings = db.query(Finding).join(ScanRun, ScanRun.id == Finding.scan_run_id).filter(
+                Finding.scan_run_id == scan_id, verified_filter(), Finding.severity.in_(['HIGH', 'CRITICAL'])
             ).order_by(Finding.id).all()
             criticals = [finding.to_dict() for finding in findings]
     except HTTPException:
@@ -702,7 +736,7 @@ async def notify_scan(scan_id: int, request: Request):
         log.error('Notification scan read failed: %s', type(error).__name__)
         raise HTTPException(status_code=503, detail='Notification data unavailable')
     if not criticals:
-        return {'status': 'no_high_findings', 'scan_id': scan_id, 'deliveries': {}}
+        return {'status': 'no_verified_high_findings', 'scan_id': scan_id, 'deliveries': {}}
     from notifier import Notifier
     deliveries = Notifier().send_alert(repo_name, commit, criticals)
     if not deliveries:

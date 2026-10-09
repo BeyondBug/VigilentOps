@@ -337,3 +337,17 @@ artifact details, AI failure visibility and unknown/zero CVSS using Chromium.
 It serves candidate build assets on an ephemeral loopback port and intercepts
 API requests with controlled fixtures. It neither calls shared APIs nor changes
 running services. It is a UI regression check, not a live deployment acceptance.
+
+## Evidence gate acceptance
+
+Check unverified, legacy-confirmed, wrong-commit, wrong-artifact and quality
+fixtures against confirmed-only queries, model queuing, worker selection and
+notification eligibility. Positive fixtures must have named review evidence and
+structured controlled-reproduction details. Test disposition reversal, raw count
+preservation, CVE summary filtering, and pagination. Repeat the API checks against
+isolated PostgreSQL because the gate reads JSON fields in SQL.
+
+The Chromium harness must prove that the default Findings and scan CVE views
+exclude unverified alerts and that those original alerts remain available through
+the explicit toggle. Empty confirmed results must not imply scan coverage or safety.
+Source details and credentials are never submitted to external services by tests.

@@ -27,6 +27,7 @@ from fix_prompts import build_primary_prompt
 from pr_findings import build_finding_comments
 from model_pool import load_model_pool, bounded_integer, RouteCooldowns, completion_options, OPENROUTER_URL, OLLAMA_URL
 from repo_security import canonical_repo_url
+from finding_verification import evidence_confirmed
 
 import httpx
 import psycopg2
@@ -66,36 +67,40 @@ def get_all_findings(scan_run_id: int) -> list[dict]:
                 SELECT f.id, f.scan_run_id, f.scanner, f.rule_id, f.cve_id,
                        f.cwe_id, f.severity, f.cvss_score, f.title,
                        f.description, f.file_path, f.line_start, f.line_end,
-                       f.vulnerable_code, f.fix_status,
+                       f.vulnerable_code, f.fix_status, f.finding_class, f.review_status,
+                       f.review_owner, f.review_evidence, f.review_details, f.image, f.package,
                        sr.repo_url, sr.repo_name, sr.commit_sha, sr.branch
                 FROM findings f
                 JOIN scan_runs sr ON sr.id = f.scan_run_id
                 WHERE f.scan_run_id = %s
+                  AND sr.finished_at IS NOT NULL
+                  AND sr.status IN ('complete', 'pr_opened', 'ai_fixed')
                   AND f.severity IN ('CRITICAL','HIGH','MEDIUM')
                   AND f.fix_status = 'open'
-                  AND f.review_status IN ('unverified', 'confirmed')
+                  AND f.review_status = 'confirmed'
                   AND f.finding_class = 'sast'
                   AND f.file_path IS NOT NULL
                   AND right(lower(f.file_path), 3) = '.py'
                 ORDER BY f.severity DESC, f.file_path, f.line_start
             """, (scan_run_id,))
-            return [dict(r) for r in cur.fetchall()]
+            return [dict(r) for r in cur.fetchall() if evidence_confirmed(dict(r), r['commit_sha'])]
 
 
 def get_scan_findings(scan_run_id: int) -> list[dict]:
-    """Return every stored scanner finding for the PR conversation."""
+    """Return only evidence-confirmed findings for the PR conversation."""
     with get_db() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
-                SELECT id, scanner, finding_class, severity, rule_id, cve_id,
+                SELECT f.id, scanner, finding_class, severity, rule_id, cve_id,
                        cwe_id, cvss_score, title, description, file_path,
                        line_start, line_end, fix_status, package,
-                       installed_version, fixed_version, image
-                FROM findings
+                       installed_version, fixed_version, image, review_status, review_owner,
+                       review_evidence, review_details, sr.commit_sha
+                FROM findings f JOIN scan_runs sr ON sr.id = f.scan_run_id
                 WHERE scan_run_id = %s
-                ORDER BY scanner, id
+                ORDER BY scanner, f.id
             """, (scan_run_id,))
-            return [dict(row) for row in cur.fetchall()]
+            return [dict(row) for row in cur.fetchall() if evidence_confirmed(dict(row), row['commit_sha'])]
 
 
 def get_scan_reports(scan_run_id: int) -> list[dict]:
@@ -110,6 +115,9 @@ def mark_pr_opened(scan_run_id: int, pr_url: str,
     """Mark only findings whose files were actually changed."""
     if not fixed_paths:
         return
+    eligible_ids = [f['id'] for f in get_all_findings(scan_run_id) if f['file_path'] in fixed_paths]
+    if not eligible_ids:
+        return
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -122,7 +130,9 @@ def mark_pr_opened(scan_run_id: int, pr_url: str,
                   AND finding_class = 'sast'
                   AND severity IN ('CRITICAL', 'HIGH', 'MEDIUM')
                   AND file_path = ANY(%s)
-            """, (pr_url, scan_run_id, fixed_paths))
+                  AND id = ANY(%s)
+                  AND review_status = 'confirmed'
+            """, (pr_url, scan_run_id, fixed_paths, eligible_ids))
             cur.execute("""
                 UPDATE scan_runs SET status = 'pr_opened' WHERE id = %s
             """, (scan_run_id,))

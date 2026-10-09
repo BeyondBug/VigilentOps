@@ -10,13 +10,14 @@ export default function FindingsTab({ scans }) {
   const [search, setSearch] = useState("");
   const [reviewFilter, setReviewFilter] = useState("ALL");
   const [classFilter, setClassFilter] = useState("ALL");
+  const [showAllAlerts, setShowAllAlerts] = useState(false);
   const [groupDuplicates, setGroupDuplicates] = useState(false);
   const [groupId, setGroupId] = useState(null);
   const [page, setPage] = useState(0);
   const result = useFindings({ page, severity: sevFilter === "ALL" ? "" : sevFilter,
     scanner: toolFilter === "ALL" ? "" : toolFilter, search,
     reviewStatus: reviewFilter === "ALL" ? "" : reviewFilter,
-    findingClass: classFilter === "ALL" ? "" : classFilter, groupDuplicates, groupId, revision: scans });
+    findingClass: classFilter === "ALL" ? "" : classFilter, verifiedOnly: !showAllAlerts, groupDuplicates, groupId, revision: scans });
   useEffect(() => {
     if (!result.loading && !result.error && page > 0 && page * 50 >= result.total) setPage(0);
   }, [result.loading, result.error, result.total, page]);
@@ -47,6 +48,10 @@ export default function FindingsTab({ scans }) {
         <FilterGroup label="Severity" options={sevs} value={sevFilter} onChange={changeFilter(setSevFilter)} colorMap={SEV_COLOR} />
         <FilterGroup label="Scanner"  options={tools} value={toolFilter} onChange={changeFilter(setToolFilter)} />
         <label style={{ fontSize: 11, color: T.textDim }}><input type="checkbox"
+          checked={showAllAlerts} onChange={e => changeFilter(setShowAllAlerts)(e.target.checked)} />
+          Show all scanner alerts (includes unverified)
+        </label>
+        <label style={{ fontSize: 11, color: T.textDim }}><input type="checkbox"
           checked={groupDuplicates} onChange={e => changeFilter(setGroupDuplicates)(e.target.checked)} />
           Group matching dependency alerts
         </label>
@@ -64,7 +69,7 @@ export default function FindingsTab({ scans }) {
 
       {/* Count */}
       <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.font, marginBottom: 12, letterSpacing: 1 }}>
-        Latest 100 scans · {result.total_in_scope.toLocaleString()} finding records in scope. Scanner severity does not establish exploitability.
+        Latest 100 scans · {result.total_in_scope.toLocaleString()} scanner records in scope · {result.verified_in_scope ?? 0} evidence-confirmed. Scanner severity does not establish exploitability.
       </div>
 
       {groupId != null && <button onClick={() => { setGroupId(null); setPage(0); }}>Back to findings</button>}
@@ -76,7 +81,7 @@ export default function FindingsTab({ scans }) {
         {result.error ? <EmptyState message={`Unable to load findings: ${result.error}`} /> : result.loading ? (
           <EmptyState message="Loading findings…" />
         ) : result.findings.length === 0 ? (
-          <EmptyState message="No findings match the current filters." />
+          <EmptyState message={showAllAlerts ? "No scanner alerts match the current filters." : "No evidence-confirmed findings match this view. Unverified alerts remain under Show all scanner alerts; this is not proof of a vulnerability-free system."} />
         ) : result.findings.map(f => (
           <FindingCard key={f.id} finding={f} showRepo onViewGroup={id => { setGroupId(id); setPage(0); }} />
         ))}

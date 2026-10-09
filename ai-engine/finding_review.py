@@ -1,6 +1,7 @@
 """Validate explicit reviewer evidence; never infer false positives from severity."""
 import re
 from datetime import date
+from finding_verification import PROOF_FIELDS, TEXT_MINIMUMS
 
 REVIEW_STATUSES = {'unverified', 'confirmed', 'false_positive', 'accepted_risk', 'fixed'}
 
@@ -18,12 +19,18 @@ def validate_review(body):
     if type(body.get('version')) is not int or body['version'] < 0:
         raise ValueError('Supply the current nonnegative review version')
     details = body.get('details', {})
-    allowed = {'tested_commit', 'verification_scan_id', 'review_date', 'impact', 'mitigation'}
+    allowed = {'tested_commit', 'verification_scan_id', 'review_date', 'impact', 'mitigation'} | PROOF_FIELDS
     if not isinstance(details, dict) or set(details) - allowed:
         raise ValueError('Invalid review details')
     for key in allowed - {'verification_scan_id'}:
         if key in details and (not isinstance(details[key], str) or len(details[key]) > 2000):
             raise ValueError('Invalid review detail value')
+    if status == 'confirmed':
+        if (details.get('verification_method') != 'controlled_reproduction'
+                or not re.fullmatch(r'[a-fA-F0-9]{40}', details.get('tested_commit', ''))
+                or not details.get('artifact', '').strip()
+                or any(len(details.get(key, '').strip()) < minimum for key, minimum in TEXT_MINIMUMS.items())):
+            raise ValueError('Confirmation requires controlled reproduction, exact commit, artifact, proof reference, steps and impact')
     if status == 'fixed':
         if (not re.fullmatch(r'[a-fA-F0-9]{40}', details.get('tested_commit', ''))
                 or type(details.get('verification_scan_id')) is not int or details['verification_scan_id'] < 1):

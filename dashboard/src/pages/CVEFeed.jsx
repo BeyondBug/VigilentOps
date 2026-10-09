@@ -9,6 +9,7 @@ export default function CVEFeed({ scans }) {
   const [error, setError] = useState(null);
   const [scanTotal, setScanTotal] = useState(0);
   const [filter, setFilter] = useState("ALL");
+  const [showAllAlerts, setShowAllAlerts] = useState(false);
   const [source, setSource] = useState("live");  // "live" | "scan"
 
   // Fetch live CVE feed from cve-intel service
@@ -51,7 +52,7 @@ export default function CVEFeed({ scans }) {
     setError(null);
     setCveData([]);
     try {
-      const response = await fetch(`${API}/api/cves/summary?limit=200`, { signal });
+      const response = await fetch(`${API}/api/cves/summary?limit=200&verified_only=${!showAllAlerts}`, { signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
       if (signal.aborted) return;
@@ -62,7 +63,7 @@ export default function CVEFeed({ scans }) {
     } finally {
       if (!signal.aborted) setLoading(false);
     }
-  }, [scans]);
+  }, [scans, showAllAlerts]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -102,9 +103,12 @@ export default function CVEFeed({ scans }) {
         </span>
       </div>
 
-      {source === "scan" && <p style={{ color: T.textDim, fontSize: 12 }}>Latest 100 scans · showing {cveData.length} of {scanTotal} distinct CVEs</p>}
+      {source === "live" && <p style={{ color: T.textDim, fontSize: 12 }}>External advisory feed — these CVEs are not findings confirmed in your project.</p>}
+      {source === "scan" && <label style={{ color: T.textDim, fontSize: 12 }}><input type="checkbox"
+        checked={showAllAlerts} onChange={e => setShowAllAlerts(e.target.checked)} /> Show all scanner alerts (includes unverified)</label>}
+      {source === "scan" && <p style={{ color: T.textDim, fontSize: 12 }}>{showAllAlerts ? "Scanner advisory matches" : "Evidence-confirmed advisory findings"} · Latest 100 scans · showing {cveData.length} of {scanTotal} distinct CVEs</p>}
       {error ? <EmptyState message={error} /> : filtered.length === 0 ? (
-        <EmptyState message={loading ? "Fetching CVE data from NIST NVD..." : "No CVEs found. Run a scan to populate findings."} />
+        <EmptyState message={loading ? "Fetching CVE data from NIST NVD..." : (source === "scan" && !showAllAlerts ? "No evidence-confirmed advisory findings. Raw scanner matches remain available; this does not establish safety." : "No advisory records found.")} />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {filtered.map(cve => (
