@@ -325,3 +325,15 @@ a representative; “View all scanner records” retrieves paginated originals.
 Group totals count display groups, never confirmed vulnerabilities. Raw records,
 review audit history and raw scan counters are preserved. Verify groups split
 when any artifact/version/review field differs and cannot cross scan scope.
+
+Run the repeatable dashboard fixture checks on Kali after building the candidate:
+
+```bash
+python3 scripts/verify_finding_dashboard.py --image secureguard-product-dashboard:grouping
+```
+
+This checks category request parameters, group drill-down/back navigation,
+artifact details, AI failure visibility and unknown/zero CVSS using Chromium.
+It serves candidate build assets on an ephemeral loopback port and intercepts
+API requests with controlled fixtures. It neither calls shared APIs nor changes
+running services. It is a UI regression check, not a live deployment acceptance.
