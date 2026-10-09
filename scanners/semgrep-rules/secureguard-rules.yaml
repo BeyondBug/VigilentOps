@@ -19,11 +19,13 @@ rules:
       category: security
 
   - id: python-sql-injection
-    pattern-either:
-      - pattern: |
-          $CUR.execute("..." % $VAR)
-      - pattern: |
-          $CUR.execute("..." + $VAR)
+    patterns:
+      - pattern-either:
+          - pattern: $CUR.execute("..." % $VAR)
+          - pattern: $CUR.execute("..." + $VAR)
+      - metavariable-pattern:
+          metavariable: $VAR
+          pattern-not: '"..."'
     message: "Possible SQL injection via string formatting"
     languages: [python]
     severity: ERROR
@@ -32,11 +34,15 @@ rules:
       category: security
 
   - id: python-command-injection
-    pattern-either:
-      - pattern: os.system($CMD)
-      - pattern: subprocess.call($CMD, shell=True)
-      - pattern: subprocess.run($CMD, shell=True)
-    message: "Potential command injection with user-controlled input"
+    patterns:
+      - pattern-either:
+          - pattern: os.system($CMD)
+          - pattern: subprocess.call($CMD, shell=True)
+          - pattern: subprocess.run($CMD, shell=True)
+      - metavariable-pattern:
+          metavariable: $CMD
+          pattern-not: '"..."'
+    message: "Dynamic shell command requires review for input control"
     languages: [python]
     severity: ERROR
     metadata:
@@ -82,10 +88,14 @@ rules:
       category: security
 
   - id: js-eval-injection
-    pattern-either:
-      - pattern: eval($INPUT)
-      - pattern: new Function($INPUT)
-    message: "Code injection via eval() or new Function()"
+    patterns:
+      - pattern-either:
+          - pattern: eval($INPUT)
+          - pattern: new Function($INPUT)
+      - metavariable-pattern:
+          metavariable: $INPUT
+          pattern-not: '"..."'
+    message: "Dynamic eval() or new Function() requires review for input control"
     languages: [javascript, typescript]
     severity: ERROR
     metadata:
@@ -93,7 +103,11 @@ rules:
       category: security
 
   - id: js-xss-innerhtml
-    pattern: $EL.innerHTML = $DATA
+    patterns:
+      - pattern: $EL.innerHTML = $DATA
+      - metavariable-pattern:
+          metavariable: $DATA
+          pattern-not: '"..."'
     message: "Potential XSS via innerHTML assignment"
     languages: [javascript, typescript]
     severity: WARNING

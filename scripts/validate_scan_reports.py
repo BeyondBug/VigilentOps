@@ -6,6 +6,7 @@ device. Required reports must exist, be nonempty, and have the expected shape.
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -113,17 +114,21 @@ def validate_image_coverage(reports: Path, required: bool = False) -> str | None
         raise ValueError('Artifact IDs are missing or duplicated')
     mapping = {}
     for image in images:
-        if not isinstance(image, dict) or image.get('image_id') in mapping:
+        if not isinstance(image, dict) or not isinstance(image.get('image_id'), str) or image.get('image_id') in mapping:
             raise ValueError('Invalid/duplicate covered image')
         image_id = image.get('image_id')
-        if not isinstance(image_id, str) or not image_id.startswith('sha256:') or len(image_id) != 71:
+        if not isinstance(image_id, str) or not re.fullmatch(r'sha256:[a-f0-9]{64}', image_id):
             raise ValueError('Covered images require immutable IDs')
         artifact_ids = image.get('artifact_ids')
-        if not isinstance(artifact_ids, list) or not artifact_ids or len(set(artifact_ids)) != len(artifact_ids):
+        if not isinstance(artifact_ids, list) or not artifact_ids or any(not isinstance(a, str) for a in artifact_ids) or len(set(artifact_ids)) != len(artifact_ids):
             raise ValueError('Covered images require artifact mappings')
         mapping[image_id] = set(artifact_ids)
+        receipts = image.get('reports')
+        if not isinstance(receipts, dict):
+            raise ValueError('Invalid image report receipts')
         for tool in ('trivy-image', 'dockle'):
-            if image.get('reports', {}).get(tool, {}).get('status') != 'accepted':
+            receipt = receipts.get(tool)
+            if not isinstance(receipt, dict) or receipt.get('status') != 'accepted' or type(receipt.get('finding_count')) is not int or receipt['finding_count'] < 0:
                 raise ValueError('Every image requires both accepted scanner reports')
     flattened = [artifact for items in mapping.values() for artifact in items]
     if set(flattened) != set(ids) or len(flattened) != len(ids):
@@ -132,15 +137,21 @@ def validate_image_coverage(reports: Path, required: bool = False) -> str | None
         raise ValueError('Artifact image identity does not match coverage mapping')
     for tool in ('trivy-image', 'dockle'):
         _sarif(reports / (tool + '.sarif'))
-        covered = set()
+        covered, counts = set(), {image_id: 0 for image_id in mapping}
         for run in _load(reports / (tool + '.sarif'))['runs']:
             properties = run.get('properties', {})
             image_id = properties.get('imageName')
-            if image_id not in mapping or set(properties.get('artifact_ids', [])) != mapping[image_id]:
+            run_artifacts = properties.get('artifact_ids')
+            if (not isinstance(image_id, str) or image_id not in mapping or not isinstance(run_artifacts, list)
+                    or any(not isinstance(a, str) for a in run_artifacts)
+                    or len(run_artifacts) != len(set(run_artifacts)) or set(run_artifacts) != mapping[image_id]):
                 raise ValueError('Image report identity does not match expected artifact coverage')
             covered.add(image_id)
+            counts[image_id] += len(run['results'])
         if covered != set(mapping):
             raise ValueError('Image report omits an expected image')
+        if any(image['reports'][tool]['finding_count'] != counts[image['image_id']] for image in images):
+            raise ValueError('Image report counts do not match coverage receipts')
     return f'Image builds: {len(artifacts)} artifacts / {len(images)} immutable images; complete'
 
 

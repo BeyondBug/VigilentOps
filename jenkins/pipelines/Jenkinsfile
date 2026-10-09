@@ -195,6 +195,21 @@ pipeline {
             }
         }
 
+        stage('Custom Rule Benchmark') {
+            steps {
+                sh '''set -eu
+                    python3 scripts/benchmark_semgrep.py --rules scanners/semgrep-rules \\
+                      --fixtures scanners/benchmarks/injection --host-rules "$HOST_RULES" \\
+                      --host-fixtures "$JENKINS_HOME_HOST/${WORKSPACE#/var/jenkins_home/}/scanners/benchmarks/injection" \\
+                      --image "$SCANNER_SEMGREP_IMAGE" --output "$REPORTS_DIR/rule-benchmark.json" --require-pass
+                '''
+                script {
+                    def benchmark = readJSON(file: "${REPORTS_DIR}/rule-benchmark.json", returnPojo: true)
+                    env.SCANNER_SEMGREP_IMAGE = benchmark.scanner_image_id
+                }
+            }
+        }
+
         stage('Update Trivy Database') {
             steps {
                 sh """
@@ -386,8 +401,8 @@ pipeline {
                 stage('Container Image Scans') {
                     steps {
                         sh '''set -eu
-                            python3 scripts/run_image_artifacts.py --source "$SOURCE_DIR" \
-                              --reports "$REPORTS_DIR" --host-reports "$HOST_REPORTS" \
+                            python3 scripts/run_image_artifacts.py --source "$SOURCE_DIR" \\
+                              --reports "$REPORTS_DIR" --host-reports "$HOST_REPORTS" \\
                               --scanner-manifest scanners/images.json
                         '''
                     }
@@ -629,7 +644,7 @@ pipeline {
             sh "ls -lh ${REPORTS_DIR}/ 2>/dev/null || true"
             sh '''set +x
                 rm -f "$REPORTS_DIR/.nvd.properties"
-                docker ps -aq --filter "label=secureguard.image-scan=true" \
+                docker ps -aq --filter "label=secureguard.image-scan=true" \\
                   --filter "label=secureguard.build=$BUILD_TAG" | xargs -r docker rm -f
                 docker ps -aq --filter "label=secureguard.static-scan=true" \\
                   --filter "label=secureguard.build=$BUILD_TAG" | xargs -r docker rm -f

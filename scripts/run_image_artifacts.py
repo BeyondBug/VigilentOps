@@ -96,6 +96,7 @@ def attach_image(report, image_id, artifact_ids):
 def scan_image(image_id, alias, tool, image, directory, host_directory):
     name = 'sg-artifact-scan-' + uuid.uuid4().hex[:12]
     path = directory / (tool + '.sarif')
+    path.unlink(missing_ok=True)
     command = ['docker', 'run', '--rm', '--name', name, '--network', 'none', '--read-only',
                '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--cpus', '2',
                '--memory', '4g', '--pids-limit', '512', '--tmpfs', '/tmp:rw,nosuid,size=256m',
@@ -122,7 +123,12 @@ def scan_image(image_id, alias, tool, image, directory, host_directory):
 
 
 def run(root, reports, host_reports, scanners, build_timeout=1200):
+    if not isinstance(host_reports, str) or not host_reports.startswith('/') or any(c in host_reports for c in ':\n\r'):
+        raise ValueError('Host report mount must be an absolute path without mount separators')
     plan = plan_artifacts(root)
+    reports.mkdir(parents=True, exist_ok=True)
+    for filename in ('trivy-image.sarif', 'dockle.sarif', 'image-built.marker'):
+        (reports / filename).unlink(missing_ok=True)
     evidence = reports / 'artifacts'
     evidence.mkdir(parents=True, exist_ok=True)
     coverage = {**plan, 'status': 'running', 'images': [], 'scanner_image_ids': {}}
@@ -167,7 +173,7 @@ def run(root, reports, host_reports, scanners, build_timeout=1200):
             save()
         merged = {tool: {'version': '2.1.0', 'runs': []} for tool in ('trivy-image', 'dockle')}
         for index, (image_id, group) in enumerate(sorted(groups.items())):
-            directory = evidence / ('image-' + str(index))
+            directory = evidence / ('image-' + str(index) + '-' + uuid.uuid4().hex[:12])
             directory.mkdir(exist_ok=True)
             record = {'image_id': image_id, 'artifact_ids': group['artifacts'], 'reports': {}}
             coverage['images'].append(record)
