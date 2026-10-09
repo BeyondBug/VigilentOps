@@ -50,6 +50,7 @@ def score(cases, report):
 
 
 def run(rules, fixtures, host_rules, host_fixtures, image, output, require_pass):
+    output.unlink(missing_ok=True)
     manifest = json.loads((fixtures / 'cases.json').read_text())
     for case in manifest['cases']:
         path = fixtures / case['path']

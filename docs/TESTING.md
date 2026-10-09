@@ -351,3 +351,13 @@ The Chromium harness must prove that the default Findings and scan CVE views
 exclude unverified alerts and that those original alerts remain available through
 the explicit toggle. Empty confirmed results must not imply scan coverage or safety.
 Source details and credentials are never submitted to external services by tests.
+
+## Accuracy benchmark and multi-artifact image scans
+
+See [scan accuracy](SCAN_ACCURACY.md) for the labeled rule gate, explicit build
+manifest, immutable image identities and coverage acceptance procedure. The new
+pipeline requires the build inventory even when no Dockerfiles apply. A failed
+build must fail coverage; image report requirements begin when artifacts are
+expected, rather than only after a successful first build. Test failed execution,
+stale outputs, missing images, tampered mappings, duplicate image identities and
+no-artifact repositories on Kali before enabling the revised pipeline.
