@@ -67,6 +67,8 @@ def run(rules, fixtures, host_rules, host_fixtures, image, output, require_pass)
                '--disable-version-check', '--no-git-ignore', '--strict', '/fixtures']
     try:
         process = subprocess.run(command, capture_output=True, text=True, timeout=300)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.with_suffix('.execution.log').write_text(process.stderr)
         if process.returncode != 0:
             raise ValueError('Benchmark scanner failed; no accuracy score is valid')
         result = score(manifest['cases'], json.loads(process.stdout))
